@@ -142,7 +142,7 @@ class _ShellState extends State<Shell> {
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: dark
-                          ? const [Color(0xFF1C1C1E), Color(0xFF000000)]
+                          ? const [Color(0xFF242426), Color(0xFF1C1C1E)]
                           : const [Color(0xFFFFFFFF), Color(0xFFF5F5F7)],
                     ),
                   ),

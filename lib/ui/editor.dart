@@ -432,7 +432,7 @@ class _EditorHeader extends StatelessWidget {
     return GlassSurface(
       blur: 20,
       lightOpacity: 0.55,
-      darkOpacity: 0.45,
+      darkOpacity: 0.10,
       border: Border(
         bottom: BorderSide(
           color: Theme.of(context).colorScheme.outline,
@@ -524,7 +524,7 @@ class _FloatingToolbar extends StatelessWidget {
       radius: 10,
       blur: 20,
       lightOpacity: 0.72,
-      darkOpacity: 0.5,
+      darkOpacity: 0.12,
       border: Border.all(color: colors.outline.withValues(alpha: 0.6)),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       child: Row(

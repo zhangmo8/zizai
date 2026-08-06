@@ -32,8 +32,9 @@ abstract final class AppTokens {
   static const lightSuccess = Color(0xFF34C759); // iOS systemGreen
   static const lightDanger = Color(0xFFFF3B30); // iOS systemRed
 
-  // 深色
-  static const darkBg = Color(0xFF000000);
+  // 深色（macOS 26 深色不是纯黑：深灰底 + 白微透玻璃，保留层次与色彩）
+  static const darkBg = Color(0xFF1C1C1E);
+  static const darkBgTop = Color(0xFF242426); // 窗口顶渐变微亮
   static const darkSurface = Color(0xFFFFFFFF);
   static const darkSurfaceHover = Color(0x1FFFFFFF); // 白 12%
   static const darkTextPrimary = Color(0xFFF5F5F7);

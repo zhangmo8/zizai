@@ -16,7 +16,7 @@ class GlassSurface extends StatelessWidget {
     this.blur = 24,
     this.radius = 0,
     this.lightOpacity = 0.68,
-    this.darkOpacity = 0.55,
+    this.darkOpacity = 0.10,
     this.border,
     this.padding,
   });
@@ -30,7 +30,7 @@ class GlassSurface extends StatelessWidget {
   /// light 下白色填充不透明度。
   final double lightOpacity;
 
-  /// dark 下黑色填充不透明度。
+  /// dark 下白色填充不透明度（白微透玻璃）。
   final double darkOpacity;
 
   /// 描边（默认无；侧边栏传 `Border(right: ...)`）。
@@ -41,7 +41,9 @@ class GlassSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final fill = (dark ? Colors.black : Colors.white)
+    // light：白玻璃（68%）；dark：白 10% 微透玻璃 —— 在深灰底上形成可见面板层次，
+    // 而不是黑底黑玻璃的"虚无"。
+    final fill = (dark ? Colors.white : Colors.white)
         .withValues(alpha: dark ? darkOpacity : lightOpacity);
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),

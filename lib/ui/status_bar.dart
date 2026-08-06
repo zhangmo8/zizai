@@ -123,7 +123,7 @@ class _StatusBarState extends State<StatusBar> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       blur: 20,
       lightOpacity: 0.55,
-      darkOpacity: 0.45,
+      darkOpacity: 0.10,
       border: Border(
         top: BorderSide(
           color: Theme.of(context).colorScheme.outline,
