@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'dart:ui' show PointerDeviceKind;
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -63,9 +65,15 @@ void main() {
   }
 
   /// 打开第 [index] 个行菜单（0 起；笔记本行在前，文档行在后）。
+  /// 桌面端菜单 hover 行才浮现：先悬停到菜单位置触发显隐。
   Future<void> openRowMenu(WidgetTester tester, int index) async {
-    await tester.tap(find.byIcon(Icons.more_vert).at(index));
+    final menu = find.byIcon(Icons.more_horiz).at(index);
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.moveTo(tester.getCenter(menu));
+    await tester.pump();
+    await tester.tap(menu);
     await tester.pumpAndSettle(); // 菜单完全展开后再点菜单项
+    await gesture.removePointer();
   }
 
   /// 点击菜单项并提交行内编辑。

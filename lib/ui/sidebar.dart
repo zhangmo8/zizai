@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import '../app.dart' show appColorsOf;
 import '../core/models.dart';
 import '../state/library_controller.dart';
+import '../util/platform.dart';
 
 enum _EditTarget { notebook, document }
 
@@ -293,7 +294,8 @@ class _HeaderBar extends StatelessWidget {
 }
 
 /// 笔记本行：展开/折叠 + ⋮ 操作菜单。
-class _NotebookTile extends StatelessWidget {
+/// 笔记本行：展开/折叠 + ⋮ 操作菜单（桌面端 hover 行才浮现）。
+class _NotebookTile extends StatefulWidget {
   const _NotebookTile({
     required this.notebook,
     required this.expanded,
@@ -313,47 +315,59 @@ class _NotebookTile extends StatelessWidget {
   final VoidCallback onMoveDown;
 
   @override
+  State<_NotebookTile> createState() => _NotebookTileState();
+}
+
+class _NotebookTileState extends State<_NotebookTile> {
+  bool _hover = false;
+
+  @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onToggle,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          children: [
-            Icon(
-              expanded ? Icons.expand_more : Icons.chevron_right,
-              size: 16,
-              color: colors.onSurfaceVariant,
-            ),
-            const SizedBox(width: 4),
-            Icon(Icons.folder_outlined, size: 16, color: colors.onSurfaceVariant),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                notebook.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 13, color: colors.onSurface),
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: InkWell(
+        onTap: widget.onToggle,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          child: Row(
+            children: [
+              Icon(
+                widget.expanded ? Icons.expand_more : Icons.chevron_right,
+                size: 16,
+                color: colors.onSurfaceVariant,
               ),
-            ),
-            _RowMenu(
-              items: [
-                ('上移', onMoveUp),
-                ('下移', onMoveDown),
-                ('重命名', onEdit),
-                ('删除', onDelete),
-              ],
-            ),
-          ],
+              const SizedBox(width: 4),
+              Icon(Icons.folder_outlined, size: 16, color: colors.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  widget.notebook.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: colors.onSurface),
+                ),
+              ),
+              _RowMenu(
+                visible: _hover || !isDesktopPlatform,
+                items: [
+                  ('上移', widget.onMoveUp),
+                  ('下移', widget.onMoveDown),
+                  ('重命名', widget.onEdit),
+                  ('删除', widget.onDelete),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// 文档行：选中高亮 + ⋮ 操作菜单。
-class _DocumentTile extends StatelessWidget {
+/// 文档行：选中高亮 + ⋮ 操作菜单（桌面端 hover 行才浮现）。
+class _DocumentTile extends StatefulWidget {
   const _DocumentTile({
     required this.document,
     required this.selected,
@@ -373,44 +387,56 @@ class _DocumentTile extends StatelessWidget {
   final VoidCallback onMoveDown;
 
   @override
+  State<_DocumentTile> createState() => _DocumentTileState();
+}
+
+class _DocumentTileState extends State<_DocumentTile> {
+  bool _hover = false;
+
+  @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final hover = appColorsOf(context).surfaceHover;
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          // iOS 侧边栏选中：圆角灰底 + 主色文字（无左侧竖条、无色块包边）。
-          color: selected ? hover : null,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.description_outlined, size: 14, color: colors.onSurfaceVariant),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                document.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                  color: selected ? colors.primary : colors.onSurface,
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: InkWell(
+        onTap: widget.onTap,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            // iOS 侧边栏选中：圆角灰底 + 主色文字（无左侧竖条、无色块包边）。
+            color: widget.selected ? hover : null,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.description_outlined, size: 14, color: colors.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  widget.document.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w400,
+                    color: widget.selected ? colors.primary : colors.onSurface,
+                  ),
                 ),
               ),
-            ),
-            _RowMenu(
-              items: [
-                ('上移', onMoveUp),
-                ('下移', onMoveDown),
-                ('重命名', onEdit),
-                ('删除', onDelete),
-              ],
-            ),
-          ],
+              _RowMenu(
+                visible: _hover || !isDesktopPlatform,
+                items: [
+                  ('上移', widget.onMoveUp),
+                  ('下移', widget.onMoveDown),
+                  ('重命名', widget.onEdit),
+                  ('删除', widget.onDelete),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -474,7 +500,7 @@ class _InlineEditFieldState extends State<_InlineEditField> {
             controller: _controller,
             autofocus: true,
             style: const TextStyle(fontSize: 13),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
               border: Border.all(
                 color: _error == null
@@ -503,27 +529,34 @@ class _InlineEditFieldState extends State<_InlineEditField> {
   }
 }
 
-/// 行操作 ⋮ 菜单。
+/// 行操作 ⋮ 菜单：桌面端由行 hover 控制显隐（低打扰 chrome），触摸端常显。
 class _RowMenu extends StatelessWidget {
-  const _RowMenu({required this.items});
+  const _RowMenu({required this.visible, required this.items});
 
+  final bool visible;
   final List<(String, VoidCallback)> items;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return PopupMenuButton<String>(
-      tooltip: '操作',
-      icon: Icon(Icons.more_vert, size: 16, color: colors.onSurfaceVariant),
-      onSelected: (key) {
-        for (final (label, action) in items) {
-          if (label == key) action();
-        }
-      },
-      itemBuilder: (context) => [
-        for (final (label, _) in items)
-          PopupMenuItem<String>(value: label, child: Text(label)),
-      ],
+    return Opacity(
+      opacity: visible ? 1 : 0,
+      child: IgnorePointer(
+        ignoring: !visible,
+        child: PopupMenuButton<String>(
+          tooltip: '操作',
+          icon: Icon(Icons.more_horiz, size: 16, color: colors.onSurfaceVariant),
+          onSelected: (key) {
+            for (final (label, action) in items) {
+              if (label == key) action();
+            }
+          },
+          itemBuilder: (context) => [
+            for (final (label, _) in items)
+              PopupMenuItem<String>(value: label, child: Text(label)),
+          ],
+        ),
+      ),
     );
   }
 }

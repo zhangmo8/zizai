@@ -30,7 +30,7 @@ import 'status_bar.dart';
 const int _autoSaveDebounceMs = 1000;
 const int _journalThrottleMs = 500;
 const double _maxContentWidth = 720;
-const double _contentVPadding = 96;
+const double _contentVPadding = 72;
 
 class EditorView extends StatefulWidget {
   const EditorView({
@@ -318,6 +318,11 @@ class _EditorViewState extends State<EditorView> {
   }
 
   Widget _buildEditorArea(m.Settings s, ColorScheme colors) {
+    // 空文档：Quill 占位 + 垂直居中的引导语（不再"悬在左上角"）。
+    final doc = widget.library.currentDocument;
+    final empty = doc == null ||
+        doc.content.isEmpty ||
+        doc.content == emptyDeltaJson;
     return Stack(
       children: [
         Positioned.fill(
@@ -329,7 +334,7 @@ class _EditorViewState extends State<EditorView> {
                 focusNode: _focusNode,
                 scrollController: _scroll,
                 config: q.QuillEditorConfig(
-                  placeholder: '从这里开始写…',
+                  placeholder: empty ? '' : '从这里开始写…',
                   autoFocus: false,
                   expands: true,
                   scrollable: true,
@@ -343,6 +348,21 @@ class _EditorViewState extends State<EditorView> {
             ),
           ),
         ),
+        if (empty)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Center(
+                child: Text(
+                  '从这里开始写…',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontStyle: FontStyle.italic,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ),
+          ),
         if (_showToolbar && !widget.focusMode)
           Positioned(
             top: 8,

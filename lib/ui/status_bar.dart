@@ -159,10 +159,6 @@ class _StatusBarState extends State<StatusBar> {
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            '${(progress * 100).round()}%',
-            style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
-          ),
           const Spacer(),
           if (widget.backup != null)
             _BackupIndicator(
