@@ -41,7 +41,7 @@ void main() {
     await tester.pump();
 
     // 侧边栏空库引导
-    expect(find.text('还没有笔记本'), findsOneWidget);
+    expect(find.text('新建一本笔记本，开始写'), findsOneWidget);
     expect(find.text('新建笔记本'), findsOneWidget);
     // 编辑器区空态
     expect(find.text('从这里开始写…'), findsOneWidget);
@@ -64,7 +64,7 @@ void main() {
     // 左边缘右滑打开 Drawer → 空库引导可见
     await tester.dragFrom(const Offset(5, 400), const Offset(350, 0));
     await tester.pumpAndSettle();
-    expect(find.text('还没有笔记本'), findsOneWidget);
+    expect(find.text('还没有笔记本'), findsNothing);
     expect(find.text('新建笔记本'), findsOneWidget);
     // 编辑器全宽显示空态
     expect(find.text('从这里开始写…'), findsOneWidget);
@@ -78,11 +78,14 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.text('新建笔记本'));
+    await tester.pump();
+    // 空态按钮 → 行内编辑（默认名「新笔记本」），Enter 确认
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     // 让真实异步（DB 写入）完成后再刷新
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
     await tester.pump();
-    expect(find.text('未命名笔记本'), findsOneWidget);
-    expect(find.text('还没有笔记本'), findsNothing);
+    expect(find.text('新笔记本'), findsOneWidget);
+    expect(find.text('新建一本笔记本，开始写'), findsNothing);
   });
 
   testWidgets('有数据：状态栏渲染今日进度与文档字数', (tester) async {
@@ -95,7 +98,7 @@ void main() {
     expect(find.text('今日 3/2000'), findsOneWidget);
     // 本文显示快照字数
     expect(find.text('本文 5 字'), findsOneWidget);
-    // 当前文档标题显示在编辑器区
-    expect(find.text('第一章'), findsOneWidget);
+    // 当前文档标题：侧边栏树行 + 编辑器区各一处
+    expect(find.text('第一章'), findsNWidgets(2));
   });
 }
