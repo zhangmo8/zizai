@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>字在 · Notion 风格预览</title>
+  <style>
+    :root {
+      --page: #ffffff;
+      --sidebar: #f7f7f5;
+      --surface: #ffffff;
+      --raised: #ffffff;
+      --hover: #efefed;
+      --selected: #e9e9e6;
+      --text: #37352f;
+      --muted: #787774;
+      --tertiary: #9b9a97;
+      --line: #e6e4df;
+      --accent: #2eaadc;
+      --success: #448361;
+      --danger: #e03e3e;
+      --callout: #f7f6f3;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #ddd;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+      line-height: 1.6;
+    }
+    .frame {
+      width: min(1280px, 100vw);
+      height: min(860px, 100vh);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      background: var(--page);
+      overflow: hidden;
+    }
+    .sidebar {
+      background: var(--sidebar);
+      border-right: 1px solid var(--line);
+      padding: 12px 8px 18px;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .workspace {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 0 10px 4px;
+    }
+    .avatar {
+      width: 24px;
+      height: 24px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--selected);
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .workspace-title { font-size: 14px; font-weight: 600; letter-spacing: -0.1px; line-height: 1.15; }
+    .workspace-sub { font-size: 11px; color: var(--tertiary); line-height: 1.2; }
+    .icon-btn {
+      margin-left: auto;
+      width: 28px;
+      height: 28px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 6px;
+      font-size: 18px;
+      cursor: default;
+    }
+    .icon-btn:hover { background: var(--hover); }
+    .tree { overflow: auto; }
+    .row {
+      height: 30px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 2px 0 6px;
+      margin: 1px 0;
+      border-radius: 5px;
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .row:hover { background: var(--hover); }
+    .row.selected { background: var(--selected); color: var(--text); font-weight: 600; }
+    .row.folder { color: var(--text); font-weight: 600; }
+    .row.depth-1 { padding-left: 28px; }
+    .row .label { overflow: hidden; text-overflow: ellipsis; }
+    .row .more { margin-left: auto; color: var(--tertiary); opacity: 0; }
+    .row:hover .more, .row.selected .more { opacity: 1; }
+    .new-doc { color: var(--muted); font-size: 12px; }
+    .editor {
+      display: grid;
+      grid-template-rows: 46px 1fr 34px;
+      min-width: 0;
+      background: var(--page);
+    }
+    .topbar {
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      padding: 0 12px 0 18px;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .topbar .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .action {
+      border-radius: 5px;
+      padding: 5px 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+    }
+    .action:hover { background: var(--hover); }
+    .page {
+      position: relative;
+      overflow: auto;
+      padding: 88px 24px 120px;
+    }
+    .paper {
+      max-width: 760px;
+      margin: 0 auto;
+    }
+    h1 {
+      margin: 0 0 18px;
+      font-size: 30px;
+      line-height: 1.25;
+      letter-spacing: -0.45px;
+      font-weight: 700;
+    }
+    p {
+      margin: 8px 0;
+      font-size: 18px;
+      line-height: 1.8;
+      letter-spacing: -0.12px;
+    }
+    blockquote {
+      margin: 18px 0;
+      padding: 10px 14px;
+      background: var(--callout);
+      border-left: 3px solid var(--line);
+      color: var(--muted);
+      border-radius: 4px;
+    }
+    .toolbar {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding: 3px 4px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--raised);
+      box-shadow: 0 8px 18px rgba(0,0,0,.08), 0 0 0 0.5px rgba(230,228,223,.35);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .tool {
+      height: 30px;
+      min-width: 30px;
+      padding: 0 8px;
+      border-radius: 4px;
+      display: grid;
+      place-items: center;
+      font-weight: 600;
+    }
+    .tool.active { background: var(--selected); color: var(--text); }
+    .sep { width: 1px; height: 18px; margin: 0 4px; background: var(--line); }
+    .status {
+      border-top: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      padding: 0 18px;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .chip { padding: 4px 7px; border-radius: 5px; }
+    .chip:hover { background: var(--hover); }
+    .progress {
+      width: 104px;
+      height: 3px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--line) 55%, transparent);
+    }
+    .progress > i { display: block; width: 28%; height: 100%; background: var(--accent); }
+    .spacer { flex: 1; }
+    .saved { color: var(--success); font-weight: 600; }
+    .callout {
+      border: 1px solid var(--line);
+      background: var(--callout);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    @media (max-width: 800px) {
+      .frame { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="frame" aria-label="字在 Notion 风格 UI 预览">
+    <aside class="sidebar">
+      <div class="workspace">
+        <div class="avatar">字</div>
+        <div>
+          <div class="workspace-title">字在</div>
+          <div class="workspace-sub">写作空间</div>
+        </div>
+        <button class="icon-btn">+</button>
+      </div>
+      <div class="tree">
+        <div class="row folder"><span>▾</span><span>📁</span><span class="label">写作计划</span><span class="more">•••</span></div>
+        <div class="row depth-1 selected"><span>📄</span><span class="label">第一章 · 雨后的街道</span><span class="more">•••</span></div>
+        <div class="row depth-1"><span>📄</span><span class="label">人物小传.md</span><span class="more">•••</span></div>
+        <div class="row depth-1"><span>📄</span><span class="label">世界观设定.md</span><span class="more">•••</span></div>
+        <div class="row depth-1 new-doc"><span>＋</span><span class="label">新建章节</span></div>
+        <div class="row folder"><span>▾</span><span>📁</span><span class="label">灵感箱</span><span class="more">•••</span></div>
+        <div class="row depth-1"><span>📄</span><span class="label">片段与句子</span><span class="more">•••</span></div>
+        <div class="row depth-1"><span>📄</span><span class="label">读书摘录</span><span class="more">•••</span></div>
+        <div class="row depth-1 new-doc"><span>＋</span><span class="label">新建章节</span></div>
+      </div>
+    </aside>
+    <section class="editor">
+      <header class="topbar">
+        <span>📄</span>
+        <span class="title">第一章 · 雨后的街道</span>
+        <span class="action">⛶ 专注</span>
+        <span class="action">⚙ 偏好</span>
+      </header>
+      <article class="page">
+        <div class="toolbar">
+          <span class="tool active">H1</span><span class="tool">H2</span><span class="tool">H3</span>
+          <span class="sep"></span>
+          <span class="tool">B</span><span class="tool"><em>I</em></span><span class="tool">U</span><span class="tool">S</span>
+          <span class="sep"></span>
+          <span class="tool">•</span><span class="tool">1.</span><span class="sep"></span><span class="tool">❝</span><span class="tool">{ }</span>
+        </div>
+        <div class="paper">
+          <h1>第一章 · 雨后的街道</h1>
+          <p>清晨的城市像一页刚打开的纸，雨水沿着梧桐叶边缘落下。</p>
+          <p>主角在巷口停住，想起昨夜没有写完的那封信。新的界面把视觉噪音压到最低，左侧只保留必要的树结构，正文区像 Notion 页面一样留出呼吸感。</p>
+          <blockquote>这是删除/恢复提示会采用的 callout 风格：不打断写作，但足够醒目。</blockquote>
+        </div>
+      </article>
+      <footer class="status">
+        <span class="chip">今日 312/2000</span>
+        <span class="progress"><i></i></span>
+        <span class="spacer"></span>
+        <span class="saved">已保存</span>
+      </footer>
+    </section>
+  </main>
+</body>
+</html>

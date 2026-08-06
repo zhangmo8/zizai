@@ -69,3 +69,39 @@ Objective 1 的控件齐备与 token 安全、Objective 3 冲突提示、状态�
 - **B1 修复**：`_post` 改用 `effectiveBaseUrl`（client.dart:454 `Uri.parse('${effectiveBaseUrl}$path')`）；补一条「setBaseUrl → syncNow 请求打到新地址」的单测（fake server 可断言 host/path）；顺带处理非阻塞 7（字段初始值）。
 - **B2 修复**：`setEnabled` 末尾（含关闭分支）补 `notifyListeners()`；补用例「关闭开关 → Switch 值 false + 状态栏同步指示消失」。
 - 其余 Objective 与 83 用例已绿，修复后重跑 `flutter analyze` + `flutter test` 即可 re-verify 放行。
+
+---
+
+## re-verify（commit `0f0df0e`）—— 结论：**blocked**（窄）
+
+- 评审对象：commit `0f0df0e` 的 sync-ui-003 阻塞项修复部分（`lib/core/sync/client.dart`：`_post` 改用 `effectiveBaseUrl`、`setEnabled` 补 `notifyListeners`；`test/core/sync/sync_client_test.dart:184` +1 回归「B1 回归：空构造地址 + setBaseUrl 配置生效（生产形态）」；`test/ui/sync_test.dart:157` +1 回归「B2 回归：关闭开关 → 状态栏指示隐藏 + Switch 重建」）。该提交同时含 upd-001 更新机制，不在本复评范围（见 docs/plan/reviews/upd-001-1.md）。
+- 评审方式：只读代码评审 + **detached worktree**（`git worktree add --detach /tmp/zizai-verify-0f0df0e 0f0df0e`）命令链验证 + 旧代码行为实证（见 B1 节）。
+- 日期：2026-08-06
+
+### B1 修复本身 ✅，但回归测试不具判别力 ❌（blocking）
+
+1. **修复正确**：`_post` 改用 `effectiveBaseUrl`（[client.dart](lib/core/sync/client.dart#L455)）；`setBaseUrl` 持久化 `sync.baseUrl`（client.dart:112-115）、`_readConfig` 启动回读（client.dart:94）、`effectiveBaseUrl = _baseUrlOverride ?? baseUrl`（client.dart:117）。main.dart:46 仍以 `baseUrl: ''` 构造——生产形态下唯一生效地址即设置页配置。B1 死代码已消除。✅
+2. **回归测试无法在旧代码上失败**（blocking）：用例（sync_client_test.dart:184-201）构造 `baseUrl: ''` + `setBaseUrl('http://fake')`，但**只断言 `server.store` 非空，未断言 host/path**。FakeSyncServer 的 MockClient 仅按 `request.url.path` 路由（fake_server.dart:26-69），不校验 host。旧代码 `Uri.parse('$baseUrl$path')` 在 `baseUrl=''` 时得到相对 URI `/sync/push`——package:http 1.6.0 的 `Request` 构造与 MockClient 均无 absolute-URI 断言（已读 http-1.6.0 源码确认），相对 URI 同样可路由至 handler。并用独立最小复现（/tmp/http_probe，http 1.6.0 + MockClient + 相对 URI）**实证旧行为请求正常送达**。即：该用例在修复前同样通过，不具备回归守护力，未达到 sync-engine-002-1 re-verify 同款标准（「在修复前该断言必失败」）。→ blocking。
+   - 最小修复建议：FakeSyncServer 记录 `request.url`（host+path），断言 push 到达 `http://fake/sync/push`；或让 fake server 对 host 为空的相对 URI 直接 400，使旧行为必然失败。
+
+### B2 修复 ✅ + 回归测试真实覆盖 ✅
+
+- `setEnabled` 末尾补 `notifyListeners()`（[client.dart](lib/core/sync/client.dart#L100)）：关闭路径 `_enabled=false` → 通知 → 状态栏 `if (!sync.enabled) return SizedBox.shrink()`（status_bar.dart:199）即时隐藏；Switch 经 `ListenableBuilder(listenable: sync)`（settings_view.dart:367-375）重建。
+- 回归用例（sync_test.dart:157-175）：先 `setEnabled(true)` 断言「已同步」出现，再 `setEnabled(false)` + pump 断言指示全部消失。旧代码 setEnabled 无通知 → 关闭后无重建、「已同步」仍显示 → 用例必失败。判别力真实。✅
+
+### 验证命令结果（detached worktree @ 0f0df0e）
+
+| 命令 | 结果 |
+|---|---|
+| `flutter analyze` | `No issues found!` |
+| `flutter test` | `All tests passed!`（+93，共 93 用例） |
+
+### 剩余不确定性（非阻塞）
+
+1. 首评非阻塞 7（同步地址字段初始值取构造参数 `baseUrl` 而非 `effectiveBaseUrl`，settings_view.dart:361-362）未处理：重启后字段显示空、提交时以新值为准，功能无损，维持 backlog。
+2. 首评非阻塞 1–6、8 维持原状，未在本提交修复。
+3. upd-001 内容未复评（见 upd-001-1.md）。
+
+### 结论
+
+B1 修复正确、B2 修复正确且回归真实覆盖、`flutter analyze` 零问题、`flutter test` 93/93 通过；但 **B1 回归用例在旧代码下同样通过，不满足「回归测试真实覆盖」** → **sync-ui-003 复评 blocked（仅 B1 回归用例判别力一项）**，按上述最小修复补 host/path 断言后即可放行。
