@@ -3,7 +3,7 @@
 ```yaml
 id: store-001
 scope: lib/core
-status: pending
+status: done
 depends-on: [env-001]
 ```
 

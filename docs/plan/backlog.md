@@ -12,3 +12,7 @@
 | 8 | app/README.md ADR | 多人实时协同（当前单用户架构不支持，需重构状态层） | 待处理 |
 | 9 | requirements.md 风险 | 内置中文字体包（改善跨端渲染一致） | 待处理 |
 | 10 | sync.md §5 | 云端修订历史浏览/回滚 UI（数据层 R2 版本控制已留） | 待处理 |
+| 11 | store-001 评审 | 增量跨日无测试且 saveDocument 时钟不可注入（建议可注入时钟 + 跨日用例） | 处理中（随 shell-001 前修复） |
+| 12 | store-001 评审 | settings 损坏值回退默认无显式单测 | 处理中 |
+| 13 | store-001 评审 | deltaToPlainText 对非 map op 抛 TypeError 而非承诺的 FormatException | 处理中（随 shell-001 前修复） |
+| 14 | store-001 评审 | 迁移失败注入测试的 sqflite 预期日志噪音 | 待处理 |
