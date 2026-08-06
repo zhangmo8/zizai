@@ -17,3 +17,6 @@
 | 13 | store-001 评审 | deltaToPlainText 对非 map op 抛 TypeError 而非承诺的 FormatException | 处理中（随 shell-001 前修复） |
 | 14 | store-001 评审 | 迁移失败注入测试的 sqflite 预期日志噪音 | 待处理 |
 | 15 | shell-001 评审 | token 映射不完整：surface 槽位覆盖为 bg，surface-hover/text-tertiary/success 未显式接线（骨架条与 Ctrl+B 已随 side-002 落地） | 待处理 |
+| 16 | side-002 评审 | 选中项底色用 M3 派生色而非 surface-hover token（同 backlog 15，主题接线统一处理） | 待处理 |
+| 17 | side-002 评审 | `⋮`/「新建章节」hover 浮现（style.md §9 低打扰 chrome，纯视觉） | 待处理 |
+| 18 | side-002 评审 | Ctrl/Cmd+B 与笔记本级联删除缺 UI 测试 | 待处理 |
