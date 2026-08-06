@@ -145,6 +145,21 @@ class Settings {
         'dailyGoal': dailyGoal.toString(),
       };
 
+  Settings copyWith({
+    String? theme,
+    String? fontFamily,
+    double? fontSize,
+    double? lineHeight,
+    int? dailyGoal,
+  }) =>
+      Settings(
+        theme: theme ?? this.theme,
+        fontFamily: fontFamily ?? this.fontFamily,
+        fontSize: fontSize ?? this.fontSize,
+        lineHeight: lineHeight ?? this.lineHeight,
+        dailyGoal: dailyGoal ?? this.dailyGoal,
+      );
+
   factory Settings.fromMap(Map<String, String> kv) {
     double parseD(String k, double fallback, double min, double max) {
       final v = double.tryParse(kv[k] ?? '');

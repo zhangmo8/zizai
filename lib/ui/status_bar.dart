@@ -18,6 +18,7 @@ class StatusBar extends StatefulWidget {
     required this.library,
     required this.settings,
     this.onRetrySave,
+    this.onOpenSettings,
   });
 
   final LibraryController library;
@@ -25,6 +26,9 @@ class StatusBar extends StatefulWidget {
 
   /// 保存失败「重试」回调（editor 注入；null 时不显示重试）。
   final Future<void> Function()? onRetrySave;
+
+  /// 点击今日进度 → 打开设置定位「每日目标字数」（ui-shell.md Interactions）。
+  final void Function(bool focusDailyGoal)? onOpenSettings;
 
   @override
   State<StatusBar> createState() => _StatusBarState();
@@ -119,9 +123,15 @@ class _StatusBarState extends State<StatusBar> {
       child: Row(
         children: [
           const SizedBox(width: 16),
-          Text(
-            '今日 $delta/$goal',
-            style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+          InkWell(
+            onTap: () => widget.onOpenSettings?.call(true),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                '今日 $delta/$goal',
+                style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+              ),
+            ),
           ),
           const SizedBox(width: 8),
           SizedBox(

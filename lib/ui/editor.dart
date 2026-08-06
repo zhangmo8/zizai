@@ -15,11 +15,13 @@ import 'package:flutter_quill/flutter_quill.dart' as q;
 import '../core/crash_journal.dart';
 import '../core/export.dart' show emptyDeltaJson, parseDeltaOps;
 import '../core/models.dart' as m;
-import '../core/word_count.dart';import '../state/library_controller.dart';
+import '../core/word_count.dart';
+import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/debounce.dart';
 import '../util/platform.dart';
 import 'focus_view.dart';
+import 'settings_view.dart';
 import 'status_bar.dart';
 
 const int _autoSaveDebounceMs = 1000;
@@ -262,6 +264,7 @@ class _EditorViewState extends State<EditorView> {
           title: widget.library.currentDocument?.title ?? '',
           focusMode: focusMode,
           onToggleFocusMode: widget.onToggleFocusMode,
+          onOpenSettings: () => _openSettings(),
         ),
         if (_pendingRecover != null) _RecoveryBar(
           entry: _pendingRecover!,
@@ -282,6 +285,7 @@ class _EditorViewState extends State<EditorView> {
           library: widget.library,
           settings: widget.settings,
           onRetrySave: _saveNow,
+          onOpenSettings: (focusGoal) => _openSettings(focusGoal: focusGoal),
         ),
       ],
       ),
@@ -352,6 +356,27 @@ class _EditorViewState extends State<EditorView> {
       h3: block(header(18)),
     );
   }
+  /// 打开设置：桌面模态对话框（480px）/ Android 全屏页（ui-settings.md）。
+  void _openSettings({bool focusGoal = false}) {
+    final view = SettingsView(
+      settings: widget.settings,
+      library: widget.library,
+      autoFocusDailyGoal: focusGoal,
+    );
+    if (isAndroidPlatform) {
+      Navigator.of(context).push(MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => Scaffold(body: view),
+      ));
+    } else {
+      showDialog<void>(
+        context: context,
+        builder: (_) => Dialog(
+          child: SizedBox(width: 480, height: 520, child: view),
+        ),
+      );
+    }
+  }
 }
 
 /// 保存意图（Ctrl/Cmd+S）。
@@ -359,17 +384,19 @@ class _SaveIntent extends Intent {
   const _SaveIntent();
 }
 
-/// 顶栏：文档名 + 沉浸按钮（设置按钮归 set-004）。
+/// 顶栏：文档名 + 沉浸按钮 + 设置按钮。
 class _EditorHeader extends StatelessWidget {
   const _EditorHeader({
     required this.title,
     required this.focusMode,
     required this.onToggleFocusMode,
+    required this.onOpenSettings,
   });
 
   final String title;
   final bool focusMode;
   final VoidCallback onToggleFocusMode;
+  final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -396,6 +423,11 @@ class _EditorHeader extends StatelessWidget {
             onPressed: onToggleFocusMode,
             tooltip: '沉浸模式 (${isMacOS ? '⌘' : 'Ctrl'}+Shift+F)',
             icon: Icon(Icons.fullscreen, size: 20, color: colors.onSurfaceVariant),
+          ),
+          IconButton(
+            onPressed: onOpenSettings,
+            tooltip: '设置',
+            icon: Icon(Icons.settings_outlined, size: 20, color: colors.onSurfaceVariant),
           ),
         ],
       ),
