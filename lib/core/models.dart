@@ -146,15 +146,27 @@ class Settings {
       };
 
   factory Settings.fromMap(Map<String, String> kv) {
-    double parseD(String k, double fallback) =>
-        double.tryParse(kv[k] ?? '') ?? fallback;
-    int parseI(String k, int fallback) => int.tryParse(kv[k] ?? '') ?? fallback;
+    double parseD(String k, double fallback, double min, double max) {
+      final v = double.tryParse(kv[k] ?? '');
+      if (v == null) return fallback;
+      return v.clamp(min, max);
+    }
+
+    int parseI(String k, int fallback, int min, int max) {
+      final v = int.tryParse(kv[k] ?? '');
+      if (v == null) return fallback;
+      return v.clamp(min, max);
+    }
+
+    final theme = kv['theme'];
     return Settings(
-      theme: kv['theme'] ?? 'system',
+      theme: (theme == 'system' || theme == 'light' || theme == 'dark')
+          ? theme!
+          : 'system',
       fontFamily: kv['fontFamily'] ?? '',
-      fontSize: parseD('fontSize', 18),
-      lineHeight: parseD('lineHeight', 1.8),
-      dailyGoal: parseI('dailyGoal', 2000),
+      fontSize: parseD('fontSize', 18, 12, 28),
+      lineHeight: parseD('lineHeight', 1.8, 1.2, 2.4),
+      dailyGoal: parseI('dailyGoal', 2000, 100, 50000),
     );
   }
 }

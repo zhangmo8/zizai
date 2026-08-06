@@ -173,6 +173,41 @@ void main() {
       await db.close();
     });
 
+    test('跨日增量按日期键分别累计（注入时钟）', () async {
+      var fakeNow = DateTime(2026, 8, 1, 10, 0);
+      final db = await Db.open('${tempDir.path}/test.db', clock: () => fakeNow);
+      final nb = await db.createNotebook('书');
+      final d = await db.createDocument(nb.id);
+      await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":"六字内容一二"}]'); // 6 字
+      // 8/1 当天
+      expect(await db.todayDelta(), 6);
+      // 第二天：新增 1 词（ab）
+      fakeNow = DateTime(2026, 8, 2, 9, 0);
+      await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":"六字内容一二ab"}]'); // +1
+      expect(await db.todayDelta(), 1);
+      // 8/1 的增量独立保留
+      final day1 = await db.todayDelta(nowMs: DateTime(2026, 8, 1, 23, 0).millisecondsSinceEpoch);
+      expect(day1, 6);
+      await db.close();
+    });
+
+    test('跨日删字：当日扣减不下探到 0，不影响其他日期', () async {
+      var fakeNow = DateTime(2026, 8, 3, 10, 0);
+      final db = await Db.open('${tempDir.path}/test.db', clock: () => fakeNow);
+      final nb = await db.createNotebook('书');
+      final d = await db.createDocument(nb.id);
+      await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":"一二三四五六"}]');
+      fakeNow = DateTime(2026, 8, 4, 10, 0);
+      // 8/4 删 4 字：当天从 0 开始 → 扣减不下探，保持 0
+      final delta = await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":"一二"}]');
+      expect(delta, -4);
+      expect(await db.todayDelta(), 0);
+      // 8/3 的 6 字不动
+      final day3 = await db.todayDelta(nowMs: DateTime(2026, 8, 3, 12).millisecondsSinceEpoch);
+      expect(day3, 6);
+      await db.close();
+    });
+
     test('保存不存在文档抛 LibraryException', () async {
       final db = await openDb();
       await expectLater(
@@ -203,6 +238,20 @@ void main() {
       expect(await db.getSetting('theme'), 'dark');
       await db.setSetting('theme', 'light'); // replace
       expect(await db.getSetting('theme'), 'light');
+      await db.close();
+    });
+
+    test('损坏的 settings 值回退默认', () async {
+      final db = await openDb();
+      await db.setSetting('theme', 'not-a-theme');
+      await db.setSetting('fontSize', 'abc');
+      await db.setSetting('lineHeight', 'xyz');
+      await db.setSetting('dailyGoal', '-999');
+      final s = await db.loadSettings();
+      expect(s.theme, 'system'); // 非法值回退默认
+      expect(s.fontSize, 18);
+      expect(s.lineHeight, 1.8);
+      expect(s.dailyGoal, 100); // -999 钳制到下限 100
       await db.close();
     });
 

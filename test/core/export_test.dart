@@ -27,6 +27,8 @@ void main() {
     test('非法结构抛 FormatException', () {
       expect(() => deltaToPlainText('{"a":1}'), throwsFormatException);
       expect(() => deltaToPlainText('不是json'), throwsFormatException);
+      expect(() => deltaToPlainText('[42]'), throwsFormatException); // op 非对象
+      expect(() => deltaToPlainText('[{"delete":1}]'), throwsFormatException); // 缺 insert
     });
   });
 

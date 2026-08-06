@@ -29,6 +29,14 @@ String deltaToPlainText(String deltaJson) {
   if (data.isEmpty) return '';
   // Quill 文档要求末位 op 为 insert 且以换行结尾，缺则补 '\n'（规范化）。
   var ops = data.cast<Map<String, dynamic>>();
+  for (final op in data) {
+    if (op is! Map) {
+      throw FormatException('非法 Delta JSON: op 必须是对象', deltaJson);
+    }
+    if (op['insert'] == null) {
+      throw FormatException('非法 Delta JSON: op 缺少 insert', deltaJson);
+    }
+  }
   final last = ops.last;
   final lastInsert = last['insert'];
   if (lastInsert is String && !lastInsert.endsWith('\n')) {

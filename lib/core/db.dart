@@ -79,7 +79,7 @@ String _todayKey(int nowMs) {
 }
 
 class Db {
-  Db._(this._db, this._path);
+  Db._(this._db, this._path, [this._clock]);
 
   /// 打开库。`path` 为 db 文件路径或 `inMemoryDatabasePath`。
   ///
@@ -89,6 +89,7 @@ class Db {
     String path, {
     int version = currentSchemaVersion,
     List<SchemaMigration>? migrations,
+    DateTime Function()? clock,
   }) async {
     try {
       final db = await databaseFactory.openDatabase(
@@ -103,7 +104,7 @@ class Db {
           },
         ),
       );
-      return Db._(db, path);
+      return Db._(db, path, clock);
     } on LibraryException {
       rethrow;
     } catch (e) {
@@ -113,6 +114,9 @@ class Db {
 
   final Database _db;
   final String _path;
+  final DateTime Function()? _clock;
+
+  int _nowMs() => (_clock?.call() ?? DateTime.now()).millisecondsSinceEpoch;
 
   /// 库文件路径（内存库为 `inMemoryDatabasePath`），设置页展示用。
   String get path => _path;
@@ -161,7 +165,7 @@ CREATE TABLE last_open (
 
   Future<Notebook> createNotebook(String name) async {
     final id = _newId('nb');
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _nowMs();
     final position = await _count('notebooks');
     await _db.insert('notebooks', {
       'id': id,
@@ -198,7 +202,7 @@ CREATE TABLE last_open (
     String content = emptyDeltaJson,
   }) async {
     final id = _newId('doc');
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _nowMs();
     final position = await _count(
       'documents',
       where: 'notebook_id = ?',
@@ -243,7 +247,7 @@ CREATE TABLE last_open (
   }
 
   Future<void> renameDocument(String id, String title) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _nowMs();
     final n = await _db.update(
       'documents',
       {'title': title, 'updated_at': now},
@@ -283,7 +287,7 @@ CREATE TABLE last_open (
     required String title,
     required String content,
   }) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = _nowMs();
     return _db.transaction((txn) async {
       final rows = await txn.query('documents', where: 'id = ?', whereArgs: [id], limit: 1);
       if (rows.isEmpty) throw LibraryException('保存失败: 文档不存在 $id', path: _path);
@@ -343,7 +347,7 @@ CREATE TABLE last_open (
 
   /// 当日累计增量（无记录返回 0）。
   Future<int> todayDelta({int? nowMs}) async {
-    final key = _todayKey(nowMs ?? DateTime.now().millisecondsSinceEpoch);
+    final key = _todayKey(nowMs ?? _nowMs());
     final rows = await _db.query('stats', columns: ['words'], where: 'date = ?', whereArgs: [key], limit: 1);
     return rows.isEmpty ? 0 : rows.first['words']! as int;
   }
