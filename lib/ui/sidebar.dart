@@ -103,7 +103,8 @@ class _SidebarState extends State<Sidebar> {
     if (session.target == _EditTarget.notebook) {
       if (session.id == null) {
         final nb = await widget.library.createNotebook(name);
-        setState(() => _expanded.add(nb.id));
+        // 写库为真实异步：期间用户可能已关窗/切页（mounted 守卫）。
+        if (mounted) setState(() => _expanded.add(nb.id));
       } else {
         await widget.library.renameNotebook(session.id!, name);
       }
