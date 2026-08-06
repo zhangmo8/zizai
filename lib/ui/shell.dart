@@ -43,6 +43,10 @@ class _ShellState extends State<Shell> {
 
   /// 通知编辑器收起上下文工具栏（Esc 全局处理，与焦点无关）。
   final ValueNotifier<int> _toolbarDismissTick = ValueNotifier(0);
+
+  /// 通知编辑器立即保存（Ctrl/Cmd+S 全局处理：Windows 下 flutter_quill
+  /// 内置 Ctrl+S=codeBlock 会遮蔽编辑器层快捷键，全局 handler 先于其分发）。
+  final ValueNotifier<int> _saveTick = ValueNotifier(0);
   WidgetsBindingObserver? _lifecycleObserver;
 
   @override
@@ -59,6 +63,7 @@ class _ShellState extends State<Shell> {
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onGlobalKey);
     _toolbarDismissTick.dispose();
+    _saveTick.dispose();
     if (_lifecycleObserver != null) {
       WidgetsBinding.instance.removeObserver(_lifecycleObserver!);
     }
@@ -70,6 +75,10 @@ class _ShellState extends State<Shell> {
     final key = event.logicalKey;
     final kb = HardwareKeyboard.instance;
     final mod = kb.isControlPressed || kb.isMetaPressed;
+    if (key == LogicalKeyboardKey.keyS && mod) {
+      _saveTick.value++; // 立即保存（UI 自动保存防抖照常）
+      return true;
+    }
     if (key == LogicalKeyboardKey.keyB && mod) {
       setState(() => _sidebarVisible = !_sidebarVisible);
       return true;
@@ -104,6 +113,7 @@ class _ShellState extends State<Shell> {
               focusMode: _focusMode,
               onToggleFocusMode: () => setState(() => _focusMode = !_focusMode),
               toolbarDismissTick: _toolbarDismissTick,
+              saveTick: _saveTick,
               journal: widget.journal,
             );
             final sidebar = Sidebar(library: widget.library);

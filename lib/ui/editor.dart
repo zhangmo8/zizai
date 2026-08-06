@@ -37,6 +37,7 @@ class EditorView extends StatefulWidget {
     required this.focusMode,
     required this.onToggleFocusMode,
     this.toolbarDismissTick,
+    this.saveTick,
     this.journal,
   });
 
@@ -47,6 +48,9 @@ class EditorView extends StatefulWidget {
 
   /// Esc 收起工具栏通知（Shell 全局处理，与焦点无关）。
   final ValueNotifier<int>? toolbarDismissTick;
+
+  /// Ctrl/Cmd+S 立即保存通知（Shell 全局处理）。
+  final ValueNotifier<int>? saveTick;
 
   /// 崩溃日志（null = 未接线，如测试）。
   final CrashJournal? journal;
@@ -83,6 +87,7 @@ class _EditorViewState extends State<EditorView> {
     _quill.addListener(_onQuillNotify);
     _focusNode.addListener(_onFocusChanged);
     widget.toolbarDismissTick?.addListener(_onDismissToolbar);
+    widget.saveTick?.addListener(_onSaveTick);
     // 切换/退出前先保存（防丢）。
     widget.library.beforeSwitchSave = _saveNow;
     _checkRecovery();
@@ -106,6 +111,7 @@ class _EditorViewState extends State<EditorView> {
     _saveDebounce.cancel();
     _journalDebounce.cancel();
     widget.toolbarDismissTick?.removeListener(_onDismissToolbar);
+    widget.saveTick?.removeListener(_onSaveTick);
     if (widget.library.beforeSwitchSave == _saveNow) {
       widget.library.beforeSwitchSave = null;
     }
@@ -115,6 +121,11 @@ class _EditorViewState extends State<EditorView> {
   /// Esc（Shell 全局）→ 收起工具栏。
   void _onDismissToolbar() {
     if (_showToolbar && mounted) setState(() => _showToolbar = false);
+  }
+
+  /// Ctrl/Cmd+S（Shell 全局）→ 立即保存并闪「已保存」。
+  void _onSaveTick() {
+    _saveNow();
   }
 
   // ── 文档装载 ──────────────────────────────────────────────
