@@ -1,0 +1,169 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+# 每次构建都以 zhangmo8 身份提交产物元信息（update.json 生成用）
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.44.8'
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - name: 准备 Worker（集成测试前置：esbuild 打包）
+        working-directory: worker
+        run: |
+          npm ci
+          npm run pretest
+      - run: flutter test
+      - run: flutter build apk --release
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: zizai-android
+          path: build/app/outputs/flutter-apk/app-release.apk
+      - name: 生成清单条目（供 release job 汇总）
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          sha=$(shasum -a 256 build/app/outputs/flutter-apk/app-release.apk | cut -d' ' -f1)
+          echo "{\"android\": {\"file\": \"app-release.apk\", \"sha256\": \"$sha\"}}" > android-entry.json
+      - name: 上传清单条目
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-android
+          path: android-entry.json
+
+  macos:
+    name: macOS .app
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - name: 打包 zip（更新分发格式）
+        run: |
+          cd build/macos/Build/Products/Release
+          ditto -c -k --sequesterRsrc --keepParent zi_zai.app zizai-macos.zip
+      - name: 上传 macOS 包
+        uses: actions/upload-artifact@v4
+        with:
+          name: zizai-macos
+          path: build/macos/Build/Products/Release/zizai-macos.zip
+      - name: 生成清单条目
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          sha=$(shasum -a 256 build/macos/Build/Products/Release/zizai-macos.zip | cut -d' ' -f1)
+          echo "{\"macos\": {\"file\": \"zizai-macos.zip\", \"sha256\": \"$sha\"}}" > macos-entry.json
+      - name: 上传清单条目
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-macos
+          path: macos-entry.json
+
+  windows:
+    name: Windows exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: 打包 zip
+        run: |
+          cd build/windows/x64/runner/Release
+          powershell Compress-Archive -Path * -DestinationPath zizai-windows.zip
+      - name: 上传 Windows 包
+        uses: actions/upload-artifact@v4
+        with:
+          name: zizai-windows
+          path: build/windows/x64/runner/Release/zizai-windows.zip
+      - name: 生成清单条目
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 'build/windows/x64/runner/Release/zizai-windows.zip').Hash.ToLower()
+          @{ windows = @{ file = 'zizai-windows.zip'; sha256 = $hash } } | ConvertTo-Json -Compress | Out-File -Encoding utf8 'windows-entry.json'
+      - name: 上传清单条目
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-windows
+          path: windows-entry.json
+
+  # 打 tag（v1.2.0 风格）时：汇总三端产物 → GitHub Release + update.json
+  release:
+    name: GitHub Release + update.json
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [android, macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: manifest-*
+          merge-multiple: true
+          path: manifests
+      - name: 汇总三端清单为 update.json（URL 指向本 Release 的可预测下载地址）
+        run: |
+          python3 - <<'EOF'
+          import json, glob, re
+          tag = '${{ github.ref_name }}'
+          base = f"https://github.com/zhangmo8/zizai/releases/download/{tag}"
+          entries = {}
+          for f in glob.glob('manifests/*.json'):
+              with open(f) as fh:
+                  for platform, meta in json.load(fh).items():
+                      entries[platform] = {
+                          "url": f"{base}/{meta['file']}",
+                          "sha256": meta["sha256"],
+                      }
+          version = re.sub(r'^v', '', tag)
+          manifest = {
+              "latest": version,
+              "minDbSchema": 2,
+              "platforms": entries,
+              "notes": f"自动构建 v{version}",
+          }
+          with open('update.json', 'w') as fh:
+              json.dump(manifest, fh, ensure_ascii=False, indent=2)
+          print(open('update.json').read())
+          EOF
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: zizai-*
+          merge-multiple: true
+          path: packages
+      - name: 发布 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            packages/*.zip
+            packages/*.apk
+            update.json
+          generate_release_notes: true
