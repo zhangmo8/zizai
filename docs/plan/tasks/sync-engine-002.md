@@ -3,7 +3,7 @@
 ```yaml
 id: sync-engine-002
 scope: lib/core/sync
-status: pending
+status: done
 depends-on: [store-001, sync-worker-001]
 ```
 

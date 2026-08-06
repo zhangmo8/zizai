@@ -17,6 +17,7 @@ import '../core/export.dart' show emptyDeltaJson, parseDeltaOps;
 import '../core/models.dart' as m;
 import '../core/word_count.dart';
 import '../core/sync/client.dart';
+import '../core/update.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/debounce.dart';
@@ -38,6 +39,7 @@ class EditorView extends StatefulWidget {
     required this.focusMode,
     required this.onToggleFocusMode,
     this.syncClient,
+    this.updateChecker,
     this.toolbarDismissTick,
     this.saveTick,
     this.journal,
@@ -56,6 +58,9 @@ class EditorView extends StatefulWidget {
 
   /// 同步引擎（null = 未接线，如单测）。
   final SyncClient? syncClient;
+
+  /// 更新检查（null = 未接线，如单测）。
+  final UpdateChecker? updateChecker;
 
   /// 崩溃日志（null = 未接线，如测试）。
   final CrashJournal? journal;
@@ -380,6 +385,8 @@ class _EditorViewState extends State<EditorView> {
       settings: widget.settings,
       library: widget.library,
       syncClient: widget.syncClient,
+      updateChecker: widget.updateChecker,
+      dbSchemaVersion: widget.updateChecker?.dbSchemaVersion,
       autoFocusDailyGoal: focusDailyGoal,
       autoFocusSync: focusSync,
     );

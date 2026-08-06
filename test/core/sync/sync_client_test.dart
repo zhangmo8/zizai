@@ -181,6 +181,24 @@ void main() {
     await dbA.close();
   });
 
+  test('B1 回归：空构造地址 + setBaseUrl 配置生效（生产形态）', () async {
+    final server = FakeSyncServer();
+    final db = await Db.open('${tempDir.path}/b1.db');
+    final client = SyncClient(db: db, baseUrl: '', backupDir: tempDir,
+        httpClient: server.client());
+    await client.initialize();
+    await client.setToken(server.token);
+    await client.setBaseUrl('http://fake');
+    await db.createNotebook('书');
+    await client.setEnabled(true); // 启用即同步，地址来自 setBaseUrl
+
+    expect(client.state.value, SyncState.idle);
+    expect(client.lastError.value, isNull);
+    expect(server.store, isNotEmpty); // 推送经配置地址到达
+    client.dispose();
+    await db.close();
+  });
+
   test('保存文档触发 onMutation → 防抖推送链路可达（评审修复回归）', () async {
     final server = FakeSyncServer();
     final (dbA, clientA) = await makeDevice(server, 'a');

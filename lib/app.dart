@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import 'core/crash_journal.dart';
 import 'core/sync/client.dart';
+import 'core/update.dart';
 import 'state/library_controller.dart';
 import 'state/settings_controller.dart';
 import 'ui/shell.dart';
@@ -111,6 +112,7 @@ class ZiZaiApp extends StatelessWidget {
     required this.settings,
     this.journal,
     this.syncClient,
+    this.updateChecker,
   });
 
   final LibraryController library;
@@ -121,6 +123,9 @@ class ZiZaiApp extends StatelessWidget {
 
   /// 同步引擎（null = 未接线，如测试）。
   final SyncClient? syncClient;
+
+  /// 更新检查（null = 未接线，如测试）。
+  final UpdateChecker? updateChecker;
 
   @override
   Widget build(BuildContext context) {
@@ -137,7 +142,8 @@ class ZiZaiApp extends StatelessWidget {
               library: library,
               settings: settings,
               journal: journal,
-              syncClient: syncClient),
+              syncClient: syncClient,
+              updateChecker: updateChecker),
         );
       },
     );

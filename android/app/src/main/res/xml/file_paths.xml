@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 更新安装（upd-001）：APK 落在应用支持目录（files/updates/） -->
+<paths>
+    <files-path name="updates" path="updates/"/>
+</paths>

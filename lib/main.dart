@@ -7,6 +7,8 @@ library;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -15,6 +17,7 @@ import 'core/crash_journal.dart';
 import 'core/db.dart';
 import 'core/models.dart';
 import 'core/sync/client.dart';
+import 'core/update.dart';
 import 'state/library_controller.dart';
 import 'state/settings_controller.dart';
 import 'util/platform.dart';
@@ -42,11 +45,29 @@ Future<void> main() async {
   await library.restore();
   final syncClient = SyncClient(db: db, baseUrl: '', backupDir: dir);
   await syncClient.initialize();
+
+  // 更新检查（upd-001）：App 版本来自 package_info，更新 URL 可配置
+  var appVersion = '0.1.0';
+  try {
+    appVersion = (await PackageInfo.fromPlatform()).version;
+  } catch (_) {}
+  final dbSchema = await db.schemaVersion();
+  final updatesDir = Directory('${dir.path}${Platform.pathSeparator}updates');
+  await updatesDir.create(recursive: true);
+  final updateChecker = UpdateChecker(
+    httpClient: http.Client(),
+    updateUrl: await db.getSetting('update.url') ?? '',
+    appVersion: appVersion,
+    dbSchemaVersion: dbSchema,
+    installDir: updatesDir,
+  );
+
   runApp(ZiZaiApp(
     library: library,
     settings: settings,
     journal: journal,
     syncClient: syncClient,
+    updateChecker: updateChecker,
   ));
 }
 

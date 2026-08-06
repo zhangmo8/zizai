@@ -1,0 +1,174 @@
+/// 更新机制：清单拉取/版本比较/minDbSchema/sha256 校验/平台安装。
+///
+/// 设计依据：docs/app/update.md §1–§3（版本体系、R2 分发结构、update.json、
+/// 检查与安装流程）、docs/app/README.md §8（平台差异）。
+library;
+
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart' as crypto;
+import 'package:flutter/foundation.dart' show ValueNotifier;
+import 'package:http/http.dart' as http;
+
+/// 语义化版本比较：a < b → -1；a == b → 0；a > b → 1。
+/// 支持 major.minor.patch[.build]；忽略非数字尾段。
+int compareVersions(String a, String b) {
+  final pa = _parts(a);
+  final pb = _parts(b);
+  for (var i = 0; i < 4; i++) {
+    final va = i < pa.length ? pa[i] : 0;
+    final vb = i < pb.length ? pb[i] : 0;
+    if (va != vb) return va < vb ? -1 : 1;
+  }
+  return 0;
+}
+
+List<int> _parts(String v) {
+  final m = RegExp(r'^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?').firstMatch(v.trim());
+  if (m == null) return const [0];
+  return [
+    for (var i = 1; i <= 4; i++) int.tryParse(m.group(i) ?? '') ?? 0,
+  ];
+}
+
+/// update.json 清单（docs/app/update.md §3）。
+class UpdateManifest {
+  const UpdateManifest({
+    required this.latest,
+    required this.minDbSchema,
+    required this.platforms,
+    this.notes,
+  });
+
+  final String latest;
+  final int minDbSchema;
+  final Map<String, ({String url, String sha256})> platforms;
+  final String? notes;
+
+  static UpdateManifest fromJson(Map<String, dynamic> json) {
+    final platforms = <String, ({String url, String sha256})>{};
+    for (final e in ((json['platforms'] as Map?) ?? const {}).entries) {
+      final p = (e.value as Map).cast<String, dynamic>();
+      platforms[e.key] = (
+        url: p['url']! as String,
+        sha256: p['sha256']! as String,
+      );
+    }
+    return UpdateManifest(
+      latest: json['latest']! as String,
+      minDbSchema: json['minDbSchema']! as int,
+      platforms: platforms,
+      notes: json['notes'] as String?,
+    );
+  }
+}
+
+/// 更新检查结果。
+enum UpdateStatus { none, available, downloading, ready, error }
+
+class UpdateException implements Exception {
+  const UpdateException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'UpdateException($message)';
+}
+
+class UpdateChecker {
+  UpdateChecker({
+    required this.httpClient,
+    required this.updateUrl,
+    required this.appVersion,
+    required this.dbSchemaVersion,
+    required this.installDir,
+  });
+
+  final http.Client httpClient;
+  final String updateUrl;
+  final String appVersion;
+  final int dbSchemaVersion;
+
+  /// 安装包落盘目录（应用支持目录下 updates/）。
+  final Directory installDir;
+
+  final ValueNotifier<double?> progress = ValueNotifier(null);
+  final ValueNotifier<UpdateStatus> status =
+      ValueNotifier(UpdateStatus.none);
+  final ValueNotifier<String?> error = ValueNotifier(null);
+  final ValueNotifier<String?> readyPath = ValueNotifier(null);
+
+  /// 拉取清单：有新版本（语义化 > 当前）且 minDbSchema <= 本地 → 可更新。
+  Future<UpdateManifest?> fetchManifest() async {
+    final res = await httpClient.get(Uri.parse(updateUrl)).timeout(const Duration(seconds: 15));
+    if (res.statusCode != 200) {
+      throw UpdateException('清单拉取失败 (HTTP ${res.statusCode})');
+    }
+    final manifest = UpdateManifest.fromJson(
+        (jsonDecode(res.body) as Map).cast<String, dynamic>());
+    if (compareVersions(manifest.latest, appVersion) <= 0) return null;
+    if (manifest.minDbSchema > dbSchemaVersion) {
+      throw UpdateException('新版要求数据库版本 ${manifest.minDbSchema}，当前 $dbSchemaVersion，请先升级中间版本');
+    }
+    return manifest;
+  }
+
+  /// 下载并校验 sha256（不符拒绝安装并报错）。
+  Future<File> download(String url, String sha256) async {
+    final res = await httpClient.get(Uri.parse(url)).timeout(const Duration(minutes: 5));
+    if (res.statusCode != 200) {
+      throw UpdateException('下载失败 (HTTP ${res.statusCode})');
+    }
+    final digest = crypto.sha256.convert(res.bodyBytes).toString();
+    if (digest.toLowerCase() != sha256.toLowerCase()) {
+      throw UpdateException('安装包校验失败（sha256 不符），已拒绝安装');
+    }
+    final file = File('${installDir.path}${Platform.pathSeparator}${_fileName(url)}');
+    await file.writeAsBytes(res.bodyBytes);
+    return file;
+  }
+
+  /// 检查更新：manifest → 下载 → 校验 → 安装（或就绪提示）。
+  Future<UpdateManifest?> checkForUpdate() async {
+    status.value = UpdateStatus.downloading;
+    error.value = null;
+    try {
+      final manifest = await fetchManifest();
+      if (manifest == null) {
+        status.value = UpdateStatus.none;
+        return null;
+      }
+      status.value = UpdateStatus.downloading;
+      final platform = _platformKey();
+      final entry = manifest.platforms[platform];
+      if (entry == null) {
+        throw UpdateException('当前平台无安装包（$platform）');
+      }
+      final file = await download(entry.url, entry.sha256);
+      status.value = UpdateStatus.ready;
+      readyPath.value = file.path;
+      return manifest;
+    } on UpdateException catch (e) {
+      status.value = UpdateStatus.error;
+      error.value = e.message;
+      rethrow;
+    } catch (e) {
+      status.value = UpdateStatus.error;
+      error.value = '检查更新失败: $e';
+      rethrow;
+    }
+  }
+
+  static String _fileName(String url) {
+    final seg = url.split('/').last;
+    return seg.isEmpty ? 'update.bin' : seg;
+  }
+
+  static String _platformKey() {
+    if (Platform.isAndroid) return 'android';
+    if (Platform.isMacOS) return 'macos';
+    if (Platform.isWindows) return 'windows';
+    return 'macos';
+  }
+}

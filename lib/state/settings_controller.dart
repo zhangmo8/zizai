@@ -30,6 +30,9 @@ class SettingsController extends ChangeNotifier {
   /// 库文件路径（设置页「数据」区展示 / 打开目录）。
   String get dbPath => _db.path;
 
+  /// 底层库（设置页持久化其它键用，如 update.url）。
+  Db get db => _db;
+
   /// 启动时从 settings 表载入。
   Future<void> load() async {
     _settings = await _db.loadSettings();

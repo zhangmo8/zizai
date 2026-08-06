@@ -8,13 +8,16 @@ library;
 
 import 'dart:io';
 
+import 'package:archive/archive_io.dart' show extractFileToDisk;
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:share_plus/share_plus.dart';
 
 import '../core/export.dart' show exportPlainText;
 import '../core/models.dart';
 import '../core/sync/client.dart';
+import '../core/update.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/platform.dart';
@@ -41,6 +44,8 @@ class SettingsView extends StatefulWidget {
     required this.settings,
     required this.library,
     this.syncClient,
+    this.updateChecker,
+    this.dbSchemaVersion,
     this.exporter,
     this.autoFocusDailyGoal = false,
     this.autoFocusSync = false,
@@ -51,6 +56,12 @@ class SettingsView extends StatefulWidget {
 
   /// 同步引擎（null = 未接线，如单测；同步区隐藏）。
   final SyncClient? syncClient;
+
+  /// 更新检查（null = 未接线，如单测；关于区隐藏更新按钮）。
+  final UpdateChecker? updateChecker;
+
+  /// 本地 DB schema 版本（关于区展示）。
+  final int? dbSchemaVersion;
 
   /// 导出实现（null = 默认：桌面 getSaveLocation 写 .txt / Android 分享）。
   final ExportHandler? exporter;
@@ -68,6 +79,7 @@ class SettingsView extends StatefulWidget {
 class _SettingsViewState extends State<SettingsView> {
   String? _exportError;
   bool _exporting = false;
+  String? _installNote;
   final FocusNode _goalFocus = FocusNode();
   late final TextEditingController _goalController =
       TextEditingController(text: widget.settings.settings.dailyGoal.toString());
@@ -185,6 +197,18 @@ class _SettingsViewState extends State<SettingsView> {
                   _Section('数据', children: [
                     _row('数据库路径', _dbPathRow()),
                     _row('导出当前文档', _exportRow()),
+                  ]),
+                  if (widget.updateChecker != null) _Section('关于', children: [
+                    _row('App 版本', Text(
+                      widget.updateChecker!.appVersion,
+                      style: const TextStyle(fontSize: 13),
+                    )),
+                    _row('数据库版本', Text(
+                      'schema v${widget.dbSchemaVersion ?? 0}',
+                      style: const TextStyle(fontSize: 13),
+                    )),
+                    _row('更新地址', _updateUrlField()),
+                    _row('检查更新', _checkUpdateRow()),
                   ]),
                   if (_exportError != null)
                     Padding(
@@ -447,6 +471,117 @@ class _SettingsViewState extends State<SettingsView> {
         );
       },
     );
+  }
+
+  late final TextEditingController _updateUrlController = TextEditingController(
+      text: widget.updateChecker?.updateUrl ?? '');
+
+  Widget _updateUrlField() {
+    return TextField(
+      controller: _updateUrlController,
+      style: const TextStyle(fontSize: 13),
+      decoration: const InputDecoration(
+        isDense: true,
+        border: OutlineInputBorder(),
+        hintText: 'https://…/zizai/apps/update.json',
+      ),
+      onSubmitted: (v) => widget.settings.db.setSetting('update.url', v.trim()),
+    );
+  }
+
+  /// 检查更新：accent 徽标 + 确认下载 + 进度 + 安装（ui-settings.md 关于区）。
+  Widget _checkUpdateRow() {
+    final checker = widget.updateChecker!;
+    return ListenableBuilder(
+      listenable: Listenable.merge([checker.status, checker.error, checker.progress]),
+      builder: (context, _) {
+        final colors = Theme.of(context).colorScheme;
+        final status = checker.status.value;
+        final downloading = status == UpdateStatus.downloading;
+        final available = status == UpdateStatus.ready;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                FilledButton.tonal(
+                  onPressed: downloading ? null : () => _runUpdateCheck(),
+                  style: available
+                      ? FilledButton.styleFrom(backgroundColor: colors.primary)
+                      : null,
+                  child: downloading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(available ? '有新版，点击安装' : '检查更新'),
+                ),
+                if (downloading && checker.progress.value != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Text(
+                      '下载中 ${(checker.progress.value! * 100).round()}%',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+              ],
+            ),
+            if (checker.error.value != null)
+              Text(
+                checker.error.value!,
+                style: TextStyle(fontSize: 12, color: colors.error),
+              ),
+            if (checker.readyPath.value != null && _installNote == null)
+              Text(
+                '安装包已就绪：${checker.readyPath.value}',
+                style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+              ),
+            if (_installNote != null)
+              Text(
+                _installNote!,
+                style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _runUpdateCheck() async {
+    final checker = widget.updateChecker!;
+    try {
+      await checker.checkForUpdate();
+      if (checker.status.value == UpdateStatus.ready) {
+        await _installPackage();
+      }
+    } catch (_) {
+      // 错误已入 checker.error
+    }
+  }
+
+  /// 平台安装：Android 经 FileProvider 触发系统安装；桌面解压到更新目录并提示
+  /// （运行中 .app 无法自替换，自用 V1 给出路径 + 手动替换说明，见 update.md）。
+  Future<void> _installPackage() async {
+    final path = widget.updateChecker!.readyPath.value;
+    if (path == null) return;
+    if (isAndroidPlatform) {
+      const channel = MethodChannel('dev.zizai/install');
+      await channel.invokeMethod('installApk', {'path': path});
+    } else {
+      await _extractDesktop(path);
+    }
+  }
+
+  Future<void> _extractDesktop(String zipPath) async {
+    final target = Directory(
+        '${widget.updateChecker!.installDir.path}/unpacked');
+    await target.create(recursive: true);
+    await extractFileToDisk(zipPath, target.path);
+    if (mounted) {
+      setState(() => _installNote = '安装包已解压：${target.path}\n'
+          '请替换应用目录后重启（macOS 未签名 App 首次需右键打开）');
+    }
   }
 
   Widget _dbPathRow() {

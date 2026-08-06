@@ -97,6 +97,7 @@ class SyncClient extends ChangeNotifier {
   Future<void> setEnabled(bool value) async {
     _enabled = value;
     await db.setSetting('sync.enabled', value ? '1' : '0', syncDirty: false);
+    notifyListeners(); // 开关/状态栏指示即时重建（含关闭隐藏）
     if (value) {
       await syncNow();
     }
@@ -451,7 +452,7 @@ class SyncClient extends ChangeNotifier {
     final token = _token ?? '';
     final res = await _http
         .post(
-          Uri.parse('$baseUrl$path'),
+          Uri.parse('$effectiveBaseUrl$path'),
           headers: {
             'content-type': 'application/json',
             'authorization': 'Bearer $token',

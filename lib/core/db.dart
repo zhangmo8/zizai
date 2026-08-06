@@ -183,6 +183,12 @@ class Db {
   /// 库文件路径（内存库为 `inMemoryDatabasePath`），设置页展示用。
   String get path => _path;
 
+  /// 当前 DB schema 版本（`PRAGMA user_version`，设置页「关于」区展示）。
+  Future<int> schemaVersion() async {
+    final rows = await _db.rawQuery('PRAGMA user_version');
+    return (rows.first['user_version']! as int?) ?? 0;
+  }
+
   Future<void> close() => _db.close();
 
   static Future<void> _createSchemaV1(DatabaseExecutor db) async {

@@ -154,6 +154,25 @@ void main() {
     expect(find.textContaining('⚠'), findsOneWidget);
   });
 
+  testWidgets('B2 回归：关闭开关 → 状态栏指示隐藏 + Switch 重建', (tester) async {
+    final (library, settings, db, sync, server) =
+        (await tester.runAsync(() => makeApp()))!;
+    await pumpApp(tester, library, settings, sync);
+    // 开启 → 指示出现
+    await tester.runAsync(() => sync.setEnabled(true));
+    for (var i = 0; i < 6; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+      await tester.pump();
+    }
+    expect(find.textContaining('已同步'), findsOneWidget);
+    // 关闭 → 指示消失
+    await tester.runAsync(() => sync.setEnabled(false));
+    await tester.pump();
+    expect(find.textContaining('已同步'), findsNothing);
+    expect(find.textContaining('同步中'), findsNothing);
+    expect(find.textContaining('失败'), findsNothing);
+  });
+
   testWidgets('冲突提示：输家备份后设置页显示备份路径', (tester) async {
     final (library, settings, db, sync, server) =
         (await tester.runAsync(() => makeApp()))!;
