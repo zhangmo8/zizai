@@ -12,11 +12,12 @@ import 'models.dart';
 /// 空文档占位（schema 默认值）与空串。
 const String emptyDeltaJson = '{}';
 
-/// 将 Quill Delta JSON 转为纯文本；非法 JSON 或非 Delta 结构抛 [FormatException]。
+/// 将 Quill Delta JSON 解析为规范化 ops；非法 JSON 或非 Delta 结构抛 [FormatException]。
 ///
-/// `'{}'` 与 `''`（空文档占位）返回空串。
-String deltaToPlainText(String deltaJson) {
-  if (deltaJson.isEmpty || deltaJson == emptyDeltaJson) return '';
+/// Quill 文档要求末位 op 为 insert 且以换行结尾，缺则补 `\n`（规范化）。
+/// `'{}'` 与 `''`（空文档占位）返回空列表。
+List<Map<String, dynamic>> parseDeltaOps(String deltaJson) {
+  if (deltaJson.isEmpty || deltaJson == emptyDeltaJson) return [];
   final Object? data;
   try {
     data = jsonDecode(deltaJson);
@@ -26,9 +27,6 @@ String deltaToPlainText(String deltaJson) {
   if (data is! List) {
     throw FormatException('非法 Delta JSON: 期望数组', deltaJson);
   }
-  if (data.isEmpty) return '';
-  // Quill 文档要求末位 op 为 insert 且以换行结尾，缺则补 '\n'（规范化）。
-  var ops = data.cast<Map<String, dynamic>>();
   for (final op in data) {
     if (op is! Map) {
       throw FormatException('非法 Delta JSON: op 必须是对象', deltaJson);
@@ -37,11 +35,22 @@ String deltaToPlainText(String deltaJson) {
       throw FormatException('非法 Delta JSON: op 缺少 insert', deltaJson);
     }
   }
+  var ops = data.cast<Map<String, dynamic>>();
+  if (ops.isEmpty) return ops;
   final last = ops.last;
   final lastInsert = last['insert'];
   if (lastInsert is String && !lastInsert.endsWith('\n')) {
     ops = [...ops, {'insert': '\n'}];
   }
+  return ops;
+}
+
+/// 将 Quill Delta JSON 转为纯文本；非法结构抛 [FormatException]。
+///
+/// `'{}'` 与 `''`（空文档占位）返回空串。
+String deltaToPlainText(String deltaJson) {
+  final ops = parseDeltaOps(deltaJson);
+  if (ops.isEmpty) return '';
   var text = quill.Document.fromJson(ops).toPlainText();
   // Quill 文档始终以换行结尾，toPlainText 会带出末尾 '\n'，剥掉它。
   if (text.endsWith('\n')) {

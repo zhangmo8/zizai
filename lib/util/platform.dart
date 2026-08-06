@@ -9,5 +9,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 bool get isDesktopPlatform =>
     !kIsWeb && (Platform.isMacOS || Platform.isWindows || Platform.isLinux);
 
+/// 是否为 macOS。
+bool get isMacOS => !kIsWeb && Platform.isMacOS;
+
 /// 是否为 Android。
 bool get isAndroidPlatform => !kIsWeb && Platform.isAndroid;

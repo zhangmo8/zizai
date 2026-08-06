@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart' as q;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:zi_zai/app.dart';
@@ -43,8 +44,8 @@ void main() {
     // 侧边栏空库引导
     expect(find.text('新建一本笔记本，开始写'), findsOneWidget);
     expect(find.text('新建笔记本'), findsOneWidget);
-    // 编辑器区空态
-    expect(find.text('从这里开始写…'), findsOneWidget);
+    // 编辑器区空态 = Quill 编辑器（占位「从这里开始写…」由编辑器渲染）
+    expect(find.byType(q.QuillEditor), findsOneWidget);
     // 状态栏：今日 0/2000（默认目标）+ 本文 0 字
     expect(find.text('今日 0/2000'), findsOneWidget);
     expect(find.text('本文 0 字'), findsOneWidget);
@@ -66,8 +67,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('还没有笔记本'), findsNothing);
     expect(find.text('新建笔记本'), findsOneWidget);
-    // 编辑器全宽显示空态
-    expect(find.text('从这里开始写…'), findsOneWidget);
+    // 编辑器全宽显示 Quill 编辑器
+    expect(find.byType(q.QuillEditor), findsOneWidget);
     expect(find.text('今日 0/2000'), findsOneWidget);
   });
 

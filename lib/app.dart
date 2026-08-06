@@ -6,6 +6,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'core/crash_journal.dart';
 import 'state/library_controller.dart';
 import 'state/settings_controller.dart';
 import 'ui/shell.dart';
@@ -103,10 +104,18 @@ abstract final class AppTheme {
 }
 
 class ZiZaiApp extends StatelessWidget {
-  const ZiZaiApp({super.key, required this.library, required this.settings});
+  const ZiZaiApp({
+    super.key,
+    required this.library,
+    required this.settings,
+    this.journal,
+  });
 
   final LibraryController library;
   final SettingsController settings;
+
+  /// 崩溃日志（null = 未接线，如测试）。
+  final CrashJournal? journal;
 
   @override
   Widget build(BuildContext context) {
@@ -119,7 +128,7 @@ class ZiZaiApp extends StatelessWidget {
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: settings.themeMode,
-          home: Shell(library: library, settings: settings),
+          home: Shell(library: library, settings: settings, journal: journal),
         );
       },
     );

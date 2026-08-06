@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'app.dart';
+import 'core/crash_journal.dart';
 import 'core/db.dart';
 import 'core/models.dart';
 import 'state/library_controller.dart';
@@ -24,9 +25,11 @@ Future<void> main() async {
     databaseFactory = databaseFactoryFfi;
   }
   final Db db;
+  final CrashJournal journal;
   try {
     final dir = await getApplicationSupportDirectory();
     db = await Db.open('${dir.path}${Platform.pathSeparator}zi-zai.db');
+    journal = await CrashJournal.create(dir);
   } on LibraryException catch (e) {
     runApp(StartupErrorView(message: e.message, path: e.path));
     return;
@@ -35,7 +38,7 @@ Future<void> main() async {
   final library = LibraryController(db);
   await settings.load();
   await library.restore();
-  runApp(ZiZaiApp(library: library, settings: settings));
+  runApp(ZiZaiApp(library: library, settings: settings, journal: journal));
 }
 
 /// 启动失败（db 打不开/迁移失败）：停止启动 + 明确错误（update.md §2）。

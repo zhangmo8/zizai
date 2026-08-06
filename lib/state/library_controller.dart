@@ -45,6 +45,17 @@ class LibraryController extends ChangeNotifier {
   String? _error;
   String? get error => _error;
 
+  /// 实时本文字数（编辑器每次变更更新；null 时回退保存快照）。
+  int? _liveDocWords;
+  int? get liveDocWords => _liveDocWords;
+
+  /// 保存失败信息（状态栏错误条 + 重试）。
+  String? _saveError;
+  String? get saveError => _saveError;
+
+  /// 保存成功时刻（状态栏闪「已保存」1s）。
+  final ValueNotifier<DateTime?> savedAt = ValueNotifier<DateTime?>(null);
+
   DeletionRequest? _pendingDeletion;
   DeletionRequest? get pendingDeletion => _pendingDeletion;
 
@@ -201,6 +212,24 @@ class LibraryController extends ChangeNotifier {
       map[nb.id] = await _db.listDocuments(nb.id);
     }
     _documentsByNotebook = map;
+    notifyListeners();
+  }
+
+  /// 实时字数上报（编辑器变更时）。
+  void reportLiveWords(int words) {
+    if (words == _liveDocWords) return;
+    _liveDocWords = words;
+    notifyListeners();
+  }
+
+  void reportSaveError(String message) {
+    _saveError = message;
+    notifyListeners();
+  }
+
+  void clearSaveError() {
+    if (_saveError == null) return;
+    _saveError = null;
     notifyListeners();
   }
 
