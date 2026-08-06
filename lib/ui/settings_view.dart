@@ -14,9 +14,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show MethodChannel;
 import 'package:share_plus/share_plus.dart';
 
+import '../core/backup/backup.dart';
 import '../core/export.dart' show exportPlainText;
 import '../core/models.dart';
-import '../core/sync/client.dart';
 import '../core/update.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
@@ -43,7 +43,7 @@ class SettingsView extends StatefulWidget {
     super.key,
     required this.settings,
     required this.library,
-    this.syncClient,
+    this.backup,
     this.updateChecker,
     this.dbSchemaVersion,
     this.exporter,
@@ -54,8 +54,8 @@ class SettingsView extends StatefulWidget {
   final SettingsController settings;
   final LibraryController library;
 
-  /// 同步引擎（null = 未接线，如单测；同步区隐藏）。
-  final SyncClient? syncClient;
+  /// 备份引擎（null = 未接线，如单测；备份区隐藏）。
+  final BackupManager? backup;
 
   /// 更新检查（null = 未接线，如单测；关于区隐藏更新按钮）。
   final UpdateChecker? updateChecker;
@@ -91,6 +91,22 @@ class _SettingsViewState extends State<SettingsView> {
     super.initState();
     if (widget.autoFocusDailyGoal) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _goalFocus.requestFocus());
+    }
+    // 回填已保存的备份凭据（仅本地 settings 表；备份区未接线时跳过）。
+    if (widget.backup != null) {
+      final db = widget.settings.db;
+      db.getSetting('backup.accountId').then((v) {
+        if (mounted) _backupAccountController.text = v ?? '';
+      });
+      db.getSetting('backup.bucket').then((v) {
+        if (mounted) _backupBucketController.text = v ?? '';
+      });
+      db.getSetting('backup.accessKey').then((v) {
+        if (mounted) _backupAccessController.text = v ?? '';
+      });
+      db.getSetting('backup.secretKey').then((v) {
+        if (mounted) _backupSecretController.text = v ?? '';
+      });
     }
   }
 
@@ -173,25 +189,14 @@ class _SettingsViewState extends State<SettingsView> {
                   _Section('写作', children: [
                     _row('每日目标字数', _goalField()),
                   ]),
-                  if (widget.syncClient != null) ...[
-                    _Section('同步', children: [
-                      _row('云同步', _syncToggle()),
-                      _row('同步地址', _syncUrlField()),
-                      _row('同步令牌', _syncTokenField()),
-                      _row('上次同步', _lastSyncRow()),
-                      _syncActions(),
-                      if (widget.syncClient!.conflictBackups.value > 0)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            '有 ${widget.syncClient!.conflictBackups.value} 份本地版本已备份于 '
-                            '${widget.syncClient!.backupDir.path}/sync-bak，可在云端版本控制找回',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
+                  if (widget.backup != null) ...[
+                    _Section('备份', children: [
+                      _row('Account ID', _backupAccountField()),
+                      _row('Bucket', _backupBucketField()),
+                      _row('Access Key', _backupAccessField()),
+                      _row('Secret Key', _backupSecretField()),
+                      _row('上次备份', _lastBackupRow()),
+                      _backupActions(),
                     ]),
                   ],
                   _Section('数据', children: [
@@ -356,60 +361,83 @@ class _SettingsViewState extends State<SettingsView> {
     );
   }
 
-  // ── 同步区（sync-ui-003）──────────────────────────────────
+  // ── 备份区（全量上传备份 / 下载恢复）──────────────────────
 
-  late final TextEditingController _syncUrlController = TextEditingController(
-      text: widget.syncClient?.baseUrl ?? '');
-  late final TextEditingController _syncTokenController = TextEditingController();
+  late final TextEditingController _backupAccountController =
+      TextEditingController();
+  late final TextEditingController _backupBucketController =
+      TextEditingController();
+  late final TextEditingController _backupAccessController =
+      TextEditingController();
+  late final TextEditingController _backupSecretController =
+      TextEditingController();
 
-  Widget _syncToggle() {
-    final sync = widget.syncClient!;
-    return ListenableBuilder(
-      listenable: sync,
-      builder: (context, _) {
-        return Switch(
-          value: sync.enabled,
-          onChanged: (v) => sync.setEnabled(v),
-        );
-      },
-    );
+  Future<void> _saveBackupConfig(String key, String value) async {
+    await widget.settings.db.setSetting(key, value.trim());
+    await widget.backup!.reloadConfig();
   }
 
-  Widget _syncUrlField() {
+  Widget _backupAccountField() {
     return TextField(
-      controller: _syncUrlController,
+      controller: _backupAccountController,
       style: const TextStyle(fontSize: 13),
       decoration: const InputDecoration(
         isDense: true,
         border: OutlineInputBorder(),
-        hintText: 'https://zizai-sync.xxx.workers.dev',
+        hintText: 'R2 Account ID（10 位十六进制）',
       ),
-      onSubmitted: (v) => widget.syncClient!.setBaseUrl(v.trim()),
+      onSubmitted: (v) => _saveBackupConfig('backup.accountId', v),
     );
   }
 
-  Widget _syncTokenField() {
+  Widget _backupBucketField() {
     return TextField(
-      controller: _syncTokenController,
-      obscureText: true, // 掩码显示；token 仅存本地 settings 表
+      controller: _backupBucketController,
       style: const TextStyle(fontSize: 13),
       decoration: const InputDecoration(
         isDense: true,
         border: OutlineInputBorder(),
-        hintText: 'Worker secret（SYNC_TOKEN）',
+        hintText: 'R2 Bucket 名',
       ),
-      onSubmitted: (v) => widget.syncClient!.setToken(v.trim()),
+      onSubmitted: (v) => _saveBackupConfig('backup.bucket', v),
     );
   }
 
-  Widget _lastSyncRow() {
-    final sync = widget.syncClient!;
+  Widget _backupAccessField() {
+    return TextField(
+      controller: _backupAccessController,
+      style: const TextStyle(fontSize: 13),
+      decoration: const InputDecoration(
+        isDense: true,
+        border: OutlineInputBorder(),
+        hintText: 'R2 Access Key ID',
+      ),
+      onSubmitted: (v) => _saveBackupConfig('backup.accessKey', v),
+    );
+  }
+
+  Widget _backupSecretField() {
+    return TextField(
+      controller: _backupSecretController,
+      obscureText: true, // 掩码显示；凭据仅存本地 settings 表，绝不进快照
+      style: const TextStyle(fontSize: 13),
+      decoration: const InputDecoration(
+        isDense: true,
+        border: OutlineInputBorder(),
+        hintText: 'R2 Secret Access Key',
+      ),
+      onSubmitted: (v) => _saveBackupConfig('backup.secretKey', v),
+    );
+  }
+
+  Widget _lastBackupRow() {
+    final backup = widget.backup!;
     return ListenableBuilder(
-      listenable: sync.lastSyncAt,
+      listenable: backup.lastBackupAt,
       builder: (context, _) {
-        final at = sync.lastSyncAt.value;
+        final at = backup.lastBackupAt.value;
         return Text(
-          at == null ? '从未同步' : '${_relativeTime(at)}（${at.toLocal()}）',
+          at == null ? '从未备份' : '${_relativeTime(at)}（${at.toLocal()}）',
           style: TextStyle(
               fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
         );
@@ -425,28 +453,41 @@ class _SettingsViewState extends State<SettingsView> {
     return '${diff.inDays} 天前';
   }
 
-  Widget _syncActions() {
-    final sync = widget.syncClient!;
+  Widget _backupActions() {
+    final backup = widget.backup!;
     return ListenableBuilder(
-      listenable: Listenable.merge([sync.state, sync.failureCount, sync.lastError]),
+      listenable: Listenable.merge([backup.state, backup.failureCount, backup.lastError]),
       builder: (context, _) {
         final colors = Theme.of(context).colorScheme;
-        final syncing = sync.state.value == SyncState.syncing;
-        final error = sync.lastError.value;
+        final busy = backup.state.value == BackupState.uploading ||
+            backup.state.value == BackupState.downloading;
+        final error = backup.lastError.value;
+        final configured = backup.configured;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 FilledButton.tonal(
-                  onPressed: syncing ? null : () => sync.syncNow(),
-                  child: syncing
+                  onPressed: (!configured || busy) ? null : _runUpload,
+                  child: backup.state.value == BackupState.uploading
                       ? const SizedBox(
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('立即同步'),
+                      : const Text('上传备份'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: (!configured || busy) ? null : _confirmDownload,
+                  child: backup.state.value == BackupState.downloading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('下载恢复'),
                 ),
                 if (error != null) ...[
                   const SizedBox(width: 12),
@@ -461,9 +502,18 @@ class _SettingsViewState extends State<SettingsView> {
                 ],
               ],
             ),
-            if (error != null && !syncing)
+            if (!configured)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  '填写四项 R2 凭据后即可备份（Secret 仅存本机）',
+                  style: TextStyle(
+                      fontSize: 12, color: colors.onSurfaceVariant),
+                ),
+              ),
+            if (error != null && !busy)
               TextButton(
-                onPressed: () => sync.syncNow(),
+                onPressed: () => backup.upload(),
                 style: TextButton.styleFrom(foregroundColor: colors.error),
                 child: const Text('重试'),
               ),
@@ -471,6 +521,45 @@ class _SettingsViewState extends State<SettingsView> {
         );
       },
     );
+  }
+
+  Future<void> _runUpload() async {
+    await widget.backup!.upload();
+  }
+
+  /// 下载恢复会覆盖本地数据 → 二次确认；恢复后刷新库与设置控制器。
+  Future<void> _confirmDownload() async {
+    final colors = Theme.of(context).colorScheme;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('下载恢复'),
+        content: const Text('将用云端备份覆盖本地全部数据。\n'
+            '本地数据会先自动备份为 .bak 文件（保留最近 3 份），仍可找回。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: colors.error),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('恢复'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final ok = await widget.backup!.download();
+    if (ok && mounted) {
+      await widget.library.restore();
+      await widget.settings.load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已从云端备份恢复')),
+        );
+      }
+    }
   }
 
   late final TextEditingController _updateUrlController = TextEditingController(
@@ -499,6 +588,12 @@ class _SettingsViewState extends State<SettingsView> {
         final status = checker.status.value;
         final downloading = status == UpdateStatus.downloading;
         final available = status == UpdateStatus.ready;
+        final version = checker.availableVersion.value ?? '';
+        final label = switch (status) {
+          UpdateStatus.available => '下载并安装 v$version',
+          UpdateStatus.ready => '安装 v$version',
+          _ => '检查更新',
+        };
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -515,7 +610,7 @@ class _SettingsViewState extends State<SettingsView> {
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Text(available ? '有新版，点击安装' : '检查更新'),
+                      : Text(label),
                 ),
                 if (downloading && checker.progress.value != null)
                   Padding(
@@ -551,9 +646,15 @@ class _SettingsViewState extends State<SettingsView> {
   Future<void> _runUpdateCheck() async {
     final checker = widget.updateChecker!;
     try {
-      await checker.checkForUpdate();
-      if (checker.status.value == UpdateStatus.ready) {
-        await _installPackage();
+      switch (checker.status.value) {
+        case UpdateStatus.none || UpdateStatus.error:
+          await checker.check(); // 第一步：发现新版 → available（待确认）
+        case UpdateStatus.available:
+          await checker.install(); // 第二步：确认下载 → 校验 → ready
+        case UpdateStatus.ready:
+          await _installPackage(); // 已就绪：执行平台安装/解压
+        case UpdateStatus.downloading:
+          break; // 进行中
       }
     } catch (_) {
       // 错误已入 checker.error

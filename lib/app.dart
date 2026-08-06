@@ -6,8 +6,8 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'core/backup/backup.dart';
 import 'core/crash_journal.dart';
-import 'core/sync/client.dart';
 import 'core/update.dart';
 import 'state/library_controller.dart';
 import 'state/settings_controller.dart';
@@ -111,7 +111,7 @@ class ZiZaiApp extends StatelessWidget {
     required this.library,
     required this.settings,
     this.journal,
-    this.syncClient,
+    this.backup,
     this.updateChecker,
   });
 
@@ -121,8 +121,8 @@ class ZiZaiApp extends StatelessWidget {
   /// 崩溃日志（null = 未接线，如测试）。
   final CrashJournal? journal;
 
-  /// 同步引擎（null = 未接线，如测试）。
-  final SyncClient? syncClient;
+  /// 全量备份引擎（null = 未接线，如测试）。
+  final BackupManager? backup;
 
   /// 更新检查（null = 未接线，如测试）。
   final UpdateChecker? updateChecker;
@@ -142,7 +142,7 @@ class ZiZaiApp extends StatelessWidget {
               library: library,
               settings: settings,
               journal: journal,
-              syncClient: syncClient,
+              backup: backup,
               updateChecker: updateChecker),
         );
       },

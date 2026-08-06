@@ -16,7 +16,7 @@ import '../core/crash_journal.dart';
 import '../core/export.dart' show emptyDeltaJson, parseDeltaOps;
 import '../core/models.dart' as m;
 import '../core/word_count.dart';
-import '../core/sync/client.dart';
+import '../core/backup/backup.dart';
 import '../core/update.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
@@ -38,7 +38,7 @@ class EditorView extends StatefulWidget {
     required this.settings,
     required this.focusMode,
     required this.onToggleFocusMode,
-    this.syncClient,
+    this.backup,
     this.updateChecker,
     this.toolbarDismissTick,
     this.saveTick,
@@ -57,7 +57,7 @@ class EditorView extends StatefulWidget {
   final ValueNotifier<int>? saveTick;
 
   /// 同步引擎（null = 未接线，如单测）。
-  final SyncClient? syncClient;
+  final BackupManager? backup;
 
   /// 更新检查（null = 未接线，如单测）。
   final UpdateChecker? updateChecker;
@@ -306,7 +306,7 @@ class _EditorViewState extends State<EditorView> {
           library: widget.library,
           settings: widget.settings,
           onRetrySave: _saveNow,
-          syncClient: widget.syncClient,
+          backup: widget.backup,
           onOpenSettings: ({bool focusDailyGoal = false, bool focusSync = false}) =>
               _openSettings(focusDailyGoal: focusDailyGoal, focusSync: focusSync),
         ),
@@ -384,7 +384,7 @@ class _EditorViewState extends State<EditorView> {
     final view = SettingsView(
       settings: widget.settings,
       library: widget.library,
-      syncClient: widget.syncClient,
+      backup: widget.backup,
       updateChecker: widget.updateChecker,
       dbSchemaVersion: widget.updateChecker?.dbSchemaVersion,
       autoFocusDailyGoal: focusDailyGoal,

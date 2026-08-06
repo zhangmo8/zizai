@@ -4,6 +4,7 @@
 /// 注入 Shell）、docs/app/update.md §2（db 打开/迁移失败 → 停止启动 + 明确错误）。
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -13,10 +14,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'app.dart';
+import 'core/backup/backup.dart';
 import 'core/crash_journal.dart';
 import 'core/db.dart';
 import 'core/models.dart';
-import 'core/sync/client.dart';
 import 'core/update.dart';
 import 'state/library_controller.dart';
 import 'state/settings_controller.dart';
@@ -43,8 +44,11 @@ Future<void> main() async {
   final library = LibraryController(db);
   await settings.load();
   await library.restore();
-  final syncClient = SyncClient(db: db, baseUrl: '', backupDir: dir);
-  await syncClient.initialize();
+  final backup = BackupManager(
+    db: db,
+    dbPath: '${dir.path}${Platform.pathSeparator}zi-zai.db',
+  );
+  await backup.reloadConfig();
 
   // 更新检查（upd-001）：App 版本来自 package_info，更新 URL 可配置
   var appVersion = '0.1.0';
@@ -62,11 +66,16 @@ Future<void> main() async {
     installDir: updatesDir,
   );
 
+  // 启动后异步检查一次（update.md §3）；失败静默（设置页可手动重试）。
+  if (updateChecker.updateUrl.trim().isNotEmpty) {
+    unawaited(updateChecker.check().catchError((_) => null));
+  }
+
   runApp(ZiZaiApp(
     library: library,
     settings: settings,
     journal: journal,
-    syncClient: syncClient,
+    backup: backup,
     updateChecker: updateChecker,
   ));
 }

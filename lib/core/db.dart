@@ -345,6 +345,13 @@ CREATE TABLE last_open (
     return rows.map(Document.fromRow).toList();
   }
 
+  /// 全部文档（跨笔记本；全量快照导出用）。
+  Future<List<Document>> listAllDocuments() async {
+    final rows =
+        await _db.query('documents', orderBy: 'position ASC, created_at ASC');
+    return rows.map(Document.fromRow).toList();
+  }
+
   Future<Document?> getDocument(String id) async {
     final rows = await _db.query('documents', where: 'id = ?', whereArgs: [id], limit: 1);
     return rows.isEmpty ? null : Document.fromRow(rows.first);
@@ -672,5 +679,56 @@ CREATE TABLE last_open (
   /// 云端 tombstone 应用：物理删除本地行（不标记脏，避免回推）。
   Future<void> removeEntityNoDirty(String table, String id) async {
     await _db.delete(table, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ── 全量恢复导入（备份模型）───────────────────────────────
+
+  /// 全量替换导入：事务内清空各表并按快照重建。
+  /// 不标记脏、不触发 onMutation（调用方负责备份本地 db 文件与刷新控制器）。
+  Future<void> importFull({
+    required List<Map<String, dynamic>> notebooks,
+    required List<Map<String, dynamic>> docs,
+    required Map<String, String> settings,
+    required Map<String, int> stats,
+  }) async {
+    await _db.transaction((txn) async {
+      await txn.delete('last_open');
+      await txn.delete('stats');
+      await txn.delete('settings');
+      await txn.delete('documents');
+      await txn.delete('notebooks');
+      await txn.delete('sync_journal');
+      for (final n in notebooks) {
+        await txn.insert('notebooks', {
+          'id': n['id'],
+          'name': n['name'],
+          'position': n['position'] ?? 0,
+          'created_at': n['createdAt'] ?? _nowMs(),
+          'updated_at': n['updatedAt'] ?? 0,
+        });
+      }
+      for (final d in docs) {
+        await txn.insert('documents', {
+          'id': d['id'],
+          'notebook_id': d['notebookId'],
+          'title': d['title'] ?? '',
+          'content': d['content'] ?? emptyDeltaJson,
+          'words': d['words'] ?? 0,
+          'position': d['position'] ?? 0,
+          'created_at': d['createdAt'] ?? _nowMs(),
+          'updated_at': d['updatedAt'] ?? 0,
+        });
+      }
+      for (final e in settings.entries) {
+        await txn.insert('settings', {'key': e.key, 'value': e.value},
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      for (final e in stats.entries) {
+        if (e.value > 0) {
+          await txn.insert('stats', {'date': e.key, 'words': e.value},
+              conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+      }
+    });
   }
 }

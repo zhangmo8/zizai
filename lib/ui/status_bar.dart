@@ -9,7 +9,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../core/sync/client.dart';
+import '../core/backup/backup.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 
@@ -18,7 +18,7 @@ class StatusBar extends StatefulWidget {
     super.key,
     required this.library,
     required this.settings,
-    this.syncClient,
+    this.backup,
     this.onRetrySave,
     this.onOpenSettings,
   });
@@ -26,8 +26,8 @@ class StatusBar extends StatefulWidget {
   final LibraryController library;
   final SettingsController settings;
 
-  /// 同步引擎（null = 未接线，如单测；同步指示隐藏）。
-  final SyncClient? syncClient;
+  /// 备份引擎（null = 未接线，如单测；备份指示隐藏）。
+  final BackupManager? backup;
 
   /// 保存失败「重试」回调（editor 注入；null 时不显示重试）。
   final Future<void> Function()? onRetrySave;
@@ -157,9 +157,9 @@ class _StatusBarState extends State<StatusBar> {
             style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
           ),
           const Spacer(),
-          if (widget.syncClient != null)
-            _SyncIndicator(
-              sync: widget.syncClient!,
+          if (widget.backup != null)
+            _BackupIndicator(
+              backup: widget.backup!,
               onTap: () => widget.onOpenSettings?.call(focusSync: true),
             ),
           if (_showSaved)
@@ -183,24 +183,25 @@ class _StatusBarState extends State<StatusBar> {
   }
 }
 
-/// 同步状态点：● 已同步 / ⟳ 同步中 / ⚠ 失败 n 次；云同步关闭时不显示。
-class _SyncIndicator extends StatelessWidget {
-  const _SyncIndicator({required this.sync, required this.onTap});
+/// 备份状态点：● 已备份 / ⟳ 备份中 / ⚠ 失败 n 次；未配置凭据时不显示。
+class _BackupIndicator extends StatelessWidget {
+  const _BackupIndicator({required this.backup, required this.onTap});
 
-  final SyncClient sync;
+  final BackupManager backup;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return ListenableBuilder(
-      listenable: sync,
+      listenable: backup,
       builder: (context, _) {
-        if (!sync.enabled) return const SizedBox.shrink();
-        final (icon, text, color) = switch (sync.state.value) {
-          SyncState.syncing => ('⟳', '同步中', colors.onSurfaceVariant),
-          SyncState.error => ('⚠', '失败 ${sync.failureCount.value} 次', colors.error),
-          SyncState.idle => ('●', '已同步', colors.primary),
+        if (!backup.configured) return const SizedBox.shrink();
+        final (icon, text, color) = switch (backup.state.value) {
+          BackupState.uploading => ('⟳', '备份中', colors.onSurfaceVariant),
+          BackupState.downloading => ('⟳', '恢复中', colors.onSurfaceVariant),
+          BackupState.error => ('⚠', '失败 ${backup.failureCount.value} 次', colors.error),
+          BackupState.idle => ('●', '已备份', colors.primary),
         };
         return InkWell(
           onTap: onTap,

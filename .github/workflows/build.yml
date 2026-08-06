@@ -25,11 +25,6 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
       - run: flutter pub get
-      - name: 准备 Worker（集成测试前置：esbuild 打包）
-        working-directory: worker
-        run: |
-          npm ci
-          npm run pretest
       - run: flutter test
       - run: flutter build apk --release
       - name: 上传 APK

@@ -99,8 +99,14 @@ class UpdateChecker {
   final ValueNotifier<String?> error = ValueNotifier(null);
   final ValueNotifier<String?> readyPath = ValueNotifier(null);
 
+  /// 发现的新版本号（available 态展示）。
+  final ValueNotifier<String?> availableVersion = ValueNotifier(null);
+
   /// 拉取清单：有新版本（语义化 > 当前）且 minDbSchema <= 本地 → 可更新。
   Future<UpdateManifest?> fetchManifest() async {
+    if (updateUrl.trim().isEmpty) {
+      throw UpdateException('更新地址未配置，请在设置中填写 update.json 地址');
+    }
     final res = await httpClient.get(Uri.parse(updateUrl)).timeout(const Duration(seconds: 15));
     if (res.statusCode != 200) {
       throw UpdateException('清单拉取失败 (HTTP ${res.statusCode})');
@@ -124,14 +130,17 @@ class UpdateChecker {
     if (digest.toLowerCase() != sha256.toLowerCase()) {
       throw UpdateException('安装包校验失败（sha256 不符），已拒绝安装');
     }
+    if (!await installDir.exists()) {
+      await installDir.create(recursive: true);
+    }
     final file = File('${installDir.path}${Platform.pathSeparator}${_fileName(url)}');
     await file.writeAsBytes(res.bodyBytes);
     return file;
   }
 
-  /// 检查更新：manifest → 下载 → 校验 → 安装（或就绪提示）。
-  Future<UpdateManifest?> checkForUpdate() async {
-    status.value = UpdateStatus.downloading;
+  /// 检查更新（第一步）：拉取清单 → 有新版本则进入 available（待用户确认下载）。
+  /// update.md §3：自用策略 = 提示式，不静默安装；发现新版须用户确认后才下载。
+  Future<UpdateManifest?> check() async {
     error.value = null;
     try {
       final manifest = await fetchManifest();
@@ -139,9 +148,31 @@ class UpdateChecker {
         status.value = UpdateStatus.none;
         return null;
       }
-      status.value = UpdateStatus.downloading;
+      status.value = UpdateStatus.available;
+      availableVersion.value = manifest.latest;
+      return manifest;
+    } on UpdateException catch (e) {
+      status.value = UpdateStatus.error;
+      error.value = e.message;
+      rethrow;
+    } catch (e) {
+      status.value = UpdateStatus.error;
+      error.value = '检查更新失败: $e';
+      rethrow;
+    }
+  }
+
+  /// 下载安装（第二步）：仅 available 状态可触发；下载 → sha256 校验 → ready。
+  Future<UpdateManifest> install() async {
+    if (status.value != UpdateStatus.available) {
+      throw UpdateException('当前没有待安装的更新');
+    }
+    error.value = null;
+    status.value = UpdateStatus.downloading;
+    try {
+      final manifest = await fetchManifest(); // 重新拉取拿最新清单（含下载地址）
       final platform = _platformKey();
-      final entry = manifest.platforms[platform];
+      final entry = manifest!.platforms[platform];
       if (entry == null) {
         throw UpdateException('当前平台无安装包（$platform）');
       }
@@ -155,9 +186,18 @@ class UpdateChecker {
       rethrow;
     } catch (e) {
       status.value = UpdateStatus.error;
-      error.value = '检查更新失败: $e';
+      error.value = '下载安装失败: $e';
       rethrow;
     }
+  }
+
+  /// 兼容别名（历史测试/调用）：check + install。
+  Future<UpdateManifest?> checkForUpdate() async {
+    final manifest = await check();
+    if (manifest != null) {
+      await install();
+    }
+    return manifest;
   }
 
   static String _fileName(String url) {

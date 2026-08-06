@@ -18,8 +18,8 @@ Status: Draft（v2：SQLite 存储 + 所见即所得编辑器）
 | 每日目标 | `dailyGoal` | 当日目标字数（可配置） |
 | 今日增量 | `todayDelta` | 当日累计新增字数，见 §4 增量规则 |
 | 沉浸模式 | `FocusMode` | 隐藏侧边栏、工具栏、状态栏的纯编辑状态 |
-| 设备 | `Device` | 安装实例（UUID）；云同步的推送来源标记 |
-| 同步状态 | `SyncState` | idle / syncing / error / off（状态栏指示） |
+| 设备 | `Device` | 安装实例（UUID）；快照导出的来源标记 |
+| 备份状态 | `BackupState` | idle / uploading / downloading / error（状态栏指示） |
 | DB schema 版本 | `schemaVersion` | `PRAGMA user_version`，迁移驱动（见 update.md） |
 
 ## 3. 信息架构
@@ -81,7 +81,7 @@ CREATE TABLE last_open (
 
 - settings 键：`theme` / `fontFamily` / `fontSize` / `lineHeight` / `dailyGoal`。
 - 升级路径：sqflite `onUpgrade` 版本化迁移（`PRAGMA user_version`）；**DB schema 版本号是长期演进基础**——任何加字段/改表必须走迁移链（见 docs/app/update.md §2）；升级前自动备份 db 文件为 `zi-zai.db.bak`（滚动保留 3 份）。
-- 云同步数据模型与 blob 结构见 docs/app/sync.md。
+- 云备份数据模型与快照结构见 docs/app/sync.md。
 - db 位置：`path_provider` 应用支持目录，桌面与 Android 一致；设置页展示路径。
 
 ### 增量规则
@@ -99,30 +99,28 @@ lib/
 │  ├─ db.dart                # SQLite 打开、schema、CRUD、迁移链（user_version）
 │  ├─ word_count.dart        # 字数算法（纯函数，输入纯文本）
 │  ├─ export.dart            # 文档 → 纯文本导出
-│  ├─ sync/                  # 云同步（见 docs/app/sync.md）
-│  │  ├─ protocol.dart       # envelope / pull / push / 版本协商
-│  │  └─ client.dart         # 同步引擎：journal、LWW 应用、退避重试
+│  ├─ backup/                # 云备份（见 docs/app/sync.md）
+│  │  ├─ snapshot.dart       # 全量快照导出/恢复导入
+│  │  ├─ s3_store.dart       # R2 直连（SigV4 签名 PUT/GET）
+│  │  └─ backup.dart         # 备份引擎：上传/下载状态机
 │  └─ update.dart            # 更新检查：清单、sha256 校验、安装
 ├─ state/
 │  ├─ library_controller.dart  # 目录树 + 当前文档 + 未保存缓冲 + 今日增量
-│  └─ settings_controller.dart # 设置状态与持久化（含同步配置）
+│  └─ settings_controller.dart # 设置状态与持久化（含备份凭据）
 ├─ ui/
 │  ├─ shell.dart             # 主界面壳 + 自适应
 │  ├─ sidebar.dart           # 文档树
 │  ├─ editor.dart            # Quill 编辑器 + 上下文工具栏 + 自动保存
-│  ├─ status_bar.dart        # 字数/目标/同步状态
+│  ├─ status_bar.dart        # 字数/目标/备份状态
 │  ├─ focus_view.dart        # 沉浸模式包装
-│  └─ settings_view.dart     # 设置页/对话框（含同步区、关于区）
+│  └─ settings_view.dart     # 设置页/对话框（含备份区、关于区）
 └─ util/
    ├─ debounce.dart          # 防抖
    └─ platform.dart          # 平台差异工具
 ```
 
 ```text
-worker/                      # CF Worker 网关（云同步，独立部署）
-├─ src/index.ts              # pull/push、token 校验、服务器时间戳
-├─ wrangler.toml             # R2 bucket 绑定、secret 声明
-└─ README.md                 # 部署步骤（wrangler deploy、开启 bucket 版本控制）
+（无独立后端：云备份直连 R2，见 docs/app/sync.md）
 ```
 
 ## 6. 所有权与状态流
@@ -134,8 +132,8 @@ library_controller  ──读写──► db.dart（notebooks/documents/stats/la
         ├──► sidebar（读树，触发 CRUD/排序）
         ├──► editor（读写当前 Document Delta，触发自动保存）
         └──► status_bar（读今日增量/当前文档字数）
-sync_client ──(异步)──► db.dart + R2(经 Worker)   # 见 docs/app/sync.md
-update_checker ──(异步)──► R2 update.json          # 见 docs/app/update.md
+backup_manager ──(手动)──► db.dart 全量快照 + R2 直连   # 见 docs/app/sync.md
+update_checker ──(异步)──► update.json（GitHub Releases）  # 见 docs/app/update.md
 ```
 
 - 状态所有者：`library_controller`（目录树、当前文档 id、未保存缓冲、今日增量）。
@@ -170,8 +168,8 @@ update_checker ──(异步)──► R2 update.json          # 见 docs/app/up
 | Android 存应用支持目录 | 免存储权限 | 手机端文件不外露，靠导出 |
 | 单 ChangeNotifier + provider | 单用户单屏，复杂度低 | 后续多窗口/协同需重构 |
 | V1 纯文本导出 + db 备份 | 数据安全出口最小实现 | 导出 md 全集要等 V2 |
-| 云同步以 R2 为基准 + Worker 网关 | 用户指定 CF 存储；R2 免 egress、免费额度足；Worker 免客户端嵌 S3 密钥、服务器签发时间 | 多一个 Worker 部署步骤 |
-| 文档级 LWW + 输家双备份 | 单用户跨设备足够；绝不静默丢字（本地 .sync-bak + R2 版本控制） | 同文档双端同改，一端需手工找回（有备份） |
-| 不选 D1 做云库 | SQLite 云库虽贴合本地，但免费档库容 500MB、同步逻辑更重；blob 同步更简单 | 云侧无 SQL 查询能力 |
+| 云备份以 R2 直连（S3 API + SigV4 自签） | 用户指定 CF 存储；免服务端部署、无 Worker；密钥仅存本地 settings 表 | 客户端实现签名；凭据泄露需手动轮换 |
+| 全量快照上传/恢复 | 备份语义简单可预期；恢复前本地 .bak + R2 版本控制双兜底（永不丢字） | 无增量；恢复 = 全量替换 |
+| 不选 D1 做云库 | SQLite 云库虽贴合本地，但免费档库容 500MB、同步逻辑更重；快照备份更简单 | 云侧无 SQL 查询能力 |
 | DB schema 版本号（user_version）+ 前向迁移链 | 后续扩展字段安全演进（F8.2） | 迁移代码随版本积累，需回放测试 |
-| 同步/更新 opt-in，默认离线 | 自用工具不绑架网络 | 多设备一致性依赖用户开启 |
+| 备份/更新 opt-in，默认离线 | 自用工具不绑架网络 | 多设备一致性依赖用户手动备份 |
