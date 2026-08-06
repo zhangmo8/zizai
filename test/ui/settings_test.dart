@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -87,16 +88,18 @@ void main() {
     await pumpApp(tester, library, settings);
     await openSettings(tester);
 
-    final slider = find.byType(Slider).first; // 字号
+    final slider = find.byType(CupertinoSlider).first; // 字号
     final before = settings.settings.fontSize;
-    await tester.drag(slider, const Offset(60, 0));
-    await tester.pumpAndSettle();
+    // 直接驱动 onChanged（拖拽力学非本测试目标；CupertinoSlider 命中区与
+    // Material 不同，避免脆弱的全局坐标拖拽）。
+    final cupertino = tester.widget<CupertinoSlider>(slider);
+    cupertino.onChanged?.call(before + 2);
+    await tester.pump();
     // 让真实异步写库完成（sqflite 事务在 FakeAsync 内不会自行结束）
     for (var i = 0; i < 5; i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
       await tester.pump();
     }
-    await tester.pump(const Duration(seconds: 1)); // 释放 Slider label 计时器
     expect(settings.settings.fontSize, greaterThan(before));
 
     // 预览文本应用了字号
@@ -109,7 +112,7 @@ void main() {
     await pumpApp(tester, library, settings);
     await openSettings(tester);
 
-    await tester.enterText(find.byType(TextField), '3000');
+    await tester.enterText(find.byType(CupertinoTextField), '3000');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
 
@@ -125,7 +128,7 @@ void main() {
     await pumpApp(tester, library, settings);
     await openSettings(tester);
 
-    await tester.enterText(find.byType(TextField), '50'); // 低于下限
+    await tester.enterText(find.byType(CupertinoTextField), '50'); // 低于下限
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
     expect(settings.settings.dailyGoal, 2000); // 不变
@@ -144,7 +147,7 @@ void main() {
         exportedText = text;
       },
     );
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: view)));
+    await tester.pumpWidget(MaterialApp(theme: AppTheme.light(), home: Scaffold(body: view)));
     await tester.pump();
 
     await scrollSettingsDown(tester);

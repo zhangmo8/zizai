@@ -23,6 +23,7 @@ import '../state/settings_controller.dart';
 import '../util/debounce.dart';
 import '../util/platform.dart';
 import 'focus_view.dart';
+import 'glass.dart';
 import 'settings_view.dart';
 import 'status_bar.dart';
 
@@ -428,35 +429,42 @@ class _EditorHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Container(
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Theme.of(context).dividerColor, width: 1),
+    return GlassSurface(
+      blur: 20,
+      lightOpacity: 0.55,
+      darkOpacity: 0.45,
+      border: Border(
+        bottom: BorderSide(
+          color: Theme.of(context).colorScheme.outline,
+          width: 0.5,
         ),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 14, color: colors.onSurface),
+      child: SizedBox(
+        height: 44,
+        child: Row(
+          children: [
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 14, color: colors.onSurface),
+              ),
             ),
-          ),
-          IconButton(
-            onPressed: onToggleFocusMode,
-            tooltip: '沉浸模式 (${isMacOS ? '⌘' : 'Ctrl'}+Shift+F)',
-            icon: Icon(Icons.fullscreen, size: 20, color: colors.onSurfaceVariant),
-          ),
-          IconButton(
-            onPressed: onOpenSettings,
-            tooltip: '设置',
-            icon: Icon(Icons.settings_outlined, size: 20, color: colors.onSurfaceVariant),
-          ),
-        ],
+            IconButton(
+              onPressed: onToggleFocusMode,
+              tooltip: '沉浸模式 (${isMacOS ? '⌘' : 'Ctrl'}+Shift+F)',
+              icon: Icon(Icons.fullscreen, size: 20, color: colors.onSurfaceVariant),
+            ),
+            IconButton(
+              onPressed: onOpenSettings,
+              tooltip: '设置',
+              icon: Icon(Icons.settings_outlined, size: 20, color: colors.onSurfaceVariant),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ),
       ),
     );
   }
@@ -512,36 +520,32 @@ class _FloatingToolbar extends StatelessWidget {
       );
     }
 
-    return Material(
-      color: colors.surface,
-      elevation: 2,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: colors.outline.withValues(alpha: 0.5)),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            textBtn('H1', '标题 1', isActive('header', 1), () => quill.formatSelection(q.Attribute.h1)),
-            textBtn('H2', '标题 2', isActive('header', 2), () => quill.formatSelection(q.Attribute.h2)),
-            textBtn('H3', '标题 3', isActive('header', 3), () => quill.formatSelection(q.Attribute.h3)),
-            _sep(colors),
-            btn(icon: const Icon(Icons.format_bold), tooltip: '加粗', isActive: isActive('bold'), onTap: () => quill.formatSelection(q.Attribute.bold)),
-            btn(icon: const Icon(Icons.format_italic), tooltip: '斜体', isActive: isActive('italic'), onTap: () => quill.formatSelection(q.Attribute.italic)),
-            btn(icon: const Icon(Icons.format_underline), tooltip: '下划线', isActive: isActive('underline'), onTap: () => quill.formatSelection(q.Attribute.underline)),
-            btn(icon: const Icon(Icons.format_strikethrough), tooltip: '删除线', isActive: isActive('strike'), onTap: () => quill.formatSelection(q.Attribute.strikeThrough)),
-            _sep(colors),
-            btn(icon: const Icon(Icons.format_list_bulleted), tooltip: '无序列表', isActive: isActive('list', 'bullet'), onTap: () => quill.formatSelection(q.Attribute.ul)),
-            btn(icon: const Icon(Icons.format_list_numbered), tooltip: '有序列表', isActive: isActive('list', 'ordered'), onTap: () => quill.formatSelection(q.Attribute.ol)),
-            _sep(colors),
-            btn(icon: const Icon(Icons.format_quote), tooltip: '引用', isActive: isActive('blockquote'), onTap: () => quill.formatSelection(q.Attribute.blockQuote)),
-            btn(icon: const Icon(Icons.code), tooltip: '行内代码', isActive: isActive('code'), onTap: () => quill.formatSelection(q.Attribute.inlineCode)),
-            btn(icon: const Icon(Icons.data_object), tooltip: '代码块', isActive: isActive('code-block'), onTap: () => quill.formatSelection(q.Attribute.codeBlock)),
-          ],
-        ),
+    return GlassSurface(
+      radius: 10,
+      blur: 20,
+      lightOpacity: 0.72,
+      darkOpacity: 0.5,
+      border: Border.all(color: colors.outline.withValues(alpha: 0.6)),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          textBtn('H1', '标题 1', isActive('header', 1), () => quill.formatSelection(q.Attribute.h1)),
+          textBtn('H2', '标题 2', isActive('header', 2), () => quill.formatSelection(q.Attribute.h2)),
+          textBtn('H3', '标题 3', isActive('header', 3), () => quill.formatSelection(q.Attribute.h3)),
+          _sep(colors),
+          btn(icon: const Icon(Icons.format_bold), tooltip: '加粗', isActive: isActive('bold'), onTap: () => quill.formatSelection(q.Attribute.bold)),
+          btn(icon: const Icon(Icons.format_italic), tooltip: '斜体', isActive: isActive('italic'), onTap: () => quill.formatSelection(q.Attribute.italic)),
+          btn(icon: const Icon(Icons.format_underline), tooltip: '下划线', isActive: isActive('underline'), onTap: () => quill.formatSelection(q.Attribute.underline)),
+          btn(icon: const Icon(Icons.format_strikethrough), tooltip: '删除线', isActive: isActive('strike'), onTap: () => quill.formatSelection(q.Attribute.strikeThrough)),
+          _sep(colors),
+          btn(icon: const Icon(Icons.format_list_bulleted), tooltip: '无序列表', isActive: isActive('list', 'bullet'), onTap: () => quill.formatSelection(q.Attribute.ul)),
+          btn(icon: const Icon(Icons.format_list_numbered), tooltip: '有序列表', isActive: isActive('list', 'ordered'), onTap: () => quill.formatSelection(q.Attribute.ol)),
+          _sep(colors),
+          btn(icon: const Icon(Icons.format_quote), tooltip: '引用', isActive: isActive('blockquote'), onTap: () => quill.formatSelection(q.Attribute.blockQuote)),
+          btn(icon: const Icon(Icons.code), tooltip: '行内代码', isActive: isActive('code'), onTap: () => quill.formatSelection(q.Attribute.inlineCode)),
+          btn(icon: const Icon(Icons.data_object), tooltip: '代码块', isActive: isActive('code-block'), onTap: () => quill.formatSelection(q.Attribute.codeBlock)),
+        ],
       ),
     );
   }

@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import '../core/backup/backup.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
+import 'glass.dart';
 
 class StatusBar extends StatefulWidget {
   const StatusBar({
@@ -118,35 +119,41 @@ class _StatusBarState extends State<StatusBar> {
         widget.library.currentDocument?.words ??
         0;
 
-    return Container(
-      height: 32,
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: Theme.of(context).dividerColor, width: 1),
+    return GlassSurface(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      blur: 20,
+      lightOpacity: 0.55,
+      darkOpacity: 0.45,
+      border: Border(
+        top: BorderSide(
+          color: Theme.of(context).colorScheme.outline,
+          width: 0.5,
         ),
       ),
-      child: Row(
-        children: [
-          const SizedBox(width: 16),
-          InkWell(
-            onTap: () => widget.onOpenSettings?.call(focusDailyGoal: true),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Text(
-                '今日 $delta/$goal',
-                style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+      child: SizedBox(
+        height: 32,
+        child: Row(
+          children: [
+            const SizedBox(width: 0),
+            InkWell(
+              onTap: () => widget.onOpenSettings?.call(focusDailyGoal: true),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(
+                  '今日 $delta/$goal',
+                  style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 120,
-            child: ClipRRect(
-              borderRadius: BorderRadius.zero,
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 2,
-                color: colors.primary,
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 120,
+              child: ClipRRect(
+                borderRadius: BorderRadius.zero,
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 2,
+                  color: colors.primary,
                 backgroundColor: colors.outline.withValues(alpha: 0.4),
               ),
             ),
@@ -178,6 +185,7 @@ class _StatusBarState extends State<StatusBar> {
             ),
           const SizedBox(width: 16),
         ],
+        ),
       ),
     );
   }

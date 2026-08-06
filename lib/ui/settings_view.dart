@@ -10,6 +10,7 @@ import 'dart:io';
 
 import 'package:archive/archive_io.dart' show extractFileToDisk;
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show MethodChannel;
 import 'package:share_plus/share_plus.dart';
@@ -260,31 +261,32 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   Widget _themePicker() {
-    return DropdownButton<String>(
+    return _ValuePicker<String>(
       value: _s.theme,
-      isExpanded: true,
-      items: const [
-        DropdownMenuItem(value: 'system', child: Text('跟随系统')),
-        DropdownMenuItem(value: 'light', child: Text('浅色')),
-        DropdownMenuItem(value: 'dark', child: Text('深色')),
-      ],
-      onChanged: (v) {
-        if (v != null) _update(_s.copyWith(theme: v));
+      display: switch (_s.theme) {
+        'system' => '跟随系统',
+        'light' => '浅色',
+        'dark' => '深色',
+        _ => _s.theme,
       },
+      options: const [
+        (label: '跟随系统', value: 'system'),
+        (label: '浅色', value: 'light'),
+        (label: '深色', value: 'dark'),
+      ],
+      onChanged: (v) => _update(_s.copyWith(theme: v)),
     );
   }
 
   Widget _fontPicker() {
-    return DropdownButton<String>(
+    return _ValuePicker<String>(
       value: _s.fontFamily,
-      isExpanded: true,
-      items: [
+      display: _s.fontFamily.isEmpty ? '系统默认' : _s.fontFamily,
+      options: [
         for (final f in kFontChoices)
-          DropdownMenuItem(value: f, child: Text(f.isEmpty ? '系统默认' : f)),
+          (label: f.isEmpty ? '系统默认' : f, value: f),
       ],
-      onChanged: (v) {
-        if (v != null) _update(_s.copyWith(fontFamily: v));
-      },
+      onChanged: (v) => _update(_s.copyWith(fontFamily: v)),
     );
   }
 
@@ -299,12 +301,11 @@ class _SettingsViewState extends State<SettingsView> {
     return Row(
       children: [
         Expanded(
-          child: Slider(
+          child: CupertinoSlider(
             value: value.clamp(min, max),
             min: min,
             max: max,
             divisions: ((max - min) / step).round(),
-            label: label,
             onChanged: onChanged,
           ),
         ),
@@ -343,15 +344,20 @@ class _SettingsViewState extends State<SettingsView> {
     if (!_goalFocus.hasFocus && _goalController.text != current) {
       _goalController.text = current;
     }
-    return TextField(
+    return CupertinoTextField(
       controller: _goalController,
       focusNode: _goalFocus,
       keyboardType: TextInputType.number,
       style: const TextStyle(fontSize: 13),
-      decoration: const InputDecoration(
-        isDense: true,
-        border: OutlineInputBorder(),
-        hintText: '100–50000',
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      placeholder: '100–50000',
+      placeholderStyle: TextStyle(
+        fontSize: 13,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
       onSubmitted: (v) {
         final n = int.tryParse(v.trim());
@@ -377,55 +383,59 @@ class _SettingsViewState extends State<SettingsView> {
     await widget.backup!.reloadConfig();
   }
 
-  Widget _backupAccountField() {
-    return TextField(
-      controller: _backupAccountController,
+  /// iOS 风格输入框（hairline 描边、圆角 6、placeholder 用次要文字色）。
+  Widget _iosField(
+    TextEditingController controller, {
+    required String hint,
+    bool obscure = false,
+    required ValueChanged<String> onSubmitted,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return CupertinoTextField(
+      controller: controller,
+      obscureText: obscure,
       style: const TextStyle(fontSize: 13),
-      decoration: const InputDecoration(
-        isDense: true,
-        border: OutlineInputBorder(),
-        hintText: 'R2 Account ID（10 位十六进制）',
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        border: Border.all(color: colors.outline),
+        borderRadius: BorderRadius.circular(6),
       ),
+      placeholder: hint,
+      placeholderStyle:
+          TextStyle(fontSize: 13, color: colors.onSurfaceVariant),
+      onSubmitted: onSubmitted,
+    );
+  }
+
+  Widget _backupAccountField() {
+    return _iosField(
+      _backupAccountController,
+      hint: 'R2 Account ID（10 位十六进制）',
       onSubmitted: (v) => _saveBackupConfig('backup.accountId', v),
     );
   }
 
   Widget _backupBucketField() {
-    return TextField(
-      controller: _backupBucketController,
-      style: const TextStyle(fontSize: 13),
-      decoration: const InputDecoration(
-        isDense: true,
-        border: OutlineInputBorder(),
-        hintText: 'R2 Bucket 名',
-      ),
+    return _iosField(
+      _backupBucketController,
+      hint: 'R2 Bucket 名',
       onSubmitted: (v) => _saveBackupConfig('backup.bucket', v),
     );
   }
 
   Widget _backupAccessField() {
-    return TextField(
-      controller: _backupAccessController,
-      style: const TextStyle(fontSize: 13),
-      decoration: const InputDecoration(
-        isDense: true,
-        border: OutlineInputBorder(),
-        hintText: 'R2 Access Key ID',
-      ),
+    return _iosField(
+      _backupAccessController,
+      hint: 'R2 Access Key ID',
       onSubmitted: (v) => _saveBackupConfig('backup.accessKey', v),
     );
   }
 
   Widget _backupSecretField() {
-    return TextField(
-      controller: _backupSecretController,
-      obscureText: true, // 掩码显示；凭据仅存本地 settings 表，绝不进快照
-      style: const TextStyle(fontSize: 13),
-      decoration: const InputDecoration(
-        isDense: true,
-        border: OutlineInputBorder(),
-        hintText: 'R2 Secret Access Key',
-      ),
+    return _iosField(
+      _backupSecretController,
+      hint: 'R2 Secret Access Key',
+      obscure: true, // 掩码显示；凭据仅存本地 settings 表，绝不进快照
       onSubmitted: (v) => _saveBackupConfig('backup.secretKey', v),
     );
   }
@@ -468,7 +478,8 @@ class _SettingsViewState extends State<SettingsView> {
           children: [
             Row(
               children: [
-                FilledButton.tonal(
+                CupertinoButton.filled(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   onPressed: (!configured || busy) ? null : _runUpload,
                   child: backup.state.value == BackupState.uploading
                       ? const SizedBox(
@@ -479,7 +490,9 @@ class _SettingsViewState extends State<SettingsView> {
                       : const Text('上传备份'),
                 ),
                 const SizedBox(width: 8),
-                OutlinedButton(
+                CupertinoButton(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  disabledColor: colors.onSurfaceVariant.withValues(alpha: 0.3),
                   onPressed: (!configured || busy) ? null : _confirmDownload,
                   child: backup.state.value == BackupState.downloading
                       ? const SizedBox(
@@ -487,7 +500,10 @@ class _SettingsViewState extends State<SettingsView> {
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('下载恢复'),
+                      : Text(
+                          '下载恢复',
+                          style: TextStyle(color: colors.error, fontSize: 14),
+                        ),
                 ),
                 if (error != null) ...[
                   const SizedBox(width: 12),
@@ -512,10 +528,10 @@ class _SettingsViewState extends State<SettingsView> {
                 ),
               ),
             if (error != null && !busy)
-              TextButton(
+              CupertinoButton(
+                padding: EdgeInsets.zero,
                 onPressed: () => backup.upload(),
-                style: TextButton.styleFrom(foregroundColor: colors.error),
-                child: const Text('重试'),
+                child: Text('重试', style: TextStyle(color: colors.error)),
               ),
           ],
         );
@@ -529,20 +545,19 @@ class _SettingsViewState extends State<SettingsView> {
 
   /// 下载恢复会覆盖本地数据 → 二次确认；恢复后刷新库与设置控制器。
   Future<void> _confirmDownload() async {
-    final colors = Theme.of(context).colorScheme;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showCupertinoDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => CupertinoAlertDialog(
         title: const Text('下载恢复'),
         content: const Text('将用云端备份覆盖本地全部数据。\n'
             '本地数据会先自动备份为 .bak 文件（保留最近 3 份），仍可找回。'),
         actions: [
-          TextButton(
+          CupertinoDialogAction(
             onPressed: () => Navigator.of(context).pop(false),
             child: const Text('取消'),
           ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: colors.error),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
             onPressed: () => Navigator.of(context).pop(true),
             child: const Text('恢复'),
           ),
@@ -566,14 +581,9 @@ class _SettingsViewState extends State<SettingsView> {
       text: widget.updateChecker?.updateUrl ?? '');
 
   Widget _updateUrlField() {
-    return TextField(
-      controller: _updateUrlController,
-      style: const TextStyle(fontSize: 13),
-      decoration: const InputDecoration(
-        isDense: true,
-        border: OutlineInputBorder(),
-        hintText: 'https://…/zizai/apps/update.json',
-      ),
+    return _iosField(
+      _updateUrlController,
+      hint: 'https://…/zizai/apps/update.json',
       onSubmitted: (v) => widget.settings.db.setSetting('update.url', v.trim()),
     );
   }
@@ -587,7 +597,6 @@ class _SettingsViewState extends State<SettingsView> {
         final colors = Theme.of(context).colorScheme;
         final status = checker.status.value;
         final downloading = status == UpdateStatus.downloading;
-        final available = status == UpdateStatus.ready;
         final version = checker.availableVersion.value ?? '';
         final label = switch (status) {
           UpdateStatus.available => '下载并安装 v$version',
@@ -599,11 +608,9 @@ class _SettingsViewState extends State<SettingsView> {
           children: [
             Row(
               children: [
-                FilledButton.tonal(
+                CupertinoButton.filled(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   onPressed: downloading ? null : () => _runUpdateCheck(),
-                  style: available
-                      ? FilledButton.styleFrom(backgroundColor: colors.primary)
-                      : null,
                   child: downloading
                       ? const SizedBox(
                           width: 16,
@@ -715,7 +722,8 @@ class _SettingsViewState extends State<SettingsView> {
     }
     return Align(
       alignment: Alignment.centerLeft,
-      child: FilledButton.tonal(
+      child: CupertinoButton.filled(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         onPressed: _exporting ? null : _export,
         child: _exporting
             ? const SizedBox(
@@ -724,6 +732,64 @@ class _SettingsViewState extends State<SettingsView> {
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             : const Text('导出'),
+      ),
+    );
+  }
+}
+
+/// iOS 风格选择器：显示当前值，点按弹 CupertinoActionSheet。
+class _ValuePicker<T> extends StatelessWidget {
+  const _ValuePicker({
+    required this.value,
+    required this.display,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final T value;
+  final String display;
+  final List<({String label, T value})> options;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: () async {
+        final picked = await showCupertinoModalPopup<T>(
+          context: context,
+          builder: (context) => CupertinoActionSheet(
+            actions: [
+              for (final o in options)
+                CupertinoActionSheetAction(
+                  isDefaultAction: o.value == value,
+                  onPressed: () => Navigator.of(context).pop(o.value),
+                  child: Text(o.label),
+                ),
+            ],
+            cancelButton: CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('取消'),
+            ),
+          ),
+        );
+        if (picked != null) onChanged(picked);
+      },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              display,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, color: colors.onSurface),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(Icons.chevron_right, size: 14, color: colors.onSurfaceVariant),
+        ],
       ),
     );
   }
@@ -795,13 +861,20 @@ class _ActionsRow extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return Row(
       children: [
-        TextButton(
+        CupertinoButton(
+          padding: EdgeInsets.zero,
           onPressed: onReset,
-          style: TextButton.styleFrom(foregroundColor: colors.onSurfaceVariant),
-          child: const Text('恢复默认'),
+          child: Text(
+            '恢复默认',
+            style: TextStyle(fontSize: 14, color: colors.onSurfaceVariant),
+          ),
         ),
         const Spacer(),
-        FilledButton(onPressed: onDone, child: const Text('完成')),
+        CupertinoButton.filled(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          onPressed: onDone,
+          child: const Text('完成'),
+        ),
       ],
     );
   }

@@ -15,6 +15,7 @@ import '../core/update.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import 'editor.dart';
+import 'glass.dart';
 import 'sidebar.dart';
 
 const double _desktopSidebarWidth = 240;
@@ -130,18 +131,41 @@ class _ShellState extends State<Shell> {
             );
             final sidebar = Sidebar(library: widget.library);
             if (desktop) {
-              // 桌面形态无 Scaffold，需显式 Material 祖先（InkWell/TextButton 依赖）。
+              // 桌面形态无 Scaffold，需显式 Material 祖先；窗口底 = 极淡纵向渐变
+              // （Apple 背景气质），侧边栏为 Liquid Glass 面板。
+              final dark = Theme.of(context).brightness == Brightness.dark;
               return Material(
-                color: Theme.of(context).scaffoldBackgroundColor,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (_sidebarVisible && !_focusMode) ...[
-                      SizedBox(width: _desktopSidebarWidth, child: sidebar),
-                      const VerticalDivider(width: 1),
+                color: Colors.transparent,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: dark
+                          ? const [Color(0xFF1C1C1E), Color(0xFF000000)]
+                          : const [Color(0xFFFFFFFF), Color(0xFFF5F5F7)],
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_sidebarVisible && !_focusMode) ...[
+                        SizedBox(
+                          width: _desktopSidebarWidth,
+                          child: GlassSurface(
+                            border: Border(
+                              right: BorderSide(
+                                color: Theme.of(context).colorScheme.outline,
+                                width: 0.5,
+                              ),
+                            ),
+                            child: sidebar,
+                          ),
+                        ),
+                      ],
+                      Expanded(child: editor),
                     ],
-                    Expanded(child: editor),
-                  ],
+                  ),
                 ),
               );
             }

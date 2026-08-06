@@ -6,9 +6,11 @@
 /// CRUD 与上移/下移）。
 library;
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app.dart' show appColorsOf;
 import '../core/models.dart';
 import '../state/library_controller.dart';
 
@@ -366,18 +368,19 @@ class _DocumentTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final scheme = Theme.of(context).colorScheme;
+    final hover = appColorsOf(context).surfaceHover;
     return InkWell(
       onTap: onTap,
       child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
-          color: selected ? scheme.surfaceContainerHighest : null,
-          border: selected ? Border(left: BorderSide(color: scheme.primary, width: 2)) : null,
+          // iOS 侧边栏选中：圆角灰底 + 主色文字（无左侧竖条、无色块包边）。
+          color: selected ? hover : null,
+          borderRadius: BorderRadius.circular(6),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         child: Row(
           children: [
-            const SizedBox(width: 16),
             Icon(Icons.description_outlined, size: 14, color: colors.onSurfaceVariant),
             const SizedBox(width: 8),
             Expanded(
@@ -387,7 +390,8 @@ class _DocumentTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 13,
-                  color: selected ? scheme.primary : colors.onSurface,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  color: selected ? colors.primary : colors.onSurface,
                 ),
               ),
             ),
@@ -455,21 +459,38 @@ class _InlineEditFieldState extends State<_InlineEditField> {
         }
         return KeyEventResult.ignored;
       },
-      child: TextField(
-        controller: _controller,
-        autofocus: true,
-        style: const TextStyle(fontSize: 13),
-        decoration: InputDecoration(
-          isDense: true,
-          errorText: _error,
-          errorStyle: const TextStyle(fontSize: 11),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6),
-            borderSide: BorderSide(color: Theme.of(context).dividerColor),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CupertinoTextField(
+            controller: _controller,
+            autofocus: true,
+            style: const TextStyle(fontSize: 13),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: _error == null
+                    ? Theme.of(context).colorScheme.outline
+                    : Theme.of(context).colorScheme.error,
+              ),
+              borderRadius: BorderRadius.circular(6),
+              color: Theme.of(context).colorScheme.surface,
+            ),
+            onSubmitted: (_) => _submit(),
           ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        ),
-        onSubmitted: (_) => _submit(),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 3, left: 8),
+              child: Text(
+                _error!,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

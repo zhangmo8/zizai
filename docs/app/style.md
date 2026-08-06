@@ -1,32 +1,30 @@
-# 视觉风格规范 — 极简留白
+# 视觉风格规范 — macOS 26 / iOS 26（Liquid Glass）
 
-Status: Draft
+Status: Draft（2026-08 改版：从「极简留白 + Notion」迁移到 Apple Liquid Glass）
 
 ## 1. 风格定位
 
-**气质关键词**：安静 · 克制 · 留白 · 专注 · 纸与屏之间
+**气质关键词**：安静 · 克制 · 通透 · 玻璃 · 系统原生感
 
-**参考气质：Notion**——「简约、好用、低打扰」。界面让位内容，操作平时隐藏、需要时浮现，常用动作 ≤ 2 次点击。与极简留白互补：留白管气质，Notion 式交互管好用。
+**参考对象：macOS 26 Tahoe / iOS 26** —— 冷调中性色、半透明毛玻璃、细 hairline、
+无 Material 3 组件语言。界面让位内容，chrome 用玻璃层次退到背景。
 
-- 界面是「桌子」，不是「舞台」：一切 chrome 退到背景，内容自己发光。
-- 信息密度最低化：一屏只承担一个主要动作。
-- 唯一允许的强调色用于「当前状态」（当前文档、进度、聚焦），绝不用来装饰。
-- 无渐变、无重阴影、无拟物、无彩色图标。
+- 界面是「玻璃桌面」，不是「舞台」：面板/状态条/工具栏都是半透明玻璃，透出窗口底色。
+- 唯一强调色 = 系统蓝（`#007AFF` / 深色 `#0A84FF`），只用于状态与焦点。
+- 无渐变装饰（仅窗口底极淡纵向过渡）、无重阴影、无拟物、无 Ink 水波纹。
 
 ## 2. 设计原则
 
 | 原则 | 落地 |
 |---|---|
-| 留白优先 | 内容区上下留白 ≥ 96px；组件间距用 4pt 网格，宁可空不可挤 |
-| 灰阶分层 | 层级靠「灰阶 + 字号」表达，不靠颜色块 |
-| 单点强调 | 全局只有一个强调色 accent，只出现在状态与焦点 |
-| 细线结构 | 分隔用 1px hairline，不用深色描边或阴影 |
-| 无声动效 | 动效只做淡入淡出/位移，150–200ms，无弹跳缩放 |
-| 所见即所得 | 编辑器样式即排版效果，无预览层（产品层面已定） |
-| 好用优先 | 常用操作 ≤ 2 次点击；键盘可达、鼠标不落空；每个可点元素有 hover 反馈 |
-| 低打扰 chrome | 工具栏/行操作平时隐藏，选中或悬停才浮现（Notion 式上下文工具栏） |
-| 引导式空态 | 空文档/空库用斜体灰字引导一句话，不用大插图 |
-| 操作就近 | 删除/重命名等行操作出现在该行附近（hover 浮现），不强制跳页 |
+| 玻璃分层 | 面板用 `BackdropFilter` 模糊 + 半透明填充（light 白 68%、dark 黑 55%） |
+| 控件系统 | Cupertino 控件（Switch/Slider/TextField/Button/Dialog/ActionSheet），不用 M3 |
+| 冷调中性色 | Apple system colors（`#F5F5F7` 底、`#1D1D1F` 文字） |
+| 单点强调 | 系统蓝 accent，只出现在状态与焦点 |
+| 细线结构 | 0.5–1px hairline（黑 10% / 白 12%），无深色描边 |
+| 无声动效 | 150–200ms 淡入淡出，无弹跳缩放 |
+| 低打扰 chrome | 工具栏/行操作平时隐藏，选中或悬停才浮现 |
+| 所见即所得 | 编辑器样式即排版效果（不变） |
 
 ## 3. 色彩系统（Design Tokens）
 
@@ -34,33 +32,35 @@ Status: Draft
 
 | Token | 值 | 用途 |
 |---|---|---|
-| `bg` | `#F7F6F3` | 窗口底色（微暖纸白） |
-| `surface` | `#FCFBF9` | 侧边栏、对话框、工具栏 |
-| `surface-hover` | `#F0EEEA` | hover/选中底 |
-| `text-primary` | `#1F1E1C` | 正文 |
-| `text-secondary` | `#6B6863` | 次要信息（状态栏、时间） |
-| `text-tertiary` | `#A8A49D` | 占位、禁用 |
-| `hairline` | `#E4E1DB` | 1px 分隔线、边框 |
-| `accent` | `#41695A` | 唯一强调色（黛绿）：当前文档、进度、焦点 |
-| `success` | `#4A7A5C` | 已保存提示（低饱和） |
-| `danger` | `#B0564C` | 删除、保存失败（低饱和砖红） |
+| `bg` | `#F5F5F7` | 窗口底色（Apple 冷灰白） |
+| `surface` | `#FFFFFF` | 玻璃填充基色（配合 68% 不透明度 + 模糊） |
+| `surface-hover` | 黑 8% | hover/选中底 |
+| `text-primary` | `#1D1D1F` | 正文（Apple 近黑） |
+| `text-secondary` | `#6E6E73` | 次要信息 |
+| `text-tertiary` | `#86868B` | 占位、禁用 |
+| `hairline` | 黑 10% | 1px 分隔线、边框 |
+| `accent` | `#007AFF` | 系统蓝（唯一强调色） |
+| `success` | `#34C759` | 已保存提示 |
+| `danger` | `#FF3B30` | 删除、失败提示 |
 
 ### 深色（Dark）
 
 | Token | 值 | 用途 |
 |---|---|---|
-| `bg` | `#1B1B19` | 窗口底色（暖黑） |
-| `surface` | `#21211F` | 面板 |
-| `surface-hover` | `#2A2A27` | hover/选中底 |
-| `text-primary` | `#E8E6E1` | 正文 |
-| `text-secondary` | `#A29E96` | 次要信息 |
-| `text-tertiary` | `#6E6A63` | 占位、禁用 |
-| `hairline` | `#34332F` | 分隔线 |
-| `accent` | `#8FAD9E` | 黛绿提亮版 |
-| `success` | `#7FA893` | 成功提示 |
-| `danger` | `#C97A70` | 错误提示 |
+| `bg` | `#000000`（窗口顶 `#1C1C1E` 微渐变） | 窗口底色 |
+| `surface` | `#FFFFFF`（玻璃填充黑 55%） | 面板 |
+| `surface-hover` | 白 12% | hover/选中底 |
+| `text-primary` | `#F5F5F7` | 正文 |
+| `text-secondary` | `#A1A1A6` | 次要信息 |
+| `text-tertiary` | `#6E6E73` | 占位 |
+| `hairline` | 白 12% | 分隔线 |
+| `accent` | `#0A84FF` | 系统蓝提亮 |
+| `success` | `#30D158` | 成功 |
+| `danger` | `#FF453A` | 错误 |
 
-规则：主题三态（跟随系统/浅色/深色）；token 在 Flutter 侧映射为 `ThemeData`（`ColorScheme.fromSeed(seedColor: accent)` + 覆盖 surface/text 层级），由 shell-001 接线。
+规则：主题三态（跟随系统/浅色/深色）；token 单源在 `AppTokens`，经
+`ThemeData` + `AppColors`(ThemeExtension) 下发；Cupertino 控件由
+`AppTheme.cupertino()` 提供同源主题。
 
 ## 4. 字体系统
 
@@ -83,15 +83,15 @@ Status: Draft
 
 | Token | 值 |
 |---|---|
-| 圆角 | 对话框/菜单 8px；按钮 6px；进度条 0px（直角，极简） |
-| 阴影 | 对话框 1 级极浅 `0 2px 12px rgba(0,0,0,0.06)`；其余一律无阴影 |
-| 边框 | hairline `#E4E1DB`（深色 `#34332F`） |
+| 圆角 | 玻璃面板/浮层 10px；侧边栏/状态条 0px（直角）；输入框 6px；列表选中 6px |
+| 阴影 | 一律无阴影（玻璃层级取代 elevation） |
+| 边框 | 0.5–1px hairline（浅色黑 10% / 深色白 12%） |
 
 ## 7. 动效
 
 | 动作 | 时长/曲线 | 说明 |
 |---|---|---|
-| hover/点击反馈 | 80–120ms ease-out | 底色淡入，即时反馈 |
+| hover/点击反馈 | 80–120ms ease-out | 底色淡入（无 Ink 水波纹） |
 | 上下文工具栏/浮层出现 | 100ms ease-out | 从选中点淡入上浮 |
 | 抽屉/对话框出入 | 200ms ease-out | 位移动画 |
 | 状态栏提示（已保存） | 淡入 150ms，停留 1s，淡出 300ms | 只动透明度 |
@@ -110,44 +110,46 @@ Status: Draft
 
 | 组件 | 样式 |
 |---|---|
-| 侧边栏选中项 | 左侧 2px accent 竖条 + `surface-hover` 底 + 文字 primary；不用色块高亮整行 |
+| 玻璃面板 | `GlassSurface`：BackdropFilter 模糊 + 半透明填充 + hairline 描边 + 顶部微高光 |
+| 侧边栏 | 整栏玻璃（右缘 0.5px hairline）；选中项 = 圆角 6px 灰底 + 主色加粗文字（无左侧竖条） |
 | 侧边栏行操作 | 平时隐藏，hover 行时浮现 `⋮`/`+`（低打扰 chrome） |
-| 上下文工具栏 | 选中文本时在光标附近浮现：`surface` 底 + hairline 边框 + 8px 圆角 + 极浅阴影（Notion 浮动工具栏式）；图标按钮规范同下 |
-| 工具栏按钮 | 无边框图标钮；激活态 accent 色；hover 灰底圆角 6px |
-| 状态栏 | 顶部 hairline 分隔；文字 text-secondary 12px；进度条 2px 高、accent 色、直角 |
-| 编辑器 | 与窗口同底色（无卡片感）；光标 1.5px accent；选中文本底色 accent 15% 透明 |
-| 空态引导 | 斜体 text-tertiary 一句话（「从这里开始写…」），无插图 |
-| 对话框 | `surface` 底 + hairline 边框 + 1 级浅阴影；标题 16px primary；浮层菜单同款 |
-| 删除确认条 | 编辑器顶部通条，danger 色文字 + 「确认/取消」文字按钮，5s 自动关 |
+| 上下文工具栏 | 选中文本时浮现：玻璃圆角 10px（Notion 式浮动工具栏） |
+| 工具栏按钮 | 无边框图标钮；激活态系统蓝；hover 灰底圆角 6px |
+| 状态栏 | 玻璃条（顶缘 0.5px hairline）；文字 12px secondary；进度条 2px 高、accent、直角 |
+| 编辑器 | 与窗口同底色（无卡片感）；光标 1.5px accent；选中文本 accent 15% 透明 |
+| 空态引导 | text-tertiary 一句话（「新建一本笔记本，开始写」），无插图 |
+| 控件 | CupertinoSwitch / CupertinoSlider / CupertinoTextField / CupertinoButton / CupertinoDialog / CupertinoActionSheet |
+| 选择器 | 主题/字体：显示当前值 + `›`，点按弹 CupertinoActionSheet |
+| 删除确认条 | 编辑器顶部通条，danger 文字 + 「确认/取消」文字按钮，5s 自动关 |
 | 错误提示 | text danger + 重试按钮，无弹窗（不阻断写作） |
 
-### Notion 借鉴与不学
+### 借鉴与不学
 
 | 借鉴 | 不学 |
 |---|---|
-| 上下文工具栏（选中浮现） | 页面内嵌数据库/看板等重型块 |
-| 行操作 hover 浮现 | emoji 图标当标题装饰 |
-| 空态斜体引导语 | 多级悬浮目录树样式（我们保持两层级语义） |
-| 浮层菜单：白底 + hairline + 浅阴影 | 卡片式页面背景差异 |
-| 侧边栏 hover 态 | 强调色可随意切换（我们锁定单 accent） |
+| Apple 系统控件与玻璃层级 | Material 3 组件语言（FilledButton/Switch/Slider/Ink 水波纹） |
+| 侧边栏圆角灰底选中 | 强调色可随意切换（我们锁定系统蓝） |
+| 冷调中性色与 hairline 结构 | 高饱和纯色出现在功能色之外 |
 
 ## 10. 深色模式
 
-- 深色不是「反色」：保持暖黑底（非纯黑）、灰阶同构、accent 提亮一档保证对比。
-- 编辑区在深色下：文字 `#E8E6E1`，选中底色 accent 20% 透明，光标 accent。
+- 深色：纯黑底（窗口顶 `#1C1C1E` 微渐变），玻璃用黑 55% 填充；accent 提亮一档保证对比。
+- 编辑区深色：文字 `#F5F5F7`，选中底色 accent 20% 透明，光标 accent。
 - 跟随系统时，系统切换主题即时生效，无过渡动画（或 150ms 淡入，桌面端）。
 
 ## 11. 反模式清单（不做）
 
-- ❌ 渐变背景、毛玻璃、重阴影、彩色强调多于一种
+- ❌ Material 3 组件（M3 Switch/Slider/FilledButton/Dropdown 外观、Ink 水波纹）
+- ❌ 重阴影卡片、彩色强调多于一种（锁定系统蓝）
 - ❌ 装饰性启动页、品牌大 Logo
 - ❌ 圆角大卡片式排版（编辑器不套卡片）
 - ❌ 动效炫技（弹性、位移动画满屏）
 - ❌ 表情符号当图标
-- ❌ 高饱和纯色（红/蓝/紫）出现在功能色之外
+- ❌ 暖色纸感底色（旧版「极简留白」色板已废弃）
 
 ## 12. 落地映射
 
-- Flutter：`app.dart` 中定义 `AppTheme.light` / `AppTheme.dark`（token → ThemeData），shell-001 实现。
+- Flutter：`app.dart`（`AppTokens` + `AppTheme` + `AppColors` ThemeExtension）、
+  `ui/glass.dart`（`GlassSurface` 玻璃面板），shell-001 接线。
 - 编辑器字体族：`settings.fontFamily` 缺省 = 等宽栈（平台分支见 §4）。
 - 本规范所有 token 单源在 style.md，代码里不允许硬编码颜色。
