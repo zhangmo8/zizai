@@ -3,7 +3,7 @@
 ```yaml
 id: shell-001
 scope: lib/ui + lib/state
-status: pending
+status: done
 depends-on: [store-001]
 ```
 

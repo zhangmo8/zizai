@@ -16,3 +16,4 @@
 | 12 | store-001 评审 | settings 损坏值回退默认无显式单测 | 处理中 |
 | 13 | store-001 评审 | deltaToPlainText 对非 map op 抛 TypeError 而非承诺的 FormatException | 处理中（随 shell-001 前修复） |
 | 14 | store-001 评审 | 迁移失败注入测试的 sqflite 预期日志噪音 | 待处理 |
+| 15 | shell-001 评审 | token 映射不完整：surface 槽位覆盖为 bg，surface-hover/text-tertiary/success 未显式接线（骨架条与 Ctrl+B 已随 side-002 落地） | 待处理 |

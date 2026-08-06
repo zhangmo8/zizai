@@ -1,1 +1,17 @@
+# macOS
 .DS_Store
+
+# Flutter/Dart 构建产物
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# 其它
+*.log
