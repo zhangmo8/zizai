@@ -25,6 +25,7 @@ class Notebook {
     required this.name,
     required this.position,
     required this.createdAt,
+    required this.updatedAt,
   });
 
   final String id;
@@ -34,11 +35,15 @@ class Notebook {
   final int position;
   final int createdAt;
 
+  /// 本地变更时间（云同步 LWW 基准）。
+  final int updatedAt;
+
   factory Notebook.fromRow(Map<String, Object?> row) => Notebook(
         id: row['id']! as String,
         name: row['name']! as String,
         position: row['position']! as int,
         createdAt: row['created_at']! as int,
+        updatedAt: (row['updated_at'] as int?) ?? 0,
       );
 
   @override
@@ -47,10 +52,11 @@ class Notebook {
       other.id == id &&
       other.name == name &&
       other.position == position &&
-      other.createdAt == createdAt;
+      other.createdAt == createdAt &&
+      other.updatedAt == updatedAt;
 
   @override
-  int get hashCode => Object.hash(id, name, position, createdAt);
+  int get hashCode => Object.hash(id, name, position, createdAt, updatedAt);
 }
 
 /// 文档（一章/一篇），内容为富文本 Delta JSON。

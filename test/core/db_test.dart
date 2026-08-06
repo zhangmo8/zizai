@@ -61,7 +61,10 @@ void main() {
 
     test('删除不存在的笔记本抛 LibraryException', () async {
       final db = await openDb();
-      expect(() => db.deleteNotebook('nope'), throwsA(isA<LibraryException>()));
+      await expectLater(
+        db.deleteNotebook('nope'),
+        throwsA(isA<LibraryException>()),
+      );
       await db.close();
     });
   });

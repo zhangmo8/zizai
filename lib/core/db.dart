@@ -14,7 +14,8 @@ import 'models.dart';
 import 'word_count.dart';
 
 /// 当前代码里的 DB schema 版本（`PRAGMA user_version`）。
-const int currentSchemaVersion = 1;
+/// v1：基础五表；v2：+ sync_journal（云同步脏标记）。
+const int currentSchemaVersion = 2;
 
 /// 单级迁移：`to` 为目标版本，`up` 执行该级全部 DDL/DML。
 class SchemaMigration {
@@ -26,7 +27,24 @@ class SchemaMigration {
 
 /// 迁移链：v1 为初始 schema（onCreate 直接建立），后续版本按序追加。
 /// 纪律：任何 schema 变更 = 同一任务内完成「迁移脚本 + 回放测试」。
-final List<SchemaMigration> schemaMigrations = <SchemaMigration>[];
+final List<SchemaMigration> schemaMigrations = <SchemaMigration>[
+  // v2：云同步脏标记表 + notebooks.updated_at（LWW 时间基准，sync-engine-002）。
+  // 实体 id 通用列（docs/notebooks/settings/stats）。
+  SchemaMigration(
+    to: 2,
+    up: (db) async {
+      await db.execute('''
+CREATE TABLE sync_journal (
+  entity_id      TEXT PRIMARY KEY,
+  dirty          INTEGER NOT NULL DEFAULT 1,
+  last_pushed_at INTEGER,
+  last_pulled_at INTEGER
+)''');
+      await db.execute(
+          'ALTER TABLE notebooks ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
+    },
+  ),
+];
 
 /// 逐级执行 `from+1 .. to` 的迁移；缺某级脚本抛 [StateError]。
 Future<void> runMigrations(
@@ -97,26 +115,70 @@ class Db {
         options: OpenDatabaseOptions(
           version: version,
           onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
-          onCreate: (db, _) => _createSchemaV1(db),
+          onCreate: (db, version) async {
+            // fresh 库：建 v1 后逐级迁移到当前版本（与升级路径同链）。
+            await _createSchemaV1(db);
+            await runMigrations(db, 1, version, migrations ?? schemaMigrations);
+          },
           onUpgrade: (db, oldV, newV) async {
             await backupDbFile(path);
             await runMigrations(db, oldV, newV, migrations ?? schemaMigrations);
           },
         ),
       );
-      return Db._(db, path, clock);
+      final instance = Db._(db, path, clock);
+      await instance._initCapabilities();
+      return instance;
     } on LibraryException {
       rethrow;
     } catch (e) {
       throw LibraryException('打开数据库失败: $e', path: path);
     }
   }
-
   final Database _db;
   final String _path;
   final DateTime Function()? _clock;
 
+  /// 本地数据变更回调（云同步引擎挂接：保存/增删改后触发推送调度）。
+  /// 引擎在 pull 应用期间自行抑制（置 null 再恢复），避免推送回环。
+  void Function()? onMutation;
+
   int _nowMs() => (_clock?.call() ?? DateTime.now()).millisecondsSinceEpoch;
+
+  /// sync_journal / notebooks.updated_at 是否存在（v1 库/迁移测试中写入时容忍缺列）。
+  /// open 时一次性探测并缓存，避免每次写操作的往返开销。
+  bool? _syncJournalExists;
+  bool? _nbHasUpdatedAt;
+
+  Future<void> _initCapabilities() async {
+    final j = await _db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_journal' LIMIT 1");
+    _syncJournalExists = j.isNotEmpty;
+    final cols = await _db.rawQuery('PRAGMA table_info(notebooks)');
+    _nbHasUpdatedAt = cols.any((r) => r['name'] == 'updated_at');
+  }
+
+  bool get _notebooksHaveUpdatedAt => _nbHasUpdatedAt ?? false;
+
+  Future<void> _markDirty(String entityId) async {
+    if (_syncJournalExists == false) return;
+    await _db.insert(
+      'sync_journal',
+      {'entity_id': entityId, 'dirty': 1},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    onMutation?.call();
+  }
+
+  /// 事务内标记脏（saveDocument 在事务中，不能用 _db 再开事务）。
+  Future<void> _markDirtyOn(DatabaseExecutor txn, String entityId) async {
+    if (_syncJournalExists == false) return;
+    await txn.insert(
+      'sync_journal',
+      {'entity_id': entityId, 'dirty': 1},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
 
   /// 库文件路径（内存库为 `inMemoryDatabasePath`），设置页展示用。
   String get path => _path;
@@ -167,13 +229,17 @@ CREATE TABLE last_open (
     final id = _newId('nb');
     final now = _nowMs();
     final position = await _count('notebooks');
+    final hasUpdatedAt = _notebooksHaveUpdatedAt;
     await _db.insert('notebooks', {
       'id': id,
       'name': name,
       'position': position,
       'created_at': now,
+      if (hasUpdatedAt) 'updated_at': now,
     });
-    return Notebook(id: id, name: name, position: position, createdAt: now);
+    await _markDirty(id);
+    return Notebook(
+        id: id, name: name, position: position, createdAt: now, updatedAt: now);
   }
 
   Future<List<Notebook>> listNotebooks() async {
@@ -181,18 +247,49 @@ CREATE TABLE last_open (
     return rows.map(Notebook.fromRow).toList();
   }
 
+  Future<Notebook?> getNotebook(String id) async {
+    final rows = await _db.query('notebooks', where: 'id = ?', whereArgs: [id], limit: 1);
+    return rows.isEmpty ? null : Notebook.fromRow(rows.first);
+  }
+
   Future<void> renameNotebook(String id, String name) async {
-    final n = await _db.update('notebooks', {'name': name}, where: 'id = ?', whereArgs: [id]);
+    final now = _nowMs();
+    final hasUpdatedAt = _notebooksHaveUpdatedAt;
+    final n = await _db.update('notebooks', {
+      'name': name,
+      if (hasUpdatedAt) 'updated_at': now,
+    }, where: 'id = ?', whereArgs: [id]);
     if (n == 0) throw LibraryException('笔记本不存在: $id', path: _path);
+    await _markDirty(id);
   }
 
   Future<void> deleteNotebook(String id) async {
+    // 级联删除的文档也要推送 tombstone，先逐个标记脏。
+    final docs = await _db.query('documents', columns: ['id'], where: 'notebook_id = ?', whereArgs: [id]);
     final n = await _db.delete('notebooks', where: 'id = ?', whereArgs: [id]);
     if (n == 0) throw LibraryException('笔记本不存在: $id', path: _path);
+    for (final row in docs) {
+      await _markDirty(row['id']! as String);
+    }
+    await _markDirty(id);
   }
 
-  Future<void> moveNotebook(String id, {required bool up}) =>
-      _swapPosition('notebooks', id, up);
+  Future<void> moveNotebook(String id, {required bool up}) async {
+    final now = _nowMs();
+    final hasUpdatedAt = _notebooksHaveUpdatedAt;
+    final otherId = await _swapPosition('notebooks', id, up);
+    // 位置属于同步数据（notebook envelope），两个行都要推送。
+    if (hasUpdatedAt) {
+      await _db.update('notebooks', {'updated_at': now}, where: 'id = ?', whereArgs: [id]);
+      if (otherId != null) {
+        await _db.update('notebooks', {'updated_at': now}, where: 'id = ?', whereArgs: [otherId]);
+      }
+    }
+    if (otherId != null) {
+      await _markDirty(otherId);
+    }
+    await _markDirty(id);
+  }
 
   // ── 文档 ──────────────────────────────────────────────────
 
@@ -219,6 +316,7 @@ CREATE TABLE last_open (
       'created_at': now,
       'updated_at': now,
     });
+    await _markDirty(id);
     return Document(
       id: id,
       notebookId: notebookId,
@@ -255,11 +353,13 @@ CREATE TABLE last_open (
       whereArgs: [id],
     );
     if (n == 0) throw LibraryException('文档不存在: $id', path: _path);
+    await _markDirty(id);
   }
 
   Future<void> deleteDocument(String id) async {
     final n = await _db.delete('documents', where: 'id = ?', whereArgs: [id]);
     if (n == 0) throw LibraryException('文档不存在: $id', path: _path);
+    await _markDirty(id);
   }
 
   Future<void> moveDocument(String id, {required bool up}) async {
@@ -288,7 +388,7 @@ CREATE TABLE last_open (
     required String content,
   }) async {
     final now = _nowMs();
-    return _db.transaction((txn) async {
+        return _db.transaction((txn) async {
       final rows = await txn.query('documents', where: 'id = ?', whereArgs: [id], limit: 1);
       if (rows.isEmpty) throw LibraryException('保存失败: 文档不存在 $id', path: _path);
       final oldWords = rows.first['words']! as int;
@@ -300,8 +400,10 @@ CREATE TABLE last_open (
         where: 'id = ?',
         whereArgs: [id],
       );
+      await _markDirtyOn(txn, id);
       if (delta != 0) {
         await _applyDeltaToStats(txn, _todayKey(now), delta);
+        await _markDirtyOn(txn, 'stats');
       }
       await txn.insert(
         'last_open',
@@ -324,9 +426,13 @@ CREATE TABLE last_open (
     return rows.isEmpty ? null : rows.first['value']! as String;
   }
 
-  Future<void> setSetting(String key, String value) async {
+  Future<void> setSetting(String key, String value, {bool syncDirty = true}) async {
     await _db.insert('settings', {'key': key, 'value': value},
         conflictAlgorithm: ConflictAlgorithm.replace);
+    // sync.* 键是设备本地配置（token/enabled/deviceId/拉取游标），不参与同步推送。
+    if (syncDirty && !key.startsWith('sync.')) {
+      await _markDirty('settings');
+    }
   }
 
   Future<Settings> loadSettings() async {
@@ -338,9 +444,12 @@ CREATE TABLE last_open (
   }
 
   Future<void> saveSettings(Settings s) async {
+    // 批量写入 + 单次脏标记（避免逐键往返与重复触发推送）。
     for (final entry in s.toMap().entries) {
-      await setSetting(entry.key, entry.value);
+      await _db.insert('settings', {'key': entry.key, 'value': entry.value},
+          conflictAlgorithm: ConflictAlgorithm.replace);
     }
+    await _markDirty('settings');
   }
 
   // ── 今日增量 ──────────────────────────────────────────────
@@ -385,18 +494,20 @@ CREATE TABLE last_open (
     }
   }
 
-  Future<void> _swapPosition(
+  Future<String?> _swapPosition(
     String table,
     String id,
     bool up,
   ) async {
-    await _db.transaction(
-      (txn) => _swapPositionIn(txn, table, id, up),
-    );
+    String? otherId;
+    await _db.transaction((txn) async {
+      otherId = await _swapPositionIn(txn, table, id, up);
+    });
+    return otherId;
   }
 
-  /// 在排序列表内与相邻项交换 position；已到边界则 no-op。
-  Future<void> _swapPositionIn(
+  /// 在排序列表内与相邻项交换 position；已到边界则 no-op。返回被换位的对方 id。
+  Future<String?> _swapPositionIn(
     DatabaseExecutor txn,
     String table,
     String id,
@@ -414,11 +525,12 @@ CREATE TABLE last_open (
     final idx = rows.indexWhere((r) => r['id'] == id);
     if (idx < 0) throw LibraryException('记录不存在: $id', path: _path);
     final target = up ? idx - 1 : idx + 1;
-    if (target < 0 || target >= rows.length) return;
+    if (target < 0 || target >= rows.length) return null;
     final cur = rows[idx]['position']! as int;
     final other = rows[target]['position']! as int;
     await txn.update(table, {'position': other}, where: 'id = ?', whereArgs: [id]);
     await txn.update(table, {'position': cur}, where: 'id = ?', whereArgs: [rows[target]['id']]);
+    return rows[target]['id'] as String;
   }
 
   /// 当日 stats 增减：delta 为负时扣减但不下探到 0 以下。
@@ -433,5 +545,123 @@ CREATE TABLE last_open (
     } else {
       await txn.update('stats', {'words': next}, where: 'date = ?', whereArgs: [dateKey]);
     }
+  }
+
+  // ── 云同步支持（sync-engine-002）───────────────────────────
+
+  /// 脏实体 id 列表（待推送）。
+  Future<List<String>> dirtyEntityIds() async {
+    final rows = await _db.query('sync_journal',
+        columns: ['entity_id'], where: 'dirty = 1');
+    return rows.map((r) => r['entity_id']! as String).toList();
+  }
+
+  /// 推送成功后清除脏标记并记录推送时间。
+  Future<void> clearDirty(String entityId, {required int serverTime}) async {
+    await _db.update(
+      'sync_journal',
+      {'dirty': 0, 'last_pushed_at': serverTime},
+      where: 'entity_id = ?',
+      whereArgs: [entityId],
+    );
+  }
+
+  /// 云端应用（pull）后记录该实体的拉取时间。
+  Future<void> touchPulled(String entityId, {required int serverTime}) async {
+    await _db.insert(
+      'sync_journal',
+      {'entity_id': entityId, 'dirty': 0, 'last_pulled_at': serverTime},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// 全部设置 KV（同步推送用；token 等 sync.* 键由引擎剔除）。
+  Future<Map<String, String>> allSettings() async {
+    final rows = await _db.query('settings');
+    return {
+      for (final r in rows) r['key']! as String: r['value']! as String,
+    };
+  }
+
+  /// 全部 stats（date → words）。
+  Future<Map<String, int>> allStats() async {
+    final rows = await _db.query('stats');
+    return {
+      for (final r in rows) r['date']! as String: r['words']! as int,
+    };
+  }
+
+  /// 云端 stats 应用：按 date 键合并（取较大值，保守不丢字）。
+  Future<void> upsertStat(String date, int words) async {
+    final rows = await _db.query('stats', columns: ['words'], where: 'date = ?', whereArgs: [date], limit: 1);
+    final current = rows.isEmpty ? 0 : rows.first['words']! as int;
+    final next = words > current ? words : current;
+    if (rows.isEmpty) {
+      if (next > 0) {
+        await _db.insert('stats', {'date': date, 'words': next});
+      }
+    } else if (next != current) {
+      await _db.update('stats', {'words': next}, where: 'date = ?', whereArgs: [date]);
+    }
+  }
+
+  /// 云端文档应用（LWW 胜者）：更新或新建，不标记脏、不重算增量。
+  Future<void> applyCloudDocument({
+    required String id,
+    required String notebookId,
+    required String title,
+    required String content,
+    required int words,
+    required int updatedAt,
+  }) async {
+    final now = _nowMs();
+    final n = await _db.update(
+      'documents',
+      {'title': title, 'content': content, 'words': words, 'updated_at': updatedAt},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (n == 0) {
+      await _db.insert('documents', {
+        'id': id,
+        'notebook_id': notebookId,
+        'title': title,
+        'content': content,
+        'words': words,
+        'position': 0,
+        'created_at': now,
+        'updated_at': updatedAt,
+      });
+    }
+  }
+
+  /// 云端笔记本应用（LWW 胜者）：更新或新建，不标记脏。
+  Future<void> applyCloudNotebook({
+    required String id,
+    required String name,
+    required int position,
+    required int updatedAt,
+  }) async {
+    final now = _nowMs();
+    final n = await _db.update(
+      'notebooks',
+      {'name': name, 'position': position, 'updated_at': updatedAt},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (n == 0) {
+      await _db.insert('notebooks', {
+        'id': id,
+        'name': name,
+        'position': position,
+        'created_at': now,
+        'updated_at': updatedAt,
+      });
+    }
+  }
+
+  /// 云端 tombstone 应用：物理删除本地行（不标记脏，避免回推）。
+  Future<void> removeEntityNoDirty(String table, String id) async {
+    await _db.delete(table, where: 'id = ?', whereArgs: [id]);
   }
 }

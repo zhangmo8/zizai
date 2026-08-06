@@ -32,7 +32,7 @@ void main() {
     return rows.first;
   }
 
-  test('v1 空库：5 张表 + user_version = 1', () async {
+  test('fresh 空库：当前版本（v2）6 张表 + user_version = 2', () async {
     final path = dbPath();
     final db = await Db.open(path);
     final tables = (await db.listNotebooks()).isEmpty &&
@@ -40,37 +40,39 @@ void main() {
     expect(tables, isTrue);
     await db.close();
     final v = await userVersion(path);
-    expect(v['user_version'], 1);
+    expect(v['user_version'], currentSchemaVersion);
     // 表清单
     final conn = await databaseFactory.openDatabase(path);
     final rows = await conn.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
     );
     final names = rows.map((r) => r['name']).toList();
-    expect(names, containsAll(['notebooks', 'documents', 'settings', 'stats', 'last_open']));
+    expect(names, containsAll(
+        ['notebooks', 'documents', 'settings', 'stats', 'last_open', 'sync_journal']));
     await conn.close();
   });
 
-  test('迁移链回放：v1 空库逐级升到 v2，数据无损', () async {
+  test('迁移链回放：v1 逐级升到 v3（真实 v2 + 扩展 v3），数据无损', () async {
     final path = dbPath();
-    // 1. 建 v1 库并写入数据
-    final db1 = await Db.open(path);
+    // 1. 建 v1 库并写入数据（v1 无 sync_journal，脏标记自动跳过）
+    final db1 = await Db.open(path, version: 1, migrations: const []);
     final nb = await db1.createNotebook('书');
     final doc = await db1.createDocument(nb.id, title: '第一章', content: '[{"insert":"正文"}]');
     await db1.saveDocument(id: doc.id, title: doc.title, content: '[{"insert":"正文内容"}]');
     await db1.setSetting('theme', 'dark');
     await db1.close();
 
-    // 2. 升到 v2：加一列 + 回填
+    // 2. 升到 v3：真实 v2 迁移（sync_journal + notebooks.updated_at）+ 测试扩展列
     final migrations = <SchemaMigration>[
+      ...schemaMigrations, // 真实迁移链
       SchemaMigration(
-        to: 2,
+        to: 3,
         up: (db) async {
           await db.execute('ALTER TABLE documents ADD COLUMN extra TEXT');
         },
       ),
     ];
-    final db2 = await Db.open(path, version: 2, migrations: migrations);
+    final db2 = await Db.open(path, version: 3, migrations: migrations);
     expect(await db2.listNotebooks(), hasLength(1));
     expect((await db2.listDocuments(nb.id)).single.title, '第一章');
     expect(await db2.todayDelta(), 2); // 保存增量 = 4 - 2（创建时已含「正文」2 字）
@@ -78,12 +80,16 @@ void main() {
     await db2.close();
 
     final v = await userVersion(path);
-    expect(v['user_version'], 2);
+    expect(v['user_version'], 3);
 
-    // 列确实存在
+    // 真实 v2 结构落地：sync_journal 表 + notebooks.updated_at 列
     final conn = await databaseFactory.openDatabase(path);
-    final cols = await conn.rawQuery('PRAGMA table_info(documents)');
-    expect(cols.map((c) => c['name']), contains('extra'));
+    final tables = await conn.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='sync_journal'",
+    );
+    expect(tables, hasLength(1));
+    final nbCols = await conn.rawQuery('PRAGMA table_info(notebooks)');
+    expect(nbCols.map((c) => c['name']), contains('updated_at'));
     await conn.close();
 
     // 3. 升级前备份存在
@@ -92,7 +98,8 @@ void main() {
 
   test('迁移失败：抛可恢复错误 + 备份可恢复 + 库保持旧版本可重试', () async {
     final path = dbPath();
-    final db1 = await Db.open(path);
+    // 显式建 v1 库（默认打开已是最新版本，无法复现旧库升级场景）
+    final db1 = await Db.open(path, version: 1, migrations: const []);
     final nb = await db1.createNotebook('书');
     await db1.createDocument(nb.id, title: '第一章');
     await db1.close();
@@ -113,7 +120,7 @@ void main() {
     // 库文件未损坏：仍是 v1，数据在
     final v = await userVersion(path);
     expect(v['user_version'], 1);
-    final db3 = await Db.open(path);
+    final db3 = await Db.open(path, version: 1, migrations: const []);
     expect((await db3.listNotebooks()).single.name, '书');
     await db3.close();
 
@@ -138,7 +145,7 @@ void main() {
     Future<void> resetToV1() async {
       final dbFile = File(path);
       if (await dbFile.exists()) await dbFile.delete();
-      final db = await Db.open(path);
+      final db = await Db.open(path, version: 1, migrations: const []);
       await db.createNotebook('重置');
       await db.close();
     }

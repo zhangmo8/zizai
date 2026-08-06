@@ -92,7 +92,10 @@ void main() {
     await tester.drag(slider, const Offset(60, 0));
     await tester.pumpAndSettle();
     // 让真实异步写库完成（sqflite 事务在 FakeAsync 内不会自行结束）
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 80)));
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+      await tester.pump();
+    }
     await tester.pump(const Duration(seconds: 1)); // 释放 Slider label 计时器
     expect(settings.settings.fontSize, greaterThan(before));
 
@@ -177,8 +180,10 @@ void main() {
     await tester.tap(find.text('恢复默认'));
     await tester.pumpAndSettle();
     // 让真实异步写库完成（sqflite 事务在 FakeAsync 内不会自行结束）
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 80)));
-    await tester.pump();
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+      await tester.pump();
+    }
     expect(settings.settings.theme, 'system');
     // 文档仍在
     expect(library.notebooks, hasLength(1));

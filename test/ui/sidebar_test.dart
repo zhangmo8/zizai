@@ -17,9 +17,12 @@ void main() {
   });
 
   /// 让真实异步（DB I/O）完成，然后刷新 UI。
+  /// 多轮推进：FFI 每次往返的 continuation 在 fake zone 需一次 pump 才继续。
   Future<void> settle(WidgetTester tester) async {
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 80)));
-    await tester.pump();
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+      await tester.pump();
+    }
   }
 
   Future<(LibraryController, SettingsController)> makeApp({
