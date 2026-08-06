@@ -9,6 +9,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app.dart' show appColorsOf;
 import '../core/backup/backup.dart';
 import '../core/crash_journal.dart';
 import '../core/update.dart';
@@ -18,8 +19,8 @@ import 'editor.dart';
 import 'glass.dart';
 import 'sidebar.dart';
 
-const double _desktopSidebarWidth = 240;
-const double _androidDrawerWidth = 360;
+const double _desktopSidebarWidth = 260;
+const double _androidDrawerWidth = 340;
 const double _desktopBreakpoint = 800;
 
 class Shell extends StatefulWidget {
@@ -131,47 +132,38 @@ class _ShellState extends State<Shell> {
             );
             final sidebar = Sidebar(library: widget.library);
             if (desktop) {
-              // 桌面形态无 Scaffold，需显式 Material 祖先；窗口底 = 极淡纵向渐变
-              // （Apple 背景气质），侧边栏为 Liquid Glass 面板。
-              final dark = Theme.of(context).brightness == Brightness.dark;
+              // 桌面形态无 Scaffold，需显式 Material 祖先；Notion 风格为固定
+              // 低对比侧栏 + 干净纸张编辑区，不使用渐变/毛玻璃。
+              final appColors = appColorsOf(context);
               return Material(
-                color: Colors.transparent,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: dark
-                          ? const [Color(0xFF242426), Color(0xFF1C1C1E)]
-                          : const [Color(0xFFFFFFFF), Color(0xFFF5F5F7)],
-                    ),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (_sidebarVisible && !_focusMode) ...[
-                        SizedBox(
-                          width: _desktopSidebarWidth,
-                          child: GlassSurface(
-                            border: Border(
-                              right: BorderSide(
-                                color: Theme.of(context).colorScheme.outline,
-                                width: 0.5,
-                              ),
+                color: Theme.of(context).scaffoldBackgroundColor,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_sidebarVisible && !_focusMode) ...[
+                      SizedBox(
+                        width: _desktopSidebarWidth,
+                        child: GlassSurface(
+                          color: appColors.sidebar,
+                          border: Border(
+                            right: BorderSide(
+                              color: Theme.of(context).colorScheme.outline,
                             ),
-                            child: sidebar,
                           ),
+                          child: sidebar,
                         ),
-                      ],
-                      Expanded(child: editor),
+                      ),
                     ],
-                  ),
+                    Expanded(child: editor),
+                  ],
                 ),
               );
             }
             // Android 形态：Drawer 左滑入（含遮罩），编辑器全宽。
             return Scaffold(
-              drawer: _focusMode ? null : Drawer(width: _androidDrawerWidth, child: sidebar),
+              drawer: _focusMode
+                  ? null
+                  : Drawer(width: _androidDrawerWidth, child: sidebar),
               body: editor,
             );
           },

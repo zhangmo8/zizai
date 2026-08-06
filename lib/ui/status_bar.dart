@@ -1,14 +1,11 @@
 /// 状态栏：今日进度 + 本文字数 + 已保存闪 + 保存失败重试。
-///
-/// 设计依据：docs/app/ui-shell.md（状态栏区域、Interactions）、
-/// docs/app/ui-editor.md（状态栏内容、Ctrl+S 闪「已保存」、自动保存失败错误条）、
-/// docs/app/style.md（§3 tokens、§9 组件样式）。同步指示由 sync-ui-003 接入。
 library;
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../app.dart' show appColorsOf;
 import '../core/backup/backup.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
@@ -26,14 +23,8 @@ class StatusBar extends StatefulWidget {
 
   final LibraryController library;
   final SettingsController settings;
-
-  /// 备份引擎（null = 未接线，如单测；备份指示隐藏）。
   final BackupManager? backup;
-
-  /// 保存失败「重试」回调（editor 注入；null 时不显示重试）。
   final Future<void> Function()? onRetrySave;
-
-  /// 点击今日进度 / 同步状态点 → 打开设置（ui-shell.md Interactions）。
   final void Function({bool focusDailyGoal, bool focusSync})? onOpenSettings;
 
   @override
@@ -66,7 +57,6 @@ class _StatusBarState extends State<StatusBar> {
     super.dispose();
   }
 
-  /// Ctrl+S / 自动保存成功 → 闪「已保存」1s。
   void _onSaved() {
     _flashTimer?.cancel();
     setState(() => _showSaved = true);
@@ -78,18 +68,17 @@ class _StatusBarState extends State<StatusBar> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
     final error = widget.library.saveError;
 
-    // 保存失败：错误条 + 重试（缓冲保留在编辑器内存）。
     if (error != null) {
       return Container(
-        height: 32,
+        height: 34,
         decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(color: Theme.of(context).dividerColor, width: 1),
-          ),
+          color: appColors.callout,
+          border: Border(top: BorderSide(color: colors.outline)),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 18),
         child: Row(
           children: [
             Icon(Icons.error_outline, size: 14, color: colors.error),
@@ -115,79 +104,103 @@ class _StatusBarState extends State<StatusBar> {
     final goal = widget.settings.settings.dailyGoal;
     final delta = widget.library.todayDelta;
     final progress = goal <= 0 ? 0.0 : (delta / goal).clamp(0.0, 1.0);
-    final words = widget.library.liveDocWords ??
+    final words =
+        widget.library.liveDocWords ??
         widget.library.currentDocument?.words ??
         0;
 
     return GlassSurface(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      blur: 20,
-      lightOpacity: 0.55,
-      darkOpacity: 0.10,
-      border: Border(
-        top: BorderSide(
-          color: Theme.of(context).colorScheme.outline,
-          width: 0.5,
-        ),
-      ),
+      color: Theme.of(context).scaffoldBackgroundColor,
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      border: Border(top: BorderSide(color: colors.outline)),
       child: SizedBox(
-        height: 32,
+        height: 34,
         child: Row(
           children: [
-            const SizedBox(width: 0),
-            InkWell(
+            _StatusChip(
               onTap: () => widget.onOpenSettings?.call(focusDailyGoal: true),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text(
-                  '今日 $delta/$goal',
-                  style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
-                ),
-              ),
+              child: Text('今日 $delta/$goal'),
             ),
             const SizedBox(width: 8),
             SizedBox(
-              width: 120,
+              width: 104,
               child: ClipRRect(
-                borderRadius: BorderRadius.zero,
+                borderRadius: BorderRadius.circular(99),
                 child: LinearProgressIndicator(
                   value: progress,
-                  minHeight: 2,
+                  minHeight: 3,
                   color: colors.primary,
-                backgroundColor: colors.outline.withValues(alpha: 0.4),
+                  backgroundColor: colors.outline.withValues(alpha: 0.55),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          const Spacer(),
-          if (widget.backup != null)
-            _BackupIndicator(
-              backup: widget.backup!,
-              onTap: () => widget.onOpenSettings?.call(focusSync: true),
-            ),
-          if (_showSaved)
-            Text(
-              '已保存',
-              style: TextStyle(
-                fontSize: 12,
-                color: colors.primary,
-                fontWeight: FontWeight.w600,
+            const Spacer(),
+            if (widget.backup != null)
+              _BackupIndicator(
+                backup: widget.backup!,
+                onTap: () => widget.onOpenSettings?.call(focusSync: true),
               ),
-            )
-          else
-            Text(
-              '本文 $words 字',
-              style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
-            ),
-          const SizedBox(width: 16),
-        ],
+            if (_showSaved)
+              Text(
+                '已保存',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: appColors.success,
+                  fontWeight: FontWeight.w600,
+                ),
+              )
+            else
+              Text(
+                '本文 $words 字',
+                style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+              ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// 备份状态点：● 已备份 / ⟳ 备份中 / ⚠ 失败 n 次；未配置凭据时不显示。
+class _StatusChip extends StatefulWidget {
+  const _StatusChip({required this.onTap, required this.child});
+
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  State<_StatusChip> createState() => _StatusChipState();
+}
+
+class _StatusChipState extends State<_StatusChip> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(5),
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 90),
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+          decoration: BoxDecoration(
+            color: _hover ? appColors.surfaceHover : Colors.transparent,
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: DefaultTextStyle.merge(
+            style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _BackupIndicator extends StatelessWidget {
   const _BackupIndicator({required this.backup, required this.onTap});
 
@@ -197,6 +210,7 @@ class _BackupIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
     return ListenableBuilder(
       listenable: backup,
       builder: (context, _) {
@@ -204,18 +218,16 @@ class _BackupIndicator extends StatelessWidget {
         final (icon, text, color) = switch (backup.state.value) {
           BackupState.uploading => ('⟳', '备份中', colors.onSurfaceVariant),
           BackupState.downloading => ('⟳', '恢复中', colors.onSurfaceVariant),
-          BackupState.error => ('⚠', '失败 ${backup.failureCount.value} 次', colors.error),
-          BackupState.idle => ('●', '已备份', colors.primary),
-        };
-        return InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Text(
-              '$icon $text',
-              style: TextStyle(fontSize: 12, color: color),
-            ),
+          BackupState.error => (
+            '⚠',
+            '失败 ${backup.failureCount.value} 次',
+            colors.error,
           ),
+          BackupState.idle => ('●', '已备份', appColors.success),
+        };
+        return _StatusChip(
+          onTap: onTap,
+          child: Text('$icon $text', style: TextStyle(color: color)),
         );
       },
     );

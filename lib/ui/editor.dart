@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_quill/flutter_quill.dart' as q;
 
+import '../app.dart' show appColorsOf;
 import '../core/crash_journal.dart';
 import '../core/export.dart' show emptyDeltaJson, parseDeltaOps;
 import '../core/models.dart' as m;
@@ -29,8 +30,8 @@ import 'status_bar.dart';
 
 const int _autoSaveDebounceMs = 1000;
 const int _journalThrottleMs = 500;
-const double _maxContentWidth = 720;
-const double _contentVPadding = 72;
+const double _maxContentWidth = 760;
+const double _contentVPadding = 88;
 
 class EditorView extends StatefulWidget {
   const EditorView({
@@ -74,8 +75,12 @@ class _EditorViewState extends State<EditorView> {
   late final q.QuillController _quill;
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scroll = ScrollController();
-  final Debouncer _saveDebounce = Debouncer(const Duration(milliseconds: _autoSaveDebounceMs));
-  final Debouncer _journalDebounce = Debouncer(const Duration(milliseconds: _journalThrottleMs));
+  final Debouncer _saveDebounce = Debouncer(
+    const Duration(milliseconds: _autoSaveDebounceMs),
+  );
+  final Debouncer _journalDebounce = Debouncer(
+    const Duration(milliseconds: _journalThrottleMs),
+  );
 
   StreamSubscription<q.DocChange>? _changesSub;
   bool _showToolbar = false;
@@ -107,7 +112,8 @@ class _EditorViewState extends State<EditorView> {
   @override
   void didUpdateWidget(covariant EditorView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.library.currentDocument?.id != widget.library.currentDocument?.id) {
+    if (oldWidget.library.currentDocument?.id !=
+        widget.library.currentDocument?.id) {
       final doc = widget.library.currentDocument;
       if (doc != null) _loadDocument(doc);
     }
@@ -197,7 +203,10 @@ class _EditorViewState extends State<EditorView> {
     final content = jsonEncode(_quill.document.toDelta().toJson());
     if (content == _lastSavedContent) return;
     try {
-      await widget.library.saveCurrentDocument(title: cur.title, content: content);
+      await widget.library.saveCurrentDocument(
+        title: cur.title,
+        content: content,
+      );
       _lastSavedContent = content;
       widget.library.savedAt.value = DateTime.now();
       widget.library.clearSaveError();
@@ -213,12 +222,14 @@ class _EditorViewState extends State<EditorView> {
     final cur = widget.library.currentDocument;
     if (journal == null || cur == null) return;
     final content = jsonEncode(_quill.document.toDelta().toJson());
-    await journal.write(CrashJournalEntry(
-      documentId: cur.id,
-      title: cur.title,
-      content: content,
-      savedAt: DateTime.now().millisecondsSinceEpoch,
-    ));
+    await journal.write(
+      CrashJournalEntry(
+        documentId: cur.id,
+        title: cur.title,
+        content: content,
+        savedAt: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
   }
 
   Future<void> _checkRecovery() async {
@@ -263,7 +274,8 @@ class _EditorViewState extends State<EditorView> {
     return Shortcuts(
       shortcuts: {
         // Ctrl/Cmd+S 立即保存（ui-editor.md Interactions）。
-        SingleActivator(LogicalKeyboardKey.keyS, meta: meta, control: !meta): _SaveIntent(),
+        SingleActivator(LogicalKeyboardKey.keyS, meta: meta, control: !meta):
+            _SaveIntent(),
       },
       child: Actions(
         actions: {
@@ -275,44 +287,57 @@ class _EditorViewState extends State<EditorView> {
           ),
         },
         child: Column(
-      children: [
-        if (widget.library.pendingDeletion != null)
-          _DeleteBar(
-            request: widget.library.pendingDeletion!,
-            onCancel: widget.library.cancelDelete,
-            onConfirm: widget.library.confirmDelete,
-          ),
-        if (!focusMode) _EditorHeader(
-          title: widget.library.currentDocument?.title ?? '',
-          focusMode: focusMode,
-          onToggleFocusMode: widget.onToggleFocusMode,
-          onOpenSettings: () => _openSettings(),
+          children: [
+            if (widget.library.pendingDeletion != null)
+              _DeleteBar(
+                request: widget.library.pendingDeletion!,
+                onCancel: widget.library.cancelDelete,
+                onConfirm: widget.library.confirmDelete,
+              ),
+            if (!focusMode)
+              _EditorHeader(
+                title: widget.library.currentDocument?.title ?? '',
+                focusMode: focusMode,
+                onToggleFocusMode: widget.onToggleFocusMode,
+                onOpenSettings: () => _openSettings(),
+              ),
+            if (_pendingRecover != null)
+              _RecoveryBar(
+                entry: _pendingRecover!,
+                onRestore: _restoreRecovery,
+                onDismiss: _dismissRecovery,
+              ),
+            Expanded(
+              child: ColoredBox(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                child: FocusView(
+                  focusMode: focusMode,
+                  onExit: widget.onToggleFocusMode,
+                  liveWords:
+                      widget.library.liveDocWords ??
+                      widget.library.currentDocument?.words ??
+                      0,
+                  todayDelta: widget.library.todayDelta,
+                  dailyGoal: s.dailyGoal,
+                  child: _buildEditorArea(s, colors),
+                ),
+              ),
+            ),
+            if (!focusMode)
+              StatusBar(
+                library: widget.library,
+                settings: widget.settings,
+                onRetrySave: _saveNow,
+                backup: widget.backup,
+                onOpenSettings:
+                    ({bool focusDailyGoal = false, bool focusSync = false}) =>
+                        _openSettings(
+                          focusDailyGoal: focusDailyGoal,
+                          focusSync: focusSync,
+                        ),
+              ),
+          ],
         ),
-        if (_pendingRecover != null) _RecoveryBar(
-          entry: _pendingRecover!,
-          onRestore: _restoreRecovery,
-          onDismiss: _dismissRecovery,
-        ),
-        Expanded(
-          child: FocusView(
-            focusMode: focusMode,
-            onExit: widget.onToggleFocusMode,
-            liveWords: widget.library.liveDocWords ?? widget.library.currentDocument?.words ?? 0,
-            todayDelta: widget.library.todayDelta,
-            dailyGoal: s.dailyGoal,
-            child: _buildEditorArea(s, colors),
-          ),
-        ),
-          if (!focusMode) StatusBar(
-          library: widget.library,
-          settings: widget.settings,
-          onRetrySave: _saveNow,
-          backup: widget.backup,
-          onOpenSettings: ({bool focusDailyGoal = false, bool focusSync = false}) =>
-              _openSettings(focusDailyGoal: focusDailyGoal, focusSync: focusSync),
-        ),
-      ],
-      ),
       ),
     );
   }
@@ -320,9 +345,8 @@ class _EditorViewState extends State<EditorView> {
   Widget _buildEditorArea(m.Settings s, ColorScheme colors) {
     // 空文档：Quill 占位 + 垂直居中的引导语（不再"悬在左上角"）。
     final doc = widget.library.currentDocument;
-    final empty = doc == null ||
-        doc.content.isEmpty ||
-        doc.content == emptyDeltaJson;
+    final empty =
+        doc == null || doc.content.isEmpty || doc.content == emptyDeltaJson;
     return Stack(
       children: [
         Positioned.fill(
@@ -379,27 +403,32 @@ class _EditorViewState extends State<EditorView> {
     final base = TextStyle(
       fontSize: s.fontSize,
       height: s.lineHeight,
+      color: Theme.of(context).colorScheme.onSurface,
+      letterSpacing: -0.12,
       fontFamily: s.fontFamily.isEmpty ? null : s.fontFamily,
       decoration: TextDecoration.none,
     );
     TextStyle header(double size) => base.copyWith(
-          fontSize: size,
-          fontWeight: FontWeight.bold,
-        );
+      fontSize: size,
+      height: 1.25,
+      fontWeight: FontWeight.w700,
+      letterSpacing: -0.45,
+    );
     q.DefaultTextBlockStyle block(TextStyle style) => q.DefaultTextBlockStyle(
-          style,
-          const q.HorizontalSpacing(0, 0),
-          const q.VerticalSpacing(6, 0),
-          const q.VerticalSpacing(0, 0),
-          BoxDecoration(),
-        );
+      style,
+      const q.HorizontalSpacing(0, 0),
+      const q.VerticalSpacing(4, 2),
+      const q.VerticalSpacing(0, 0),
+      BoxDecoration(),
+    );
     return q.DefaultStyles(
       paragraph: block(base),
-      h1: block(header(24)),
-      h2: block(header(20)),
-      h3: block(header(18)),
+      h1: block(header(30)),
+      h2: block(header(24)),
+      h3: block(header(20)),
     );
   }
+
   /// 打开设置：桌面模态对话框（480px）/ Android 全屏页（ui-settings.md）。
   void _openSettings({bool focusDailyGoal = false, bool focusSync = false}) {
     final view = SettingsView(
@@ -412,16 +441,17 @@ class _EditorViewState extends State<EditorView> {
       autoFocusSync: focusSync,
     );
     if (isAndroidPlatform) {
-      Navigator.of(context).push(MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => Scaffold(body: view),
-      ));
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => Scaffold(body: view),
+        ),
+      );
     } else {
       showDialog<void>(
         context: context,
-        builder: (_) => Dialog(
-          child: SizedBox(width: 480, height: 520, child: view),
-        ),
+        builder: (_) =>
+            Dialog(child: SizedBox(width: 480, height: 520, child: view)),
       );
     }
   }
@@ -432,7 +462,7 @@ class _SaveIntent extends Intent {
   const _SaveIntent();
 }
 
-/// 顶栏：文档名 + 沉浸按钮 + 设置按钮。
+/// 顶栏：轻量 breadcrumb + 页面操作。
 class _EditorHeader extends StatelessWidget {
   const _EditorHeader({
     required this.title,
@@ -449,40 +479,50 @@ class _EditorHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    final displayTitle = title.isEmpty ? '未选择文档' : title;
     return GlassSurface(
-      blur: 20,
-      lightOpacity: 0.55,
-      darkOpacity: 0.10,
-      border: Border(
-        bottom: BorderSide(
-          color: Theme.of(context).colorScheme.outline,
-          width: 0.5,
-        ),
-      ),
+      color: Theme.of(context).scaffoldBackgroundColor,
+      border: Border(bottom: BorderSide(color: colors.outline)),
       child: SizedBox(
-        height: 44,
+        height: 46,
         child: Row(
           children: [
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 14, color: colors.onSurface),
-              ),
-            ),
-            IconButton(
-              onPressed: onToggleFocusMode,
-              tooltip: '沉浸模式 (${isMacOS ? '⌘' : 'Ctrl'}+Shift+F)',
-              icon: Icon(Icons.fullscreen, size: 20, color: colors.onSurfaceVariant),
-            ),
-            IconButton(
-              onPressed: onOpenSettings,
-              tooltip: '设置',
-              icon: Icon(Icons.settings_outlined, size: 20, color: colors.onSurfaceVariant),
+            const SizedBox(width: 18),
+            Icon(
+              Icons.description_outlined,
+              size: 16,
+              color: appColors.textTertiary,
             ),
             const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                displayTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: title.isEmpty
+                      ? appColors.textTertiary
+                      : colors.onSurfaceVariant,
+                ),
+              ),
+            ),
+            _HeaderAction(
+              onPressed: onToggleFocusMode,
+              tooltip: '沉浸模式 (${isMacOS ? '⌘' : 'Ctrl'}+Shift+F)',
+              icon: Icons.open_in_full,
+              label: '专注',
+            ),
+            const SizedBox(width: 4),
+            _HeaderAction(
+              onPressed: onOpenSettings,
+              tooltip: '设置',
+              icon: Icons.tune,
+              label: '偏好',
+            ),
+            const SizedBox(width: 12),
           ],
         ),
       ),
@@ -490,7 +530,66 @@ class _EditorHeader extends StatelessWidget {
   }
 }
 
-/// 上下文工具栏：选中文本时浮现（H1–H3 / B I U S / 列表 / 引用 / 代码）。
+class _HeaderAction extends StatefulWidget {
+  const _HeaderAction({
+    required this.onPressed,
+    required this.tooltip,
+    required this.icon,
+    required this.label,
+  });
+
+  final VoidCallback onPressed;
+  final String tooltip;
+  final IconData icon;
+  final String label;
+
+  @override
+  State<_HeaderAction> createState() => _HeaderActionState();
+}
+
+class _HeaderActionState extends State<_HeaderAction> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(5),
+          onTap: widget.onPressed,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 90),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: _hover ? appColors.surfaceHover : Colors.transparent,
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Row(
+              children: [
+                Icon(widget.icon, size: 15, color: colors.onSurfaceVariant),
+                const SizedBox(width: 5),
+                Text(
+                  widget.label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 上下文工具栏：选中文本时浮现（Notion-like compact floating bar）。
 class _FloatingToolbar extends StatelessWidget {
   const _FloatingToolbar({required this.quill});
 
@@ -499,6 +598,7 @@ class _FloatingToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
     final active = quill.getSelectionStyle().attributes;
 
     bool isActive(String key, [Object? value]) {
@@ -513,73 +613,163 @@ class _FloatingToolbar extends StatelessWidget {
       required bool isActive,
       required VoidCallback onTap,
     }) {
-      return IconButton(
-        onPressed: onTap,
-        tooltip: tooltip,
-        iconSize: 18,
-        visualDensity: VisualDensity.compact,
-        style: IconButton.styleFrom(
-          foregroundColor: isActive ? colors.primary : colors.onSurfaceVariant,
-          backgroundColor: isActive ? colors.primary.withValues(alpha: 0.12) : null,
+      return Tooltip(
+        message: tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(4),
+          onTap: onTap,
+          child: Container(
+            width: 30,
+            height: 30,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: isActive ? appColors.rowSelected : Colors.transparent,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: IconTheme(
+              data: IconThemeData(
+                size: 17,
+                color: isActive ? colors.onSurface : colors.onSurfaceVariant,
+              ),
+              child: icon,
+            ),
+          ),
         ),
-        icon: icon,
       );
     }
 
-    Widget textBtn(String label, String tooltip, bool active, VoidCallback onTap) {
-      return TextButton(
-        onPressed: onTap,
-        style: TextButton.styleFrom(
-          foregroundColor: active ? colors.primary : colors.onSurfaceVariant,
-          backgroundColor: active ? colors.primary.withValues(alpha: 0.12) : null,
-          visualDensity: VisualDensity.compact,
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          minimumSize: const Size(28, 28),
+    Widget textBtn(
+      String label,
+      String tooltip,
+      bool active,
+      VoidCallback onTap,
+    ) {
+      return Tooltip(
+        message: tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(4),
+          onTap: onTap,
+          child: Container(
+            height: 30,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: active ? appColors.rowSelected : Colors.transparent,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: active ? colors.onSurface : colors.onSurfaceVariant,
+              ),
+            ),
+          ),
         ),
-        child: Text(label, style: const TextStyle(fontSize: 13)),
       );
     }
 
     return GlassSurface(
-      radius: 10,
-      blur: 20,
-      lightOpacity: 0.72,
-      darkOpacity: 0.12,
-      border: Border.all(color: colors.outline.withValues(alpha: 0.6)),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      radius: 7,
+      shadow: true,
+      color: appColors.surfaceRaised,
+      border: Border.all(color: colors.outline),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          textBtn('H1', '标题 1', isActive('header', 1), () => quill.formatSelection(q.Attribute.h1)),
-          textBtn('H2', '标题 2', isActive('header', 2), () => quill.formatSelection(q.Attribute.h2)),
-          textBtn('H3', '标题 3', isActive('header', 3), () => quill.formatSelection(q.Attribute.h3)),
+          textBtn(
+            'H1',
+            '标题 1',
+            isActive('header', 1),
+            () => quill.formatSelection(q.Attribute.h1),
+          ),
+          textBtn(
+            'H2',
+            '标题 2',
+            isActive('header', 2),
+            () => quill.formatSelection(q.Attribute.h2),
+          ),
+          textBtn(
+            'H3',
+            '标题 3',
+            isActive('header', 3),
+            () => quill.formatSelection(q.Attribute.h3),
+          ),
           _sep(colors),
-          btn(icon: const Icon(Icons.format_bold), tooltip: '加粗', isActive: isActive('bold'), onTap: () => quill.formatSelection(q.Attribute.bold)),
-          btn(icon: const Icon(Icons.format_italic), tooltip: '斜体', isActive: isActive('italic'), onTap: () => quill.formatSelection(q.Attribute.italic)),
-          btn(icon: const Icon(Icons.format_underline), tooltip: '下划线', isActive: isActive('underline'), onTap: () => quill.formatSelection(q.Attribute.underline)),
-          btn(icon: const Icon(Icons.format_strikethrough), tooltip: '删除线', isActive: isActive('strike'), onTap: () => quill.formatSelection(q.Attribute.strikeThrough)),
+          btn(
+            icon: const Icon(Icons.format_bold),
+            tooltip: '加粗',
+            isActive: isActive('bold'),
+            onTap: () => quill.formatSelection(q.Attribute.bold),
+          ),
+          btn(
+            icon: const Icon(Icons.format_italic),
+            tooltip: '斜体',
+            isActive: isActive('italic'),
+            onTap: () => quill.formatSelection(q.Attribute.italic),
+          ),
+          btn(
+            icon: const Icon(Icons.format_underline),
+            tooltip: '下划线',
+            isActive: isActive('underline'),
+            onTap: () => quill.formatSelection(q.Attribute.underline),
+          ),
+          btn(
+            icon: const Icon(Icons.format_strikethrough),
+            tooltip: '删除线',
+            isActive: isActive('strike'),
+            onTap: () => quill.formatSelection(q.Attribute.strikeThrough),
+          ),
           _sep(colors),
-          btn(icon: const Icon(Icons.format_list_bulleted), tooltip: '无序列表', isActive: isActive('list', 'bullet'), onTap: () => quill.formatSelection(q.Attribute.ul)),
-          btn(icon: const Icon(Icons.format_list_numbered), tooltip: '有序列表', isActive: isActive('list', 'ordered'), onTap: () => quill.formatSelection(q.Attribute.ol)),
+          btn(
+            icon: const Icon(Icons.format_list_bulleted),
+            tooltip: '无序列表',
+            isActive: isActive('list', 'bullet'),
+            onTap: () => quill.formatSelection(q.Attribute.ul),
+          ),
+          btn(
+            icon: const Icon(Icons.format_list_numbered),
+            tooltip: '有序列表',
+            isActive: isActive('list', 'ordered'),
+            onTap: () => quill.formatSelection(q.Attribute.ol),
+          ),
           _sep(colors),
-          btn(icon: const Icon(Icons.format_quote), tooltip: '引用', isActive: isActive('blockquote'), onTap: () => quill.formatSelection(q.Attribute.blockQuote)),
-          btn(icon: const Icon(Icons.code), tooltip: '行内代码', isActive: isActive('code'), onTap: () => quill.formatSelection(q.Attribute.inlineCode)),
-          btn(icon: const Icon(Icons.data_object), tooltip: '代码块', isActive: isActive('code-block'), onTap: () => quill.formatSelection(q.Attribute.codeBlock)),
+          btn(
+            icon: const Icon(Icons.format_quote),
+            tooltip: '引用',
+            isActive: isActive('blockquote'),
+            onTap: () => quill.formatSelection(q.Attribute.blockQuote),
+          ),
+          btn(
+            icon: const Icon(Icons.code),
+            tooltip: '行内代码',
+            isActive: isActive('code'),
+            onTap: () => quill.formatSelection(q.Attribute.inlineCode),
+          ),
+          btn(
+            icon: const Icon(Icons.data_object),
+            tooltip: '代码块',
+            isActive: isActive('code-block'),
+            onTap: () => quill.formatSelection(q.Attribute.codeBlock),
+          ),
         ],
       ),
     );
   }
 
   Widget _sep(ColorScheme colors) => Container(
-        width: 1,
-        height: 18,
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        color: colors.outline.withValues(alpha: 0.4),
-      );
+    width: 1,
+    height: 18,
+    margin: const EdgeInsets.symmetric(horizontal: 4),
+    color: colors.outline,
+  );
 }
 
 /// 崩溃恢复确认条（启动时缓冲与库不一致）。
-class _RecoveryBar extends StatelessWidget {  const _RecoveryBar({
+class _RecoveryBar extends StatelessWidget {
+  const _RecoveryBar({
     required this.entry,
     required this.onRestore,
     required this.onDismiss,
@@ -591,36 +781,19 @@ class _RecoveryBar extends StatelessWidget {  const _RecoveryBar({
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      color: colors.errorContainer.withValues(alpha: 0.35),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          Icon(Icons.restore, size: 16, color: colors.error),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '检测到《${entry.title}》的未保存内容，恢复？',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 13, color: colors.onErrorContainer),
-            ),
-          ),
-          TextButton(onPressed: onDismiss, child: const Text('忽略')),
-          TextButton(
-            onPressed: onRestore,
-            style: TextButton.styleFrom(foregroundColor: colors.error),
-            child: const Text('恢复'),
-          ),
-        ],
-      ),
+    return _NoticeBar(
+      icon: Icons.restore,
+      text: '检测到《${entry.title}》的未保存内容，恢复？',
+      tone: _NoticeTone.warning,
+      actions: [
+        _NoticeAction(label: '忽略', onTap: onDismiss),
+        _NoticeAction(label: '恢复', onTap: onRestore, emphasized: true),
+      ],
     );
   }
 }
 
-/// 删除确认条：编辑器区顶部通条，danger 色 + 确认/取消，5s 无操作自动关。
+/// 删除确认条：编辑器区顶部轻量 callout，5s 无操作自动关。
 class _DeleteBar extends StatefulWidget {
   const _DeleteBar({
     required this.request,
@@ -653,29 +826,94 @@ class _DeleteBarState extends State<_DeleteBar> {
 
   @override
   Widget build(BuildContext context) {
+    return _NoticeBar(
+      icon: Icons.warning_amber_outlined,
+      text: '删除《${widget.request.name}》？此操作不可恢复',
+      tone: _NoticeTone.danger,
+      actions: [
+        _NoticeAction(label: '取消', onTap: widget.onCancel),
+        _NoticeAction(
+          label: '确认删除',
+          onTap: () => widget.onConfirm(),
+          emphasized: true,
+        ),
+      ],
+    );
+  }
+}
+
+enum _NoticeTone { warning, danger }
+
+class _NoticeAction {
+  const _NoticeAction({
+    required this.label,
+    required this.onTap,
+    this.emphasized = false,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final bool emphasized;
+}
+
+class _NoticeBar extends StatelessWidget {
+  const _NoticeBar({
+    required this.icon,
+    required this.text,
+    required this.tone,
+    required this.actions,
+  });
+
+  final IconData icon;
+  final String text;
+  final _NoticeTone tone;
+  final List<_NoticeAction> actions;
+
+  @override
+  Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    final toneColor = tone == _NoticeTone.danger
+        ? colors.error
+        : colors.primary;
     return Container(
       width: double.infinity,
-      color: colors.errorContainer.withValues(alpha: 0.35),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: appColors.callout,
+        border: Border(bottom: BorderSide(color: colors.outline)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
       child: Row(
         children: [
-          Icon(Icons.warning_amber_outlined, size: 16, color: colors.error),
-          const SizedBox(width: 8),
+          Icon(icon, size: 16, color: toneColor),
+          const SizedBox(width: 9),
           Expanded(
             child: Text(
-              '删除《${widget.request.name}》？此操作不可恢复',
+              text,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 13, color: colors.onErrorContainer),
+              style: TextStyle(fontSize: 13, color: colors.onSurface),
             ),
           ),
-          TextButton(onPressed: widget.onCancel, child: const Text('取消')),
-          TextButton(
-            onPressed: () => widget.onConfirm(),
-            style: TextButton.styleFrom(foregroundColor: colors.error),
-            child: const Text('确认删除'),
-          ),
+          for (final action in actions) ...[
+            const SizedBox(width: 4),
+            TextButton(
+              onPressed: action.onTap,
+              style: TextButton.styleFrom(
+                foregroundColor: action.emphasized
+                    ? toneColor
+                    : colors.onSurfaceVariant,
+                backgroundColor: action.emphasized
+                    ? toneColor.withValues(alpha: 0.10)
+                    : null,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+              ),
+              child: Text(action.label),
+            ),
+          ],
         ],
       ),
     );

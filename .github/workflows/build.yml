@@ -1,12 +1,16 @@
-name: build
+name: release-build
 
 on:
   push:
-    branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to package, for example v1.2.0'
+        required: true
+        type: string
 
-# 每次构建都以 zhangmo8 身份提交产物元信息（update.json 生成用）
+# 只有版本 tag 打包并创建 Release / update.json；普通 commit 只跑 ci.yml。
 permissions:
   contents: write
 
@@ -14,11 +18,34 @@ env:
   FLUTTER_VERSION: '3.44.8'
 
 jobs:
+  validate:
+    name: Validate version tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Expected version tag like v1.2.0, got: $tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
   android:
     name: Android APK
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -33,12 +60,10 @@ jobs:
           name: zizai-android
           path: build/app/outputs/flutter-apk/app-release.apk
       - name: 生成清单条目（供 release job 汇总）
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           sha=$(shasum -a 256 build/app/outputs/flutter-apk/app-release.apk | cut -d' ' -f1)
           echo "{\"android\": {\"file\": \"app-release.apk\", \"sha256\": \"$sha\"}}" > android-entry.json
       - name: 上传清单条目
-        if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
           name: manifest-android
@@ -46,9 +71,12 @@ jobs:
 
   macos:
     name: macOS .app
+    needs: validate
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -66,12 +94,10 @@ jobs:
           name: zizai-macos
           path: build/macos/Build/Products/Release/zizai-macos.zip
       - name: 生成清单条目
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           sha=$(shasum -a 256 build/macos/Build/Products/Release/zizai-macos.zip | cut -d' ' -f1)
           echo "{\"macos\": {\"file\": \"zizai-macos.zip\", \"sha256\": \"$sha\"}}" > macos-entry.json
       - name: 上传清单条目
-        if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
           name: manifest-macos
@@ -79,9 +105,12 @@ jobs:
 
   windows:
     name: Windows exe
+    needs: validate
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -99,26 +128,24 @@ jobs:
           name: zizai-windows
           path: build/windows/x64/runner/Release/zizai-windows.zip
       - name: 生成清单条目
-        if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
           $hash = (Get-FileHash -Algorithm SHA256 'build/windows/x64/runner/Release/zizai-windows.zip').Hash.ToLower()
           @{ windows = @{ file = 'zizai-windows.zip'; sha256 = $hash } } | ConvertTo-Json -Compress | Out-File -Encoding utf8 'windows-entry.json'
       - name: 上传清单条目
-        if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
           name: manifest-windows
           path: windows-entry.json
 
-  # 打 tag（v1.2.0 风格）时：汇总三端产物 → GitHub Release + update.json
   release:
     name: GitHub Release + update.json
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [android, macos, windows]
+    needs: [validate, android, macos, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
       - uses: actions/download-artifact@v4
         with:
           pattern: manifest-*
@@ -128,7 +155,7 @@ jobs:
         run: |
           python3 - <<'EOF'
           import json, glob, re
-          tag = '${{ github.ref_name }}'
+          tag = '${{ needs.validate.outputs.tag }}'
           base = f"https://github.com/zhangmo8/zizai/releases/download/{tag}"
           entries = {}
           for f in glob.glob('manifests/*.json'):
@@ -157,6 +184,7 @@ jobs:
       - name: 发布 Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.validate.outputs.tag }}
           files: |
             packages/*.zip
             packages/*.apk

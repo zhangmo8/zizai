@@ -18,7 +18,12 @@ import '../util/platform.dart';
 enum _EditTarget { notebook, document }
 
 class _EditSession {
-  const _EditSession({this.id, required this.target, required this.initial, this.notebookId});
+  const _EditSession({
+    this.id,
+    required this.target,
+    required this.initial,
+    this.notebookId,
+  });
 
   /// null 表示新建。
   final String? id;
@@ -90,8 +95,8 @@ class _SidebarState extends State<Sidebar> {
     final dup = session.target == _EditTarget.notebook
         ? library.notebooks.any((n) => n.name == name && n.id != session.id)
         : library
-            .documentsOf(session.notebookId ?? '')
-            .any((d) => d.title == name && d.id != session.id);
+              .documentsOf(session.notebookId ?? '')
+              .any((d) => d.title == name && d.id != session.id);
     return dup ? '同名已存在' : null;
   }
 
@@ -132,34 +137,45 @@ class _SidebarState extends State<Sidebar> {
       _seededExpansion = true;
       _expanded.addAll(library.notebooks.map((n) => n.id));
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _HeaderBar(
-          onNewNotebook: () => _startEdit(
-            const _EditSession(target: _EditTarget.notebook, initial: '新笔记本'),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Expanded(
-          child: library.loading
-              ? const _LoadingSkeleton()
-              : library.notebooks.isEmpty && !_editingNewNotebook
+    return ColoredBox(
+      color: appColorsOf(context).sidebar,
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _HeaderBar(
+              onNewNotebook: () => _startEdit(
+                const _EditSession(
+                  target: _EditTarget.notebook,
+                  initial: '新笔记本',
+                ),
+              ),
+            ),
+            Expanded(
+              child: library.loading
+                  ? const _LoadingSkeleton()
+                  : library.notebooks.isEmpty && !_editingNewNotebook
                   ? _EmptyState(
                       onCreate: () => _startEdit(
-                        const _EditSession(target: _EditTarget.notebook, initial: '新笔记本'),
+                        const _EditSession(
+                          target: _EditTarget.notebook,
+                          initial: '新笔记本',
+                        ),
                       ),
                     )
                   : _buildTree(),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
   Widget _buildTree() {
     final library = widget.library;
     return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 18),
       children: [
         if (_editingNewNotebook)
           _editField(_editing!, null)
@@ -175,7 +191,11 @@ class _SidebarState extends State<Sidebar> {
                   if (!_expanded.add(nb.id)) _expanded.remove(nb.id);
                 }),
                 onEdit: () => _startEdit(
-                  _EditSession(id: nb.id, target: _EditTarget.notebook, initial: nb.name),
+                  _EditSession(
+                    id: nb.id,
+                    target: _EditTarget.notebook,
+                    initial: nb.name,
+                  ),
                 ),
                 onDelete: () => library.requestDelete(
                   kind: DeletionKind.notebook,
@@ -238,10 +258,10 @@ class _SidebarState extends State<Sidebar> {
     );
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        resolved.target == _EditTarget.notebook ? 12 : 36,
-        2,
-        8,
-        2,
+        resolved.target == _EditTarget.notebook ? 10 : 34,
+        3,
+        4,
+        3,
       ),
       child: _InlineEditField(
         key: ValueKey('edit-${resolved.target}-${resolved.id ?? 'new'}'),
@@ -254,7 +274,7 @@ class _SidebarState extends State<Sidebar> {
   }
 }
 
-/// 顶栏：App 名 + 新建笔记本按钮。
+/// 顶栏：workspace 入口 + 新建笔记本按钮。
 class _HeaderBar extends StatelessWidget {
   const _HeaderBar({required this.onNewNotebook});
 
@@ -263,29 +283,59 @@ class _HeaderBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+      padding: const EdgeInsets.fromLTRB(12, 12, 8, 10),
       child: Row(
         children: [
-          Image.asset(
-            'assets/logo.png',
-            width: 20,
-            height: 20,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '字在',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: colors.onSurface,
+          Container(
+            width: 24,
+            height: 24,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: appColors.rowSelected,
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(color: colors.outline),
+            ),
+            child: Text(
+              '字',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: colors.onSurface,
+              ),
             ),
           ),
-          const Spacer(),
-          IconButton(
-            onPressed: onNewNotebook,
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '字在',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: colors.onSurface,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+                Text(
+                  '写作空间',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: appColors.textTertiary),
+                ),
+              ],
+            ),
+          ),
+          _TinyIconButton(
             tooltip: '新建笔记本',
-            icon: Icon(Icons.add, size: 20, color: colors.onSurfaceVariant),
+            icon: Icons.add,
+            onPressed: onNewNotebook,
           ),
         ],
       ),
@@ -293,7 +343,6 @@ class _HeaderBar extends StatelessWidget {
   }
 }
 
-/// 笔记本行：展开/折叠 + ⋮ 操作菜单。
 /// 笔记本行：展开/折叠 + ⋮ 操作菜单（桌面端 hover 行才浮现）。
 class _NotebookTile extends StatefulWidget {
   const _NotebookTile({
@@ -327,39 +376,45 @@ class _NotebookTileState extends State<_NotebookTile> {
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: InkWell(
+      child: _SidebarRow(
+        depth: 0,
+        hover: _hover,
+        selected: false,
         onTap: widget.onToggle,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          child: Row(
-            children: [
-              Icon(
-                widget.expanded ? Icons.expand_more : Icons.chevron_right,
+        leading: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedRotation(
+              duration: const Duration(milliseconds: 120),
+              turns: widget.expanded ? 0.25 : 0,
+              child: Icon(
+                Icons.chevron_right,
                 size: 16,
                 color: colors.onSurfaceVariant,
               ),
-              const SizedBox(width: 4),
-              Icon(Icons.folder_outlined, size: 16, color: colors.onSurfaceVariant),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  widget.notebook.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 13, color: colors.onSurface),
-                ),
-              ),
-              _RowMenu(
-                visible: _hover || !isDesktopPlatform,
-                items: [
-                  ('上移', widget.onMoveUp),
-                  ('下移', widget.onMoveDown),
-                  ('重命名', widget.onEdit),
-                  ('删除', widget.onDelete),
-                ],
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 5),
+            Icon(
+              Icons.folder_outlined,
+              size: 16,
+              color: colors.onSurfaceVariant,
+            ),
+          ],
+        ),
+        title: widget.notebook.name,
+        titleStyle: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: colors.onSurface,
+        ),
+        trailing: _RowMenu(
+          visible: _hover || !isDesktopPlatform,
+          items: [
+            ('上移', widget.onMoveUp),
+            ('下移', widget.onMoveDown),
+            ('重命名', widget.onEdit),
+            ('删除', widget.onDelete),
+          ],
         ),
       ),
     );
@@ -396,45 +451,95 @@ class _DocumentTileState extends State<_DocumentTile> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final hover = appColorsOf(context).surfaceHover;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: InkWell(
+      child: _SidebarRow(
+        depth: 1,
+        hover: _hover,
+        selected: widget.selected,
         onTap: widget.onTap,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            // iOS 侧边栏选中：圆角灰底 + 主色文字（无左侧竖条、无色块包边）。
-            color: widget.selected ? hover : null,
-            borderRadius: BorderRadius.circular(6),
-          ),
+        leading: Icon(
+          Icons.description_outlined,
+          size: 15,
+          color: widget.selected ? colors.onSurface : colors.onSurfaceVariant,
+        ),
+        title: widget.document.title,
+        titleStyle: TextStyle(
+          fontSize: 13,
+          fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w400,
+          color: widget.selected ? colors.onSurface : colors.onSurfaceVariant,
+        ),
+        trailing: _RowMenu(
+          visible: _hover || !isDesktopPlatform,
+          items: [
+            ('上移', widget.onMoveUp),
+            ('下移', widget.onMoveDown),
+            ('重命名', widget.onEdit),
+            ('删除', widget.onDelete),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarRow extends StatelessWidget {
+  const _SidebarRow({
+    required this.depth,
+    required this.hover,
+    required this.selected,
+    required this.onTap,
+    required this.leading,
+    required this.title,
+    required this.titleStyle,
+    this.trailing,
+  });
+
+  final int depth;
+  final bool hover;
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget leading;
+  final String title;
+  final TextStyle titleStyle;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final appColors = appColorsOf(context);
+    final bg = selected
+        ? appColors.rowSelected
+        : hover
+        ? appColors.surfaceHover
+        : Colors.transparent;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 90),
+      curve: Curves.easeOut,
+      height: 30,
+      margin: const EdgeInsets.symmetric(vertical: 1),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(5),
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.only(left: 6 + depth * 22, right: 2),
           child: Row(
             children: [
-              Icon(Icons.description_outlined, size: 14, color: colors.onSurfaceVariant),
-              const SizedBox(width: 8),
+              SizedBox(width: depth == 0 ? 38 : 18, child: leading),
+              const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  widget.document.title,
+                  title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w400,
-                    color: widget.selected ? colors.primary : colors.onSurface,
-                  ),
+                  style: titleStyle,
                 ),
               ),
-              _RowMenu(
-                visible: _hover || !isDesktopPlatform,
-                items: [
-                  ('上移', widget.onMoveUp),
-                  ('下移', widget.onMoveDown),
-                  ('重命名', widget.onEdit),
-                  ('删除', widget.onDelete),
-                ],
-              ),
+              ?trailing,
             ],
           ),
         ),
@@ -463,7 +568,9 @@ class _InlineEditField extends StatefulWidget {
 }
 
 class _InlineEditFieldState extends State<_InlineEditField> {
-  late final TextEditingController _controller = TextEditingController(text: widget.initial);
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initial,
+  );
   String? _error;
 
   @override
@@ -483,6 +590,8 @@ class _InlineEditFieldState extends State<_InlineEditField> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
     return Focus(
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent &&
@@ -499,28 +608,26 @@ class _InlineEditFieldState extends State<_InlineEditField> {
           CupertinoTextField(
             controller: _controller,
             autofocus: true,
-            style: const TextStyle(fontSize: 13),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            style: TextStyle(fontSize: 13, color: colors.onSurface),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
             decoration: BoxDecoration(
               border: Border.all(
                 color: _error == null
-                    ? Theme.of(context).colorScheme.outline
-                    : Theme.of(context).colorScheme.error,
+                    ? colors.primary.withValues(alpha: 0.55)
+                    : colors.error,
               ),
-              borderRadius: BorderRadius.circular(6),
-              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(5),
+              color: appColors.surfaceRaised,
             ),
+            cursorColor: colors.primary,
             onSubmitted: (_) => _submit(),
           ),
           if (_error != null)
             Padding(
-              padding: const EdgeInsets.only(top: 3, left: 8),
+              padding: const EdgeInsets.only(top: 4, left: 8),
               child: Text(
                 _error!,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Theme.of(context).colorScheme.error,
-                ),
+                style: TextStyle(fontSize: 11, color: colors.error),
               ),
             ),
         ],
@@ -539,13 +646,18 @@ class _RowMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Opacity(
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 90),
       opacity: visible ? 1 : 0,
       child: IgnorePointer(
         ignoring: !visible,
         child: PopupMenuButton<String>(
           tooltip: '操作',
-          icon: Icon(Icons.more_horiz, size: 16, color: colors.onSurfaceVariant),
+          icon: Icon(
+            Icons.more_horiz,
+            size: 16,
+            color: colors.onSurfaceVariant,
+          ),
           onSelected: (key) {
             for (final (label, action) in items) {
               if (label == key) action();
@@ -562,27 +674,52 @@ class _RowMenu extends StatelessWidget {
 }
 
 /// 展开笔记本底部的「+ 新建章节」。
-class _NewDocumentButton extends StatelessWidget {
+class _NewDocumentButton extends StatefulWidget {
   const _NewDocumentButton({required this.onPressed});
 
   final VoidCallback onPressed;
 
   @override
+  State<_NewDocumentButton> createState() => _NewDocumentButtonState();
+}
+
+class _NewDocumentButtonState extends State<_NewDocumentButton> {
+  bool _hover = false;
+
+  @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onPressed,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(40, 6, 8, 6),
-        child: Row(
-          children: [
-            Icon(Icons.add, size: 14, color: colors.onSurfaceVariant),
-            const SizedBox(width: 6),
-            Text(
-              '新建章节',
-              style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+    final appColors = appColorsOf(context);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 90),
+        height: 30,
+        margin: const EdgeInsets.symmetric(vertical: 1),
+        decoration: BoxDecoration(
+          color: _hover ? appColors.surfaceHover : Colors.transparent,
+          borderRadius: BorderRadius.circular(5),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(5),
+          onTap: widget.onPressed,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 34, right: 8),
+            child: Row(
+              children: [
+                Icon(Icons.add, size: 15, color: appColors.textTertiary),
+                const SizedBox(width: 8),
+                Text(
+                  '新建章节',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -597,19 +734,19 @@ class _LoadingSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (var i = 0; i < 3; i++)
+          for (var i = 0; i < 4; i++)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: 6),
               child: Container(
-                height: 12,
-                width: 120 + i * 40.0,
+                height: 11,
+                width: 96 + i * 28.0,
                 decoration: BoxDecoration(
                   color: colors.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(99),
                 ),
               ),
             ),
@@ -628,29 +765,93 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(22),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.menu_book_outlined, size: 24, color: colors.outline),
-            const SizedBox(height: 8),
-            Text(
-              '新建一本笔记本，开始写',
-              style: TextStyle(
-                fontSize: 13,
-                fontStyle: FontStyle.italic,
+            Container(
+              width: 42,
+              height: 42,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: appColors.rowSelected,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: colors.outline),
+              ),
+              child: Icon(
+                Icons.menu_book_outlined,
+                size: 22,
                 color: colors.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 12),
-            FilledButton.tonal(
-              onPressed: onCreate,
-              child: const Text('新建笔记本'),
+            Text(
+              '新建一本笔记本，开始写',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: colors.onSurfaceVariant,
+              ),
             ),
+            const SizedBox(height: 12),
+            _NotionButton(onPressed: onCreate, child: const Text('新建笔记本')),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TinyIconButton extends StatelessWidget {
+  const _TinyIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return IconButton(
+      onPressed: onPressed,
+      tooltip: tooltip,
+      icon: Icon(icon, size: 18, color: colors.onSurfaceVariant),
+    );
+  }
+}
+
+class _NotionButton extends StatelessWidget {
+  const _NotionButton({required this.onPressed, required this.child});
+
+  final VoidCallback onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        foregroundColor: colors.onSurface,
+        backgroundColor: appColors.surfaceRaised,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(5),
+          side: BorderSide(color: colors.outline),
+        ),
+      ),
+      child: DefaultTextStyle.merge(
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+        child: child,
       ),
     );
   }
