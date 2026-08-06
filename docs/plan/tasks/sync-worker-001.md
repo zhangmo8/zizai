@@ -3,7 +3,7 @@
 ```yaml
 id: sync-worker-001
 scope: worker/
-status: pending
+status: done
 depends-on: [env-001]
 ```
 

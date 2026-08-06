@@ -32,3 +32,6 @@
 | 28 | set-004 评审 | 对话框圆角/阴影为 M3 默认值（style.md §6 8px 待 M5 打磨） | 待处理 |
 | 29 | set-004 评审 | 导出失败路径 / Esc 关闭 / 状态栏点击聚焦入口无专门测试 | 待处理 |
 | 30 | set-004 评审 | Android Drawer 底部设置入口未实现（ui-settings.md Entry Points） | 待处理 |
+| 31 | sync-worker-001 评审 | 无自定义域名 route（仅 workers_dev，自用可接受） | 待处理 |
+| 32 | sync-worker-001 评审 | pull 对损坏对象静默跳过无可观测计数 | 待处理 |
+| 33 | sync-worker-001 评审 | 测试缺口：notebooks/settings/stats 键布局、非数字协议头未覆盖 | 待处理 |
