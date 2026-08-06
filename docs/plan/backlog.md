@@ -20,3 +20,11 @@
 | 16 | side-002 评审 | 选中项底色用 M3 派生色而非 surface-hover token（同 backlog 15，主题接线统一处理） | 待处理 |
 | 17 | side-002 评审 | `⋮`/「新建章节」hover 浮现（style.md §9 低打扰 chrome，纯视觉） | 待处理 |
 | 18 | side-002 评审 | Ctrl/Cmd+B 与笔记本级联删除缺 UI 测试 | 待处理 |
+| 19 | edit-003 评审 | 文档冲突：ui-editor.md 把 Ctrl/Cmd+B 列为加粗（编辑器内置），ui-shell.md 列为切换侧边栏——需文档裁定（当前实现：B=侧边栏，加粗走工具栏） | 待处理 |
+| 20 | edit-003 评审 | Windows/Linux 上 flutter_quill 内置 Ctrl+S=codeBlock 会遮蔽全局保存快捷键（macOS Cmd+S 不受影响；自动保存兜底） | 待处理 |
+| 21 | edit-003 评审 | 上下文工具栏 H1-H3 为文本按钮，与图标按钮视觉密度不齐（纯视觉） | 待处理 |
+| 22 | edit-003 评审 | 编辑器光标色/选中底色未按 style.md 显式配置（flutter_quill 默认值） | 待处理 |
+| 23 | edit-003 评审 | 沉浸模式退出后焦点未自动回编辑器 | 待处理 |
+| 24 | edit-003 评审 | 保存失败重试成功后错误条清除的 UI 测试缺失 | 待处理 |
+| 25 | edit-003 评审 | 全量套件偶发 flake（复跑即绿，未定位） | 待处理 |
+| 26 | edit-003 评审 | Ctrl/Cmd+S 在侧边栏输入框聚焦时也触发保存（全局 handler 范围） | 待处理 |

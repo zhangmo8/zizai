@@ -3,7 +3,7 @@
 ```yaml
 id: edit-003
 scope: lib/ui
-status: pending
+status: done
 depends-on: [side-002]
 ```
 
