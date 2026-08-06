@@ -19,7 +19,7 @@ class S3Exception implements Exception {
   String toString() => 'S3Exception($message)';
 }
 
-/// R2 对象存储直连（无需 Worker；凭据由用户在设置页配置，仅存本地）。
+/// R2 对象存储直连（凭据由用户在设置页配置，仅存本地，不上传）。
 class S3Store {
   S3Store({
     required this.accountId,
