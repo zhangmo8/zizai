@@ -265,6 +265,12 @@ class _HeaderBar extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
       child: Row(
         children: [
+          Image.asset(
+            'assets/logo.png',
+            width: 20,
+            height: 20,
+          ),
+          const SizedBox(width: 8),
           Text(
             '字在',
             style: TextStyle(
