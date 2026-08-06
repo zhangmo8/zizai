@@ -14,6 +14,7 @@ import 'app.dart';
 import 'core/crash_journal.dart';
 import 'core/db.dart';
 import 'core/models.dart';
+import 'core/sync/client.dart';
 import 'state/library_controller.dart';
 import 'state/settings_controller.dart';
 import 'util/platform.dart';
@@ -26,8 +27,9 @@ Future<void> main() async {
   }
   final Db db;
   final CrashJournal journal;
+  late final Directory dir;
   try {
-    final dir = await getApplicationSupportDirectory();
+    dir = await getApplicationSupportDirectory();
     db = await Db.open('${dir.path}${Platform.pathSeparator}zi-zai.db');
     journal = await CrashJournal.create(dir);
   } on LibraryException catch (e) {
@@ -38,7 +40,14 @@ Future<void> main() async {
   final library = LibraryController(db);
   await settings.load();
   await library.restore();
-  runApp(ZiZaiApp(library: library, settings: settings, journal: journal));
+  final syncClient = SyncClient(db: db, baseUrl: '', backupDir: dir);
+  await syncClient.initialize();
+  runApp(ZiZaiApp(
+    library: library,
+    settings: settings,
+    journal: journal,
+    syncClient: syncClient,
+  ));
 }
 
 /// 启动失败（db 打不开/迁移失败）：停止启动 + 明确错误（update.md §2）。

@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 
 import 'core/crash_journal.dart';
+import 'core/sync/client.dart';
 import 'state/library_controller.dart';
 import 'state/settings_controller.dart';
 import 'ui/shell.dart';
@@ -109,6 +110,7 @@ class ZiZaiApp extends StatelessWidget {
     required this.library,
     required this.settings,
     this.journal,
+    this.syncClient,
   });
 
   final LibraryController library;
@@ -116,6 +118,9 @@ class ZiZaiApp extends StatelessWidget {
 
   /// 崩溃日志（null = 未接线，如测试）。
   final CrashJournal? journal;
+
+  /// 同步引擎（null = 未接线，如测试）。
+  final SyncClient? syncClient;
 
   @override
   Widget build(BuildContext context) {
@@ -128,7 +133,11 @@ class ZiZaiApp extends StatelessWidget {
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: settings.themeMode,
-          home: Shell(library: library, settings: settings, journal: journal),
+          home: Shell(
+              library: library,
+              settings: settings,
+              journal: journal,
+              syncClient: syncClient),
         );
       },
     );

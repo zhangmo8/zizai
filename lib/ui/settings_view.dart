@@ -14,6 +14,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../core/export.dart' show exportPlainText;
 import '../core/models.dart';
+import '../core/sync/client.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/platform.dart';
@@ -39,18 +40,26 @@ class SettingsView extends StatefulWidget {
     super.key,
     required this.settings,
     required this.library,
+    this.syncClient,
     this.exporter,
     this.autoFocusDailyGoal = false,
+    this.autoFocusSync = false,
   });
 
   final SettingsController settings;
   final LibraryController library;
+
+  /// 同步引擎（null = 未接线，如单测；同步区隐藏）。
+  final SyncClient? syncClient;
 
   /// 导出实现（null = 默认：桌面 getSaveLocation 写 .txt / Android 分享）。
   final ExportHandler? exporter;
 
   /// 打开时聚焦「每日目标字数」（状态栏今日进度点击入口）。
   final bool autoFocusDailyGoal;
+
+  /// 打开时定位「同步」区（状态栏同步指示点击入口）。
+  final bool autoFocusSync;
 
   @override
   State<SettingsView> createState() => _SettingsViewState();
@@ -152,6 +161,27 @@ class _SettingsViewState extends State<SettingsView> {
                   _Section('写作', children: [
                     _row('每日目标字数', _goalField()),
                   ]),
+                  if (widget.syncClient != null) ...[
+                    _Section('同步', children: [
+                      _row('云同步', _syncToggle()),
+                      _row('同步地址', _syncUrlField()),
+                      _row('同步令牌', _syncTokenField()),
+                      _row('上次同步', _lastSyncRow()),
+                      _syncActions(),
+                      if (widget.syncClient!.conflictBackups.value > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            '有 ${widget.syncClient!.conflictBackups.value} 份本地版本已备份于 '
+                            '${widget.syncClient!.backupDir.path}/sync-bak，可在云端版本控制找回',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                    ]),
+                  ],
                   _Section('数据', children: [
                     _row('数据库路径', _dbPathRow()),
                     _row('导出当前文档', _exportRow()),
@@ -298,6 +328,123 @@ class _SettingsViewState extends State<SettingsView> {
         final n = int.tryParse(v.trim());
         if (n == null || n < 100 || n > 50000) return;
         _update(_s.copyWith(dailyGoal: n));
+      },
+    );
+  }
+
+  // ── 同步区（sync-ui-003）──────────────────────────────────
+
+  late final TextEditingController _syncUrlController = TextEditingController(
+      text: widget.syncClient?.baseUrl ?? '');
+  late final TextEditingController _syncTokenController = TextEditingController();
+
+  Widget _syncToggle() {
+    final sync = widget.syncClient!;
+    return ListenableBuilder(
+      listenable: sync,
+      builder: (context, _) {
+        return Switch(
+          value: sync.enabled,
+          onChanged: (v) => sync.setEnabled(v),
+        );
+      },
+    );
+  }
+
+  Widget _syncUrlField() {
+    return TextField(
+      controller: _syncUrlController,
+      style: const TextStyle(fontSize: 13),
+      decoration: const InputDecoration(
+        isDense: true,
+        border: OutlineInputBorder(),
+        hintText: 'https://zizai-sync.xxx.workers.dev',
+      ),
+      onSubmitted: (v) => widget.syncClient!.setBaseUrl(v.trim()),
+    );
+  }
+
+  Widget _syncTokenField() {
+    return TextField(
+      controller: _syncTokenController,
+      obscureText: true, // 掩码显示；token 仅存本地 settings 表
+      style: const TextStyle(fontSize: 13),
+      decoration: const InputDecoration(
+        isDense: true,
+        border: OutlineInputBorder(),
+        hintText: 'Worker secret（SYNC_TOKEN）',
+      ),
+      onSubmitted: (v) => widget.syncClient!.setToken(v.trim()),
+    );
+  }
+
+  Widget _lastSyncRow() {
+    final sync = widget.syncClient!;
+    return ListenableBuilder(
+      listenable: sync.lastSyncAt,
+      builder: (context, _) {
+        final at = sync.lastSyncAt.value;
+        return Text(
+          at == null ? '从未同步' : '${_relativeTime(at)}（${at.toLocal()}）',
+          style: TextStyle(
+              fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        );
+      },
+    );
+  }
+
+  static String _relativeTime(DateTime at) {
+    final diff = DateTime.now().difference(at);
+    if (diff.inMinutes < 1) return '刚刚';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} 分钟前';
+    if (diff.inHours < 24) return '${diff.inHours} 小时前';
+    return '${diff.inDays} 天前';
+  }
+
+  Widget _syncActions() {
+    final sync = widget.syncClient!;
+    return ListenableBuilder(
+      listenable: Listenable.merge([sync.state, sync.failureCount, sync.lastError]),
+      builder: (context, _) {
+        final colors = Theme.of(context).colorScheme;
+        final syncing = sync.state.value == SyncState.syncing;
+        final error = sync.lastError.value;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                FilledButton.tonal(
+                  onPressed: syncing ? null : () => sync.syncNow(),
+                  child: syncing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('立即同步'),
+                ),
+                if (error != null) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      error,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: colors.error),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            if (error != null && !syncing)
+              TextButton(
+                onPressed: () => sync.syncNow(),
+                style: TextButton.styleFrom(foregroundColor: colors.error),
+                child: const Text('重试'),
+              ),
+          ],
+        );
       },
     );
   }

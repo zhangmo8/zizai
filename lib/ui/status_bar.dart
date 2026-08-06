@@ -9,6 +9,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/sync/client.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 
@@ -17,6 +18,7 @@ class StatusBar extends StatefulWidget {
     super.key,
     required this.library,
     required this.settings,
+    this.syncClient,
     this.onRetrySave,
     this.onOpenSettings,
   });
@@ -24,11 +26,14 @@ class StatusBar extends StatefulWidget {
   final LibraryController library;
   final SettingsController settings;
 
+  /// 同步引擎（null = 未接线，如单测；同步指示隐藏）。
+  final SyncClient? syncClient;
+
   /// 保存失败「重试」回调（editor 注入；null 时不显示重试）。
   final Future<void> Function()? onRetrySave;
 
-  /// 点击今日进度 → 打开设置定位「每日目标字数」（ui-shell.md Interactions）。
-  final void Function(bool focusDailyGoal)? onOpenSettings;
+  /// 点击今日进度 / 同步状态点 → 打开设置（ui-shell.md Interactions）。
+  final void Function({bool focusDailyGoal, bool focusSync})? onOpenSettings;
 
   @override
   State<StatusBar> createState() => _StatusBarState();
@@ -124,7 +129,7 @@ class _StatusBarState extends State<StatusBar> {
         children: [
           const SizedBox(width: 16),
           InkWell(
-            onTap: () => widget.onOpenSettings?.call(true),
+            onTap: () => widget.onOpenSettings?.call(focusDailyGoal: true),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Text(
@@ -152,6 +157,11 @@ class _StatusBarState extends State<StatusBar> {
             style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
           ),
           const Spacer(),
+          if (widget.syncClient != null)
+            _SyncIndicator(
+              sync: widget.syncClient!,
+              onTap: () => widget.onOpenSettings?.call(focusSync: true),
+            ),
           if (_showSaved)
             Text(
               '已保存',
@@ -169,6 +179,40 @@ class _StatusBarState extends State<StatusBar> {
           const SizedBox(width: 16),
         ],
       ),
+    );
+  }
+}
+
+/// 同步状态点：● 已同步 / ⟳ 同步中 / ⚠ 失败 n 次；云同步关闭时不显示。
+class _SyncIndicator extends StatelessWidget {
+  const _SyncIndicator({required this.sync, required this.onTap});
+
+  final SyncClient sync;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ListenableBuilder(
+      listenable: sync,
+      builder: (context, _) {
+        if (!sync.enabled) return const SizedBox.shrink();
+        final (icon, text, color) = switch (sync.state.value) {
+          SyncState.syncing => ('⟳', '同步中', colors.onSurfaceVariant),
+          SyncState.error => ('⚠', '失败 ${sync.failureCount.value} 次', colors.error),
+          SyncState.idle => ('●', '已同步', colors.primary),
+        };
+        return InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Text(
+              '$icon $text',
+              style: TextStyle(fontSize: 12, color: color),
+            ),
+          ),
+        );
+      },
     );
   }
 }

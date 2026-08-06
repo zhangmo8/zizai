@@ -33,7 +33,7 @@ Duration retryDelayFor(int attempt) {
 }
 
 /// 客户端同步引擎。token 只进 Authorization 头，永不进 envelope/push 体。
-class SyncClient {
+class SyncClient extends ChangeNotifier {
   SyncClient({
     required this.db,
     required this.baseUrl,
@@ -55,9 +55,13 @@ class SyncClient {
   final ValueNotifier<String?> lastError = ValueNotifier(null);
   final ValueNotifier<int> failureCount = ValueNotifier(0);
 
+  /// 冲突输家备份计数（pull 应用时本地版本被云端覆盖并备份；状态栏/设置页提示）。
+  final ValueNotifier<int> conflictBackups = ValueNotifier(0);
+
   String _deviceId = '';
   String? _token;
   bool _enabled = false;
+  String? _baseUrlOverride;
 
   Timer? _pushDebounce;
   Timer? _retryTimer;
@@ -87,6 +91,7 @@ class SyncClient {
   Future<void> _readConfig() async {
     _enabled = await db.getSetting('sync.enabled') == '1';
     _token = await db.getSetting('sync.token');
+    _baseUrlOverride = await db.getSetting('sync.baseUrl');
   }
 
   Future<void> setEnabled(bool value) async {
@@ -102,6 +107,14 @@ class SyncClient {
     await db.setSetting('sync.token', token, syncDirty: false);
   }
 
+  /// 同步 Worker 地址（设置页配置；请求时生效）。
+  Future<void> setBaseUrl(String url) async {
+    _baseUrlOverride = url;
+    await db.setSetting('sync.baseUrl', url, syncDirty: false);
+  }
+
+  String get effectiveBaseUrl => _baseUrlOverride ?? baseUrl;
+
   /// 保存防抖 30s 推送（同步不阻塞编辑）。
   void schedulePush() {
     _pushDebounce?.cancel();
@@ -114,11 +127,13 @@ class SyncClient {
     await pull();
   }
 
+  @override
   void dispose() {
     _disposed = true;
     _pushDebounce?.cancel();
     _retryTimer?.cancel();
     if (db.onMutation != null) db.onMutation = null;
+    super.dispose();
   }
 
   // ── push ──────────────────────────────────────────────────
@@ -415,6 +430,8 @@ class SyncClient {
       'words': doc.words,
       'updatedAt': doc.updatedAt,
     }));
+    conflictBackups.value++;
+    notifyListeners();
     // 保留最近 5 份
     final existing = await dir
         .list()
@@ -459,11 +476,13 @@ class SyncClient {
 
   void _setSyncing() {
     state.value = SyncState.syncing;
+    notifyListeners();
   }
 
   void _setIdle() {
     _retryAttempt = 0;
     state.value = SyncState.idle;
+    notifyListeners();
   }
 
   void _onSuccess() {
@@ -473,6 +492,7 @@ class SyncClient {
     lastError.value = null;
     failureCount.value = 0;
     lastSyncAt.value = DateTime.now();
+    notifyListeners();
   }
 
   void _onFailure(Object e) {
@@ -485,6 +505,7 @@ class SyncClient {
     _retryTimer = Timer(retryDelayFor(_retryAttempt), () {
       if (!_disposed) unawaited(syncNow());
     });
+    notifyListeners();
   }
 
   static String _generateDeviceId() {

@@ -181,6 +181,23 @@ void main() {
     await dbA.close();
   });
 
+  test('保存文档触发 onMutation → 防抖推送链路可达（评审修复回归）', () async {
+    final server = FakeSyncServer();
+    final (dbA, clientA) = await makeDevice(server, 'a');
+    var notified = 0;
+    dbA.onMutation = () {
+      notified++;
+    };
+    final nb = await dbA.createNotebook('书');
+    final doc = await dbA.createDocument(nb.id, title: '第一章');
+    final before = notified;
+    await dbA.saveDocument(id: doc.id, title: doc.title, content: '[{"insert":"新内容"}]');
+    // 事务提交后必须触发 onMutation（引擎据此调度 30s 防抖推送）
+    expect(notified, greaterThan(before));
+    clientA.dispose();
+    await dbA.close();
+  });
+
   test('409 协议不匹配 → 可读错误 + 状态机 error + 退避重试调度', () async {
     final server = FakeSyncServer(protocol: 99);
     final (dbA, clientA) = await makeDevice(server, 'a');

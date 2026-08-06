@@ -16,6 +16,7 @@ import '../core/crash_journal.dart';
 import '../core/export.dart' show emptyDeltaJson, parseDeltaOps;
 import '../core/models.dart' as m;
 import '../core/word_count.dart';
+import '../core/sync/client.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/debounce.dart';
@@ -36,6 +37,7 @@ class EditorView extends StatefulWidget {
     required this.settings,
     required this.focusMode,
     required this.onToggleFocusMode,
+    this.syncClient,
     this.toolbarDismissTick,
     this.saveTick,
     this.journal,
@@ -51,6 +53,9 @@ class EditorView extends StatefulWidget {
 
   /// Ctrl/Cmd+S 立即保存通知（Shell 全局处理）。
   final ValueNotifier<int>? saveTick;
+
+  /// 同步引擎（null = 未接线，如单测）。
+  final SyncClient? syncClient;
 
   /// 崩溃日志（null = 未接线，如测试）。
   final CrashJournal? journal;
@@ -296,7 +301,9 @@ class _EditorViewState extends State<EditorView> {
           library: widget.library,
           settings: widget.settings,
           onRetrySave: _saveNow,
-          onOpenSettings: (focusGoal) => _openSettings(focusGoal: focusGoal),
+          syncClient: widget.syncClient,
+          onOpenSettings: ({bool focusDailyGoal = false, bool focusSync = false}) =>
+              _openSettings(focusDailyGoal: focusDailyGoal, focusSync: focusSync),
         ),
       ],
       ),
@@ -368,11 +375,13 @@ class _EditorViewState extends State<EditorView> {
     );
   }
   /// 打开设置：桌面模态对话框（480px）/ Android 全屏页（ui-settings.md）。
-  void _openSettings({bool focusGoal = false}) {
+  void _openSettings({bool focusDailyGoal = false, bool focusSync = false}) {
     final view = SettingsView(
       settings: widget.settings,
       library: widget.library,
-      autoFocusDailyGoal: focusGoal,
+      syncClient: widget.syncClient,
+      autoFocusDailyGoal: focusDailyGoal,
+      autoFocusSync: focusSync,
     );
     if (isAndroidPlatform) {
       Navigator.of(context).push(MaterialPageRoute<void>(

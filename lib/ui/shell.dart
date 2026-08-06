@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/crash_journal.dart';
+import '../core/sync/client.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import 'editor.dart';
@@ -25,6 +26,7 @@ class Shell extends StatefulWidget {
     required this.library,
     required this.settings,
     this.journal,
+    this.syncClient,
   });
 
   final LibraryController library;
@@ -32,6 +34,9 @@ class Shell extends StatefulWidget {
 
   /// 崩溃日志（null = 未接线，如测试）。
   final CrashJournal? journal;
+
+  /// 同步引擎（null = 未接线，如测试）。
+  final SyncClient? syncClient;
 
   @override
   State<Shell> createState() => _ShellState();
@@ -112,6 +117,7 @@ class _ShellState extends State<Shell> {
               settings: widget.settings,
               focusMode: _focusMode,
               onToggleFocusMode: () => setState(() => _focusMode = !_focusMode),
+              syncClient: widget.syncClient,
               toolbarDismissTick: _toolbarDismissTick,
               saveTick: _saveTick,
               journal: widget.journal,

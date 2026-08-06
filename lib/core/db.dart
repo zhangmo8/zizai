@@ -388,7 +388,7 @@ CREATE TABLE last_open (
     required String content,
   }) async {
     final now = _nowMs();
-        return _db.transaction((txn) async {
+    final delta = await _db.transaction((txn) async {
       final rows = await txn.query('documents', where: 'id = ?', whereArgs: [id], limit: 1);
       if (rows.isEmpty) throw LibraryException('保存失败: 文档不存在 $id', path: _path);
       final oldWords = rows.first['words']! as int;
@@ -417,6 +417,9 @@ CREATE TABLE last_open (
       );
       return delta;
     });
+    // 事务内 _markDirtyOn 不触发回调；提交后通知（同步引擎 30s 防抖推送）。
+    onMutation?.call();
+    return delta;
   }
 
   // ── 设置 ──────────────────────────────────────────────────
