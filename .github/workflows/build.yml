@@ -37,6 +37,29 @@ jobs:
             exit 1
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Verify version tag exists
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        with:
+          script: |
+            const tag = process.env.TAG;
+            try {
+              await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${tag}`,
+              });
+            } catch (error) {
+              if (error.status === 404) {
+                throw new Error(
+                  `Version tag "${tag}" does not exist on origin. ` +
+                  `Create and push it, then rerun the release: ` +
+                  `git tag ${tag} && git push origin ${tag}`,
+                );
+              }
+              throw error;
+            }
 
   android:
     name: Android APK

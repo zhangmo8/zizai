@@ -78,7 +78,16 @@ zizai/apps/zizai-1.2.0.apk
 | 新旧 App 互相同步 | 协议版本不一致 → 409 + 升级提示 |
 | 更新清单 minDbSchema > 本地 | 更新安装后首次启动自动迁移 |
 
-## 5. 测试
+## 5. GitHub Release 构建
+
+GitHub Actions 工作流 [build.yml](../../.github/workflows/build.yml) 负责三端打包、生成 `update.json`，并创建 GitHub Release。
+
+- 触发方式：推送符合 `v<major>.<minor>.<patch>` 格式的 tag，或在 Actions 中手动输入**已推送到远程的同格式 tag**。
+- 前置校验：工作流会在启动三端构建前验证 tag 格式及其远程存在性；不存在时立即失败，不启动构建 runner。
+- 正常发布流程：先将 `pubspec.yaml` 的 App 版本更新为对应版本，验证 CI 后执行 `git tag v<version>` 与 `git push origin v<version>`。tag push 会自动触发发布。
+- 构建输出：Android APK、macOS `.app` zip、Windows zip、带 sha256 的 `update.json` 作为同一 GitHub Release 附件。
+
+## 6. 测试
 
 - 迁移回放：v1 空库 → 当前版本，schema/数据断言。
 - 迁移失败注入：中断某级迁移 → 库保持备份可恢复。
