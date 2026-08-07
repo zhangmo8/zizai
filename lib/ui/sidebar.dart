@@ -579,13 +579,21 @@ class _InlineEditFieldState extends State<_InlineEditField> {
     super.dispose();
   }
 
-  void _submit() {
+  bool _submitting = false;
+
+  Future<void> _submit() async {
+    if (_submitting) return;
     final error = widget.validate(_controller.text);
     if (error != null) {
       setState(() => _error = error);
       return;
     }
-    widget.onSubmit(_controller.text);
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    await widget.onSubmit(_controller.text);
+    if (mounted) setState(() => _submitting = false);
   }
 
   @override
@@ -605,22 +613,46 @@ class _InlineEditFieldState extends State<_InlineEditField> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          CupertinoTextField(
-            controller: _controller,
-            autofocus: true,
-            style: TextStyle(fontSize: 13, color: colors.onSurface),
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: _error == null
-                    ? colors.primary.withValues(alpha: 0.55)
-                    : colors.error,
+          Row(
+            children: [
+              Expanded(
+                child: CupertinoTextField(
+                  controller: _controller,
+                  autofocus: true,
+                  enabled: !_submitting,
+                  style: TextStyle(fontSize: 13, color: colors.onSurface),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: _error == null
+                          ? colors.primary.withValues(alpha: 0.55)
+                          : colors.error,
+                    ),
+                    borderRadius: BorderRadius.circular(5),
+                    color: appColors.surfaceRaised,
+                  ),
+                  cursorColor: colors.primary,
+                  onSubmitted: (_) => _submit(),
+                ),
               ),
-              borderRadius: BorderRadius.circular(5),
-              color: appColors.surfaceRaised,
-            ),
-            cursorColor: colors.primary,
-            onSubmitted: (_) => _submit(),
+              const SizedBox(width: 4),
+              _InlineEditAction(
+                tooltip: '取消编辑',
+                icon: Icons.close,
+                color: colors.onSurfaceVariant,
+                onPressed: _submitting ? null : widget.onCancel,
+              ),
+              const SizedBox(width: 2),
+              _InlineEditAction(
+                tooltip: '保存名称',
+                icon: _submitting ? Icons.more_horiz : Icons.check,
+                color: colors.primary,
+                onPressed: _submitting ? null : _submit,
+              ),
+            ],
           ),
           if (_error != null)
             Padding(
@@ -632,6 +664,32 @@ class _InlineEditFieldState extends State<_InlineEditField> {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _InlineEditAction extends StatelessWidget {
+  const _InlineEditAction({
+    required this.tooltip,
+    required this.icon,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 16),
+      color: color,
+      disabledColor: color.withValues(alpha: 0.35),
     );
   }
 }

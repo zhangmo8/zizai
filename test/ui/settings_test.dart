@@ -17,12 +17,18 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  Future<(LibraryController, SettingsController)> makeApp({bool seed = true}) async {
+  Future<(LibraryController, SettingsController)> makeApp({
+    bool seed = true,
+  }) async {
     final dir = await Directory.systemTemp.createTemp('zizai_settings');
     final db = await Db.open('${dir.path}/test.db');
     if (seed) {
       final nb = await db.createNotebook('小说');
-      final doc = await db.createDocument(nb.id, title: '第一章', content: '[{"insert":"正文"}]');
+      final doc = await db.createDocument(
+        nb.id,
+        title: '第一章',
+        content: '[{"insert":"正文"}]',
+      );
       await db.saveLastOpen(notebookId: nb.id, documentId: doc.id, words: 2);
     }
     final settings = SettingsController(db);
@@ -32,7 +38,11 @@ void main() {
     return (library, settings);
   }
 
-  Future<void> pumpApp(WidgetTester tester, LibraryController library, SettingsController settings) async {
+  Future<void> pumpApp(
+    WidgetTester tester,
+    LibraryController library,
+    SettingsController settings,
+  ) async {
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1.0;
@@ -46,10 +56,8 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// 对话框/页内 ListView 懒加载：向下滚动露出下方区块。
-  Future<void> scrollSettingsDown(WidgetTester tester) async {
-    final list = find.byType(ListView).last;
-    await tester.drag(list, const Offset(0, -500));
+  Future<void> openCategory(WidgetTester tester, String category) async {
+    await tester.tap(find.text(category).first);
     await tester.pumpAndSettle();
   }
 
@@ -59,12 +67,11 @@ void main() {
     await openSettings(tester);
 
     expect(find.text('设置'), findsOneWidget);
-    expect(find.text('外观'), findsOneWidget);
+    expect(find.text('外观'), findsWidgets);
     expect(find.text('写作'), findsOneWidget);
-    await scrollSettingsDown(tester);
     expect(find.text('数据'), findsOneWidget);
     expect(find.text('恢复默认'), findsOneWidget);
-    expect(find.text('完成'), findsOneWidget);
+    expect(find.text('关闭'), findsNothing); // 桌面端仅保留右上角关闭按钮
   });
 
   testWidgets('主题切换 → 即改即存并持久化', (tester) async {
@@ -97,7 +104,9 @@ void main() {
     await tester.pump();
     // 让真实异步写库完成（sqflite 事务在 FakeAsync 内不会自行结束）
     for (var i = 0; i < 5; i++) {
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
       await tester.pump();
     }
     expect(settings.settings.fontSize, greaterThan(before));
@@ -111,6 +120,7 @@ void main() {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
     await openSettings(tester);
+    await openCategory(tester, '写作');
 
     await tester.enterText(find.byType(CupertinoTextField), '3000');
     await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -127,6 +137,7 @@ void main() {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
     await openSettings(tester);
+    await openCategory(tester, '写作');
 
     await tester.enterText(find.byType(CupertinoTextField), '50'); // 低于下限
     await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -147,24 +158,31 @@ void main() {
         exportedText = text;
       },
     );
-    await tester.pumpWidget(MaterialApp(theme: AppTheme.light(), home: Scaffold(body: view)));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(body: view),
+      ),
+    );
     await tester.pump();
 
-    await scrollSettingsDown(tester);
-    await tester.tap(find.text('导出'));
+    await openCategory(tester, '数据');
+    await tester.tap(find.widgetWithText(CupertinoButton, '导出'));
     await tester.pumpAndSettle();
     expect(exported?.title, '第一章');
     expect(exportedText, '正文');
   });
 
   testWidgets('导出：无文档时禁用并说明', (tester) async {
-    final (library, settings) = (await tester.runAsync(() => makeApp(seed: false)))!;
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(seed: false),
+    ))!;
     await pumpApp(tester, library, settings);
     await openSettings(tester);
-    await scrollSettingsDown(tester);
+    await openCategory(tester, '数据');
 
     expect(find.text('先打开一个文档'), findsOneWidget);
-    expect(find.text('导出'), findsNothing);
+    expect(find.widgetWithText(CupertinoButton, '导出'), findsNothing);
   });
 
   testWidgets('恢复默认：设置回默认值，不删文档', (tester) async {
@@ -179,12 +197,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(settings.settings.theme, 'dark');
 
-    await scrollSettingsDown(tester);
     await tester.tap(find.text('恢复默认'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('恢复默认').last);
     await tester.pumpAndSettle();
     // 让真实异步写库完成（sqflite 事务在 FakeAsync 内不会自行结束）
     for (var i = 0; i < 5; i++) {
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
       await tester.pump();
     }
     expect(settings.settings.theme, 'system');

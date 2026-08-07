@@ -83,7 +83,6 @@ class _EditorViewState extends State<EditorView> {
   );
 
   StreamSubscription<q.DocChange>? _changesSub;
-  bool _showToolbar = false;
 
   /// 上次成功保存的内容（Delta JSON），避免空保存。
   String _lastSavedContent = '';
@@ -100,7 +99,6 @@ class _EditorViewState extends State<EditorView> {
     );
     _lastSavedContent = widget.library.currentDocument?.content ?? '';
     _changesSub = _quill.document.changes.listen(_onDocChange);
-    _quill.addListener(_onQuillNotify);
     _focusNode.addListener(_onFocusChanged);
     widget.toolbarDismissTick?.addListener(_onDismissToolbar);
     widget.saveTick?.addListener(_onSaveTick);
@@ -135,9 +133,15 @@ class _EditorViewState extends State<EditorView> {
     super.dispose();
   }
 
-  /// Esc（Shell 全局）→ 收起工具栏。
+  /// Esc（Shell 全局）→ 收起 Quill 的选区菜单并折叠选区。
   void _onDismissToolbar() {
-    if (_showToolbar && mounted) setState(() => _showToolbar = false);
+    final selection = _quill.selection;
+    if (selection.isValid && !selection.isCollapsed) {
+      _quill.updateSelection(
+        TextSelection.collapsed(offset: selection.extentOffset),
+        q.ChangeSource.local,
+      );
+    }
   }
 
   /// Ctrl/Cmd+S（Shell 全局）→ 立即保存并闪「已保存」。
@@ -170,7 +174,6 @@ class _EditorViewState extends State<EditorView> {
     _changesSub = _quill.document.changes.listen(_onDocChange);
     _lastSavedContent = doc.content;
     widget.library.reportLiveWords(doc.words);
-    _showToolbar = false;
   }
 
   // ── 变更 → 字数 / 自动保存 / 崩溃日志 ──────────────────────
@@ -180,14 +183,6 @@ class _EditorViewState extends State<EditorView> {
     widget.library.reportLiveWords(words);
     _saveDebounce.schedule(_saveNow);
     _journalDebounce.schedule(_writeJournal);
-  }
-
-  void _onQuillNotify() {
-    final sel = _quill.selection;
-    final hasSelection = sel.isValid && !sel.isCollapsed && sel.baseOffset >= 0;
-    if (hasSelection != _showToolbar) {
-      setState(() => _showToolbar = hasSelection);
-    }
   }
 
   void _onFocusChanged() {
@@ -330,10 +325,10 @@ class _EditorViewState extends State<EditorView> {
                 onRetrySave: _saveNow,
                 backup: widget.backup,
                 onOpenSettings:
-                    ({bool focusDailyGoal = false, bool focusSync = false}) =>
+                    ({bool focusDailyGoal = false, bool focusBackup = false}) =>
                         _openSettings(
                           focusDailyGoal: focusDailyGoal,
-                          focusSync: focusSync,
+                          focusBackup: focusBackup,
                         ),
               ),
           ],
@@ -367,6 +362,16 @@ class _EditorViewState extends State<EditorView> {
                     horizontal: 24,
                   ),
                   customStyles: _buildStyles(s),
+                  // Quill 负责选区锚点和安全区域翻转：桌面贴近鼠标完成选取的
+                  // 位置，移动端贴近实际选段，避免工具栏固定在页面顶部。
+                  enableSelectionToolbar: !widget.focusMode,
+                  contextMenuBuilder: widget.focusMode
+                      ? null
+                      : (context, rawEditorState) => _SelectionToolbarMenu(
+                          anchors: rawEditorState.contextMenuAnchors,
+                          buttonItems: rawEditorState.contextMenuButtonItems,
+                          child: _FloatingToolbar(quill: _quill),
+                        ),
                 ),
               ),
             ),
@@ -386,13 +391,6 @@ class _EditorViewState extends State<EditorView> {
                 ),
               ),
             ),
-          ),
-        if (_showToolbar && !widget.focusMode)
-          Positioned(
-            top: 8,
-            left: 0,
-            right: 0,
-            child: Center(child: _FloatingToolbar(quill: _quill)),
           ),
       ],
     );
@@ -429,8 +427,8 @@ class _EditorViewState extends State<EditorView> {
     );
   }
 
-  /// 打开设置：桌面模态对话框（480px）/ Android 全屏页（ui-settings.md）。
-  void _openSettings({bool focusDailyGoal = false, bool focusSync = false}) {
+  /// 打开设置：桌面双栏模态对话框 / Android 全屏页（ui-settings.md）。
+  void _openSettings({bool focusDailyGoal = false, bool focusBackup = false}) {
     final view = SettingsView(
       settings: widget.settings,
       library: widget.library,
@@ -438,7 +436,7 @@ class _EditorViewState extends State<EditorView> {
       updateChecker: widget.updateChecker,
       dbSchemaVersion: widget.updateChecker?.dbSchemaVersion,
       autoFocusDailyGoal: focusDailyGoal,
-      autoFocusSync: focusSync,
+      autoFocusBackup: focusBackup,
     );
     if (isAndroidPlatform) {
       Navigator.of(context).push(
@@ -451,7 +449,7 @@ class _EditorViewState extends State<EditorView> {
       showDialog<void>(
         context: context,
         builder: (_) =>
-            Dialog(child: SizedBox(width: 480, height: 520, child: view)),
+            Dialog(child: SizedBox(width: 840, height: 620, child: view)),
       );
     }
   }
@@ -589,6 +587,50 @@ class _HeaderActionState extends State<_HeaderAction> {
   }
 }
 
+/// 由 Flutter/Quill 的选区 Overlay 承载，自动锚定选区上方并在边界翻转。
+/// 桌面端锚在鼠标完成选取的位置；触摸端锚在实际选段附近。
+class _SelectionToolbarMenu extends StatelessWidget {
+  const _SelectionToolbarMenu({
+    required this.anchors,
+    required this.buttonItems,
+    required this.child,
+  });
+
+  final TextSelectionToolbarAnchors anchors;
+  final List<ContextMenuButtonItem> buttonItems;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AdaptiveTextSelectionToolbar(
+      anchors: anchors,
+      children: [
+        ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.sizeOf(context).width - 24,
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                child,
+                if (buttonItems.isNotEmpty) ...[
+                  const SizedBox(width: 4),
+                  ...AdaptiveTextSelectionToolbar.getAdaptiveButtons(
+                    context,
+                    buttonItems,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// 上下文工具栏：选中文本时浮现（Notion-like compact floating bar）。
 class _FloatingToolbar extends StatelessWidget {
   const _FloatingToolbar({required this.quill});
@@ -676,85 +718,88 @@ class _FloatingToolbar extends StatelessWidget {
       color: appColors.surfaceRaised,
       border: Border.all(color: colors.outline),
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          textBtn(
-            'H1',
-            '标题 1',
-            isActive('header', 1),
-            () => quill.formatSelection(q.Attribute.h1),
-          ),
-          textBtn(
-            'H2',
-            '标题 2',
-            isActive('header', 2),
-            () => quill.formatSelection(q.Attribute.h2),
-          ),
-          textBtn(
-            'H3',
-            '标题 3',
-            isActive('header', 3),
-            () => quill.formatSelection(q.Attribute.h3),
-          ),
-          _sep(colors),
-          btn(
-            icon: const Icon(Icons.format_bold),
-            tooltip: '加粗',
-            isActive: isActive('bold'),
-            onTap: () => quill.formatSelection(q.Attribute.bold),
-          ),
-          btn(
-            icon: const Icon(Icons.format_italic),
-            tooltip: '斜体',
-            isActive: isActive('italic'),
-            onTap: () => quill.formatSelection(q.Attribute.italic),
-          ),
-          btn(
-            icon: const Icon(Icons.format_underline),
-            tooltip: '下划线',
-            isActive: isActive('underline'),
-            onTap: () => quill.formatSelection(q.Attribute.underline),
-          ),
-          btn(
-            icon: const Icon(Icons.format_strikethrough),
-            tooltip: '删除线',
-            isActive: isActive('strike'),
-            onTap: () => quill.formatSelection(q.Attribute.strikeThrough),
-          ),
-          _sep(colors),
-          btn(
-            icon: const Icon(Icons.format_list_bulleted),
-            tooltip: '无序列表',
-            isActive: isActive('list', 'bullet'),
-            onTap: () => quill.formatSelection(q.Attribute.ul),
-          ),
-          btn(
-            icon: const Icon(Icons.format_list_numbered),
-            tooltip: '有序列表',
-            isActive: isActive('list', 'ordered'),
-            onTap: () => quill.formatSelection(q.Attribute.ol),
-          ),
-          _sep(colors),
-          btn(
-            icon: const Icon(Icons.format_quote),
-            tooltip: '引用',
-            isActive: isActive('blockquote'),
-            onTap: () => quill.formatSelection(q.Attribute.blockQuote),
-          ),
-          btn(
-            icon: const Icon(Icons.code),
-            tooltip: '行内代码',
-            isActive: isActive('code'),
-            onTap: () => quill.formatSelection(q.Attribute.inlineCode),
-          ),
-          btn(
-            icon: const Icon(Icons.data_object),
-            tooltip: '代码块',
-            isActive: isActive('code-block'),
-            onTap: () => quill.formatSelection(q.Attribute.codeBlock),
-          ),
-        ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            textBtn(
+              'H1',
+              '标题 1',
+              isActive('header', 1),
+              () => quill.formatSelection(q.Attribute.h1),
+            ),
+            textBtn(
+              'H2',
+              '标题 2',
+              isActive('header', 2),
+              () => quill.formatSelection(q.Attribute.h2),
+            ),
+            textBtn(
+              'H3',
+              '标题 3',
+              isActive('header', 3),
+              () => quill.formatSelection(q.Attribute.h3),
+            ),
+            _sep(colors),
+            btn(
+              icon: const Icon(Icons.format_bold),
+              tooltip: '加粗',
+              isActive: isActive('bold'),
+              onTap: () => quill.formatSelection(q.Attribute.bold),
+            ),
+            btn(
+              icon: const Icon(Icons.format_italic),
+              tooltip: '斜体',
+              isActive: isActive('italic'),
+              onTap: () => quill.formatSelection(q.Attribute.italic),
+            ),
+            btn(
+              icon: const Icon(Icons.format_underline),
+              tooltip: '下划线',
+              isActive: isActive('underline'),
+              onTap: () => quill.formatSelection(q.Attribute.underline),
+            ),
+            btn(
+              icon: const Icon(Icons.format_strikethrough),
+              tooltip: '删除线',
+              isActive: isActive('strike'),
+              onTap: () => quill.formatSelection(q.Attribute.strikeThrough),
+            ),
+            _sep(colors),
+            btn(
+              icon: const Icon(Icons.format_list_bulleted),
+              tooltip: '无序列表',
+              isActive: isActive('list', 'bullet'),
+              onTap: () => quill.formatSelection(q.Attribute.ul),
+            ),
+            btn(
+              icon: const Icon(Icons.format_list_numbered),
+              tooltip: '有序列表',
+              isActive: isActive('list', 'ordered'),
+              onTap: () => quill.formatSelection(q.Attribute.ol),
+            ),
+            _sep(colors),
+            btn(
+              icon: const Icon(Icons.format_quote),
+              tooltip: '引用',
+              isActive: isActive('blockquote'),
+              onTap: () => quill.formatSelection(q.Attribute.blockQuote),
+            ),
+            btn(
+              icon: const Icon(Icons.code),
+              tooltip: '行内代码',
+              isActive: isActive('code'),
+              onTap: () => quill.formatSelection(q.Attribute.inlineCode),
+            ),
+            btn(
+              icon: const Icon(Icons.data_object),
+              tooltip: '代码块',
+              isActive: isActive('code-block'),
+              onTap: () => quill.formatSelection(q.Attribute.codeBlock),
+            ),
+          ],
+        ),
       ),
     );
   }

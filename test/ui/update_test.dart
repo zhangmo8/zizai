@@ -68,35 +68,42 @@ void main() {
     );
   }
 
-  Future<void> pumpSettings(WidgetTester tester,
-      {required UpdateChecker checker, required Db db}) async {
+  Future<void> pumpSettings(
+    WidgetTester tester, {
+    required UpdateChecker checker,
+    required Db db,
+  }) async {
     final settings = SettingsController(db);
     final library = LibraryController(db);
     await tester.runAsync(() async {
       await settings.load();
       await library.restore();
     });
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: SettingsView(
-          settings: settings,
-          library: library,
-          updateChecker: checker,
-          dbSchemaVersion: 2,
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SettingsView(
+            settings: settings,
+            library: library,
+            updateChecker: checker,
+            dbSchemaVersion: 2,
+          ),
         ),
       ),
-    ));
+    );
     await tester.pump();
   }
 
-  Future<void> scrollDown(WidgetTester tester) async {
-    await tester.drag(find.byType(ListView), const Offset(0, -800));
+  Future<void> openAbout(WidgetTester tester) async {
+    await tester.tap(find.text('关于'));
     await tester.pumpAndSettle();
   }
 
   Future<void> settle(WidgetTester tester) async {
     for (var i = 0; i < 12; i++) {
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
       await tester.pump();
     }
   }
@@ -105,8 +112,8 @@ void main() {
     final db = (await tester.runAsync(() => Db.open('${tempDir.path}/t.db')))!;
     final checker = makeChecker();
     await pumpSettings(tester, checker: checker, db: db);
-    await scrollDown(tester);
-    expect(find.text('关于'), findsOneWidget);
+    await openAbout(tester);
+    expect(find.text('关于'), findsWidgets);
     expect(find.text('1.0.0'), findsWidgets); // App 版本（注入，可能与其它数值同文案）
     expect(find.text('schema v2'), findsOneWidget);
     expect(find.text('检查更新'), findsWidgets); // 行标签 + 按钮
@@ -117,7 +124,7 @@ void main() {
     final db = (await tester.runAsync(() => Db.open('${tempDir.path}/t.db')))!;
     final checker = makeChecker();
     await pumpSettings(tester, checker: checker, db: db);
-    await scrollDown(tester);
+    await openAbout(tester);
 
     // 第一步：检查 → available（待用户确认，不自动下载）
     await tester.tap(find.widgetWithText(CupertinoButton, '检查更新'));
@@ -136,12 +143,14 @@ void main() {
   });
 
   testWidgets('启动失败视图：迁移失败提示 + .bak 恢复指引', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
-      home: StartupErrorView(
-        message: '打开数据库失败: 测试错误',
-        path: '/tmp/zi-zai.db',
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: StartupErrorView(
+          message: '打开数据库失败: 测试错误',
+          path: '/tmp/zi-zai.db',
+        ),
       ),
-    ));
+    );
     await tester.pump();
     expect(find.text('启动失败'), findsOneWidget);
     expect(find.textContaining('打开数据库失败'), findsOneWidget);

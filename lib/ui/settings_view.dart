@@ -40,6 +40,8 @@ const List<String> kFontChoices = [
 /// 导出实现签名（桌面保存对话框 / Android 分享；测试可注入）。
 typedef ExportHandler = Future<void> Function(Document doc, String plainText);
 
+enum _SettingsCategory { appearance, writing, backup, data, about }
+
 class SettingsView extends StatefulWidget {
   const SettingsView({
     super.key,
@@ -50,7 +52,7 @@ class SettingsView extends StatefulWidget {
     this.dbSchemaVersion,
     this.exporter,
     this.autoFocusDailyGoal = false,
-    this.autoFocusSync = false,
+    this.autoFocusBackup = false,
   });
 
   final SettingsController settings;
@@ -71,8 +73,8 @@ class SettingsView extends StatefulWidget {
   /// 打开时聚焦「每日目标字数」（状态栏今日进度点击入口）。
   final bool autoFocusDailyGoal;
 
-  /// 打开时定位「同步」区（状态栏同步指示点击入口）。
-  final bool autoFocusSync;
+  /// 打开时定位「备份」区（状态栏备份指示点击入口）。
+  final bool autoFocusBackup;
 
   @override
   State<SettingsView> createState() => _SettingsViewState();
@@ -88,6 +90,12 @@ class _SettingsViewState extends State<SettingsView> {
   );
 
   Settings get _s => widget.settings.settings;
+
+  late _SettingsCategory _category = widget.autoFocusDailyGoal
+      ? _SettingsCategory.writing
+      : widget.autoFocusBackup && widget.backup != null
+      ? _SettingsCategory.backup
+      : _SettingsCategory.appearance;
 
   @override
   void initState() {
@@ -172,136 +180,201 @@ class _SettingsViewState extends State<SettingsView> {
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: widget.settings,
-      builder: (context, _) {
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            color: Theme.of(context).scaffoldBackgroundColor,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _Header(onClose: () => Navigator.of(context).maybePop()),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-                  children: [
-                    _Section(
-                      '外观',
-                      icon: Icons.palette_outlined,
-                      children: [
-                        _row('主题', _themePicker()),
-                        _row('字体', _fontPicker()),
-                        _row(
-                          '字号',
-                          _slider(
-                            12,
-                            28,
-                            _s.fontSize,
-                            1,
-                            (v) => _update(_s.copyWith(fontSize: v)),
-                            '${_s.fontSize.round()}',
-                          ),
+      builder: (context, _) => DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final desktop = constraints.maxWidth >= 720;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _Header(onClose: () => Navigator.of(context).maybePop()),
+                if (!desktop)
+                  _MobileSettingsNav(
+                    selected: _category,
+                    categories: _availableCategories,
+                    onSelected: _selectCategory,
+                  ),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (desktop)
+                        _SettingsNav(
+                          selected: _category,
+                          categories: _availableCategories,
+                          onSelected: _selectCategory,
+                          onReset: _confirmReset,
                         ),
-                        _row(
-                          '行距',
-                          _slider(
-                            1.2,
-                            2.4,
-                            _s.lineHeight,
-                            0.1,
-                            (v) => _update(_s.copyWith(lineHeight: v)),
-                            _s.lineHeight.toStringAsFixed(1),
-                          ),
+                      Expanded(
+                        child: _SettingsPage(
+                          category: _category,
+                          child: _buildCategoryPage(),
                         ),
-                        _preview(),
-                      ],
-                    ),
-                    _Section(
-                      '写作',
-                      icon: Icons.edit_note_outlined,
-                      children: [_row('每日目标字数', _goalField())],
-                    ),
-                    if (widget.backup != null) ...[
-                      _Section(
-                        '备份',
-                        icon: Icons.cloud_outlined,
-                        children: [
-                          _row('Account ID', _backupAccountField()),
-                          _row('Bucket', _backupBucketField()),
-                          _row('Access Key', _backupAccessField()),
-                          _row('Secret Key', _backupSecretField()),
-                          _row('上次备份', _lastBackupRow()),
-                          _backupActions(),
-                        ],
                       ),
                     ],
-                    _Section(
-                      '数据',
-                      icon: Icons.folder_outlined,
-                      children: [
-                        _row('数据库路径', _dbPathRow()),
-                        _row('导出当前文档', _exportRow()),
-                      ],
-                    ),
-                    if (widget.updateChecker != null)
-                      _Section(
-                        '关于',
-                        icon: Icons.info_outline,
-                        children: [
-                          _row(
-                            'App 版本',
-                            Text(
-                              widget.updateChecker!.appVersion,
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                          ),
-                          _row(
-                            '数据库版本',
-                            Text(
-                              'schema v${widget.dbSchemaVersion ?? 0}',
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                          ),
-                          _row('更新地址', _updateUrlField()),
-                          _row('检查更新', _checkUpdateRow()),
-                        ],
-                      ),
-                  ],
+                  ),
                 ),
-              ),
-              _ActionsRow(
-                onReset: () => _update(const Settings()),
-                onDone: () => Navigator.of(context).maybePop(),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _row(String label, Widget control) {
-    final colors = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 112,
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.25,
-                color: colors.onSurfaceVariant,
-              ),
-            ),
-          ),
-          Expanded(child: control),
-        ],
+                if (!desktop)
+                  _MobileSettingsFooter(
+                    onReset: _confirmReset,
+                    onClose: () => Navigator.of(context).maybePop(),
+                  ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
+
+  List<_SettingsCategory> get _availableCategories => [
+    _SettingsCategory.appearance,
+    _SettingsCategory.writing,
+    if (widget.backup != null) _SettingsCategory.backup,
+    _SettingsCategory.data,
+    if (widget.updateChecker != null) _SettingsCategory.about,
+  ];
+
+  void _selectCategory(_SettingsCategory category) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _category = category);
+  }
+
+  Future<void> _confirmReset() async {
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('恢复默认设置？'),
+        content: const Text('主题、字体、字号、行距和每日目标会恢复为默认值；不会删除文档或备份。'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('恢复默认'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) _update(const Settings());
+  }
+
+  Widget _buildCategoryPage() => switch (_category) {
+    _SettingsCategory.appearance => _appearancePage(),
+    _SettingsCategory.writing => _writingPage(),
+    _SettingsCategory.backup => _backupPage(),
+    _SettingsCategory.data => _dataPage(),
+    _SettingsCategory.about => _aboutPage(),
+  };
+
+  Widget _appearancePage() => Column(
+    children: [
+      _SettingsGroup(
+        label: '界面',
+        children: [_row('主题', _themePicker()), _row('字体', _fontPicker())],
+      ),
+      _SettingsGroup(
+        label: '编辑器',
+        children: [
+          _row(
+            '字号',
+            _slider(
+              12,
+              28,
+              _s.fontSize,
+              1,
+              (v) => _update(_s.copyWith(fontSize: v)),
+              '${_s.fontSize.round()}',
+            ),
+          ),
+          _row(
+            '行距',
+            _slider(
+              1.2,
+              2.4,
+              _s.lineHeight,
+              0.1,
+              (v) => _update(_s.copyWith(lineHeight: v)),
+              _s.lineHeight.toStringAsFixed(1),
+            ),
+          ),
+          _preview(),
+        ],
+      ),
+    ],
+  );
+
+  Widget _writingPage() => _SettingsGroup(
+    label: '写作目标',
+    children: [_row('每日目标字数', _goalField(), description: '用于状态栏的今日进度提醒')],
+  );
+
+  Widget _backupPage() => _SettingsGroup(
+    label: 'R2 备份',
+    children: [
+      _row(
+        'Account ID',
+        _backupAccountField(),
+        description: 'Cloudflare R2 账户标识',
+      ),
+      _row('Bucket', _backupBucketField()),
+      _row('Access Key', _backupAccessField()),
+      _row('Secret Key', _backupSecretField()),
+      _row('上次备份', _lastBackupRow()),
+      Padding(padding: const EdgeInsets.only(top: 8), child: _backupActions()),
+    ],
+  );
+
+  Widget _dataPage() => Column(
+    children: [
+      _SettingsGroup(label: '本地数据', children: [_row('数据库路径', _dbPathRow())]),
+      _SettingsGroup(
+        label: '导出',
+        children: [_row('当前文档', _exportRow(), description: '导出为纯文本文件')],
+      ),
+    ],
+  );
+
+  Widget _aboutPage() {
+    final checker = widget.updateChecker;
+    if (checker == null) return const SizedBox.shrink();
+    return Column(
+      children: [
+        _SettingsGroup(
+          label: '版本信息',
+          children: [
+            _row(
+              'App 版本',
+              Text(checker.appVersion, style: const TextStyle(fontSize: 13)),
+            ),
+            _row(
+              '数据库版本',
+              Text(
+                'schema v${widget.dbSchemaVersion ?? 0}',
+                style: const TextStyle(fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+        _SettingsGroup(
+          label: '软件更新',
+          children: [
+            _row('更新地址', _updateUrlField(), description: '发布 update.json 的地址'),
+            _row('检查更新', _checkUpdateRow()),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _row(String label, Widget control, {String? description}) =>
+      _SettingsRow(label: label, description: description, control: control);
 
   Widget _themePicker() {
     return _ValuePicker<String>(
@@ -881,45 +954,384 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _Section extends StatelessWidget {
-  const _Section(this.title, {required this.icon, required this.children});
+extension on _SettingsCategory {
+  String get label => switch (this) {
+    _SettingsCategory.appearance => '外观',
+    _SettingsCategory.writing => '写作',
+    _SettingsCategory.backup => '备份',
+    _SettingsCategory.data => '数据',
+    _SettingsCategory.about => '关于',
+  };
 
-  final String title;
-  final IconData icon;
-  final List<Widget> children;
+  String get description => switch (this) {
+    _SettingsCategory.appearance => '自定义阅读与编辑体验',
+    _SettingsCategory.writing => '管理每日写作目标',
+    _SettingsCategory.backup => '安全备份你的作品',
+    _SettingsCategory.data => '导出与管理本地数据',
+    _SettingsCategory.about => '版本信息与软件更新',
+  };
+
+  IconData get icon => switch (this) {
+    _SettingsCategory.appearance => Icons.palette_outlined,
+    _SettingsCategory.writing => Icons.edit_note_outlined,
+    _SettingsCategory.backup => Icons.cloud_outlined,
+    _SettingsCategory.data => Icons.folder_outlined,
+    _SettingsCategory.about => Icons.info_outline,
+  };
+}
+
+class _SettingsNav extends StatelessWidget {
+  const _SettingsNav({
+    required this.selected,
+    required this.categories,
+    required this.onSelected,
+    required this.onReset,
+  });
+
+  final _SettingsCategory selected;
+  final List<_SettingsCategory> categories;
+  final ValueChanged<_SettingsCategory> onSelected;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    return SizedBox(
+      width: 204,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: appColors.sidebar,
+          border: Border(right: BorderSide(color: colors.outline)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                child: Text(
+                  '偏好设置',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: appColors.textTertiary,
+                  ),
+                ),
+              ),
+              for (final category in categories) ...[
+                if (category == _SettingsCategory.about)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Divider(height: 1, color: colors.outline),
+                  ),
+                _SettingsNavItem(
+                  category: category,
+                  selected: selected == category,
+                  onTap: () => onSelected(category),
+                ),
+              ],
+              const Spacer(),
+              Divider(height: 1, color: colors.outline),
+              const SizedBox(height: 8),
+              _SettingsNavItem(
+                label: '恢复默认',
+                icon: Icons.restart_alt,
+                onTap: onReset,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsNavItem extends StatefulWidget {
+  const _SettingsNavItem({
+    this.category,
+    required this.onTap,
+    this.selected = false,
+    this.label,
+    this.icon,
+  });
+
+  final _SettingsCategory? category;
+  final VoidCallback onTap;
+  final bool selected;
+  final String? label;
+  final IconData? icon;
+
+  @override
+  State<_SettingsNavItem> createState() => _SettingsNavItemState();
+}
+
+class _SettingsNavItemState extends State<_SettingsNavItem> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    final label = widget.label ?? widget.category!.label;
+    final icon = widget.icon ?? widget.category!.icon;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 100),
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: widget.selected
+                ? appColors.rowSelected
+                : _hovered
+                ? appColors.surfaceHover
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 16, color: colors.onSurfaceVariant),
+              const SizedBox(width: 9),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: widget.selected
+                      ? FontWeight.w600
+                      : FontWeight.w400,
+                  color: widget.selected
+                      ? colors.onSurface
+                      : colors.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileSettingsNav extends StatelessWidget {
+  const _MobileSettingsNav({
+    required this.selected,
+    required this.categories,
+    required this.onSelected,
+  });
+
+  final _SettingsCategory selected;
+  final List<_SettingsCategory> categories;
+  final ValueChanged<_SettingsCategory> onSelected;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final appColors = appColorsOf(context);
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      height: 48,
       decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border.all(color: colors.outline),
-        borderRadius: BorderRadius.circular(10),
+        border: Border(bottom: BorderSide(color: colors.outline)),
       ),
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        scrollDirection: Axis.horizontal,
+        itemCount: categories.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 6),
+        itemBuilder: (context, index) {
+          final category = categories[index];
+          final active = category == selected;
+          return CupertinoButton(
+            padding: EdgeInsets.zero,
+            minimumSize: Size.zero,
+            onPressed: () => onSelected(category),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: active ? appColors.rowSelected : Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                child: Text(
+                  category.label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: active ? colors.onSurface : colors.onSurfaceVariant,
+                    fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SettingsPage extends StatelessWidget {
+  const _SettingsPage({required this.category, required this.child});
+
+  final _SettingsCategory category;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 120),
+      child: ListView(
+        key: ValueKey(category),
+        padding: const EdgeInsets.fromLTRB(28, 26, 28, 36),
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 580),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  category.label,
+                  style: TextStyle(
+                    fontSize: 22,
+                    height: 1.15,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.35,
+                    color: colors.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  category.description,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 28),
+                child,
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsGroup extends StatelessWidget {
+  const _SettingsGroup({required this.label, required this.children});
+
+  final String label;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Icon(icon, size: 15, color: appColors.textTertiary),
-              const SizedBox(width: 7),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 12,
-                  height: 1.2,
-                  fontWeight: FontWeight.w700,
-                  color: colors.onSurfaceVariant,
-                ),
-              ),
-            ],
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: colors.onSurface,
+            ),
           ),
           const SizedBox(height: 8),
           ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsRow extends StatelessWidget {
+  const _SettingsRow({
+    required this.label,
+    required this.control,
+    this.description,
+  });
+
+  final String label;
+  final String? description;
+  final Widget control;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 54),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: colors.outline)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            flex: 4,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 13, color: colors.onSurface),
+                ),
+                if (description != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    description!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 20),
+          Flexible(
+            flex: 5,
+            child: Align(alignment: Alignment.centerRight, child: control),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileSettingsFooter extends StatelessWidget {
+  const _MobileSettingsFooter({required this.onReset, required this.onClose});
+
+  final VoidCallback onReset;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: colors.outline)),
+      ),
+      child: Row(
+        children: [
+          _SettingsButton.link(label: '恢复默认', onPressed: onReset),
+          const Spacer(),
+          _SettingsButton.primary(label: '关闭', onPressed: onClose),
         ],
       ),
     );
@@ -1069,29 +1481,3 @@ class _SettingsButton extends StatelessWidget {
 }
 
 enum _SettingsButtonVariant { primary, secondary, link }
-
-class _ActionsRow extends StatelessWidget {
-  const _ActionsRow({required this.onReset, required this.onDone});
-
-  final VoidCallback onReset;
-  final VoidCallback onDone;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        border: Border(top: BorderSide(color: colors.outline)),
-      ),
-      child: Row(
-        children: [
-          _SettingsButton.link(label: '恢复默认', onPressed: onReset),
-          const Spacer(),
-          _SettingsButton.primary(label: '完成', onPressed: onDone),
-        ],
-      ),
-    );
-  }
-}

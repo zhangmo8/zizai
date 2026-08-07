@@ -1,6 +1,6 @@
 # 编辑器布局与交互
 
-Status: Draft（v2：所见即所得）
+Status: Draft（v3：选区锚定工具栏）
 
 ## Overall Structure
 
@@ -18,10 +18,13 @@ Status: Draft（v2：所见即所得）
 │ 今日 420/2000 █████░░ 20%       本文 6,238 字    │  ← 状态栏
 └────────────────────────────────────────────────┘
 
-选中文本时，在选区上方浮现上下文工具栏（Notion 式，100ms 淡入）：
-┌──────────────┐
-│ H1 B I U ▾ ▾ │  ← 浮动工具栏（surface 底 + hairline + 浅阴影）
-└──────────────┘
+选中文本时，由编辑器选区 overlay 在选区上方浮现上下文工具栏（Notion 式，100ms 淡入）；靠近屏幕边缘时由框架翻转到选区下方：
+
+```text
+                 ┌──────────────┐
+                 │ H1 B I U ▾ ▾ │  ← 锚定于实际选区
+                 └──────────────┘
+       ─────── 被选中的文字 ───────
 ```
 
 沉浸模式（FocusMode）隐藏顶栏与状态栏，内容区全屏（退出方式见 §Interactions）。
@@ -32,8 +35,10 @@ Status: Draft（v2：所见即所得）
 |---|---|
 | 顶栏 | 文档名（长名省略）、沉浸按钮、设置按钮 |
 | 内容区 | flutter_quill 编辑器（`QuillEditor`），行宽约束 720px，居中 |
-| 上下文工具栏 | 选中文本时在选区上方浮现：标题 H1–H3、加粗/斜体/下划线/删除线、无序/有序列表、引用、行内代码、代码块；平时不占界面 |
+| 上下文工具栏 | 选中文本时在实际选区上方浮现：标题 H1–H3、加粗/斜体/下划线/删除线、无序/有序列表、引用、行内代码、代码块；由 `QuillEditorConfig.contextMenuBuilder` 交给 Flutter/Quill 选区锚点定位；平时不占界面 |
 | 状态栏 | 今日增量/目标 + 进度条 + 本文总字数（纯文本口径） |
+
+工具栏内容在窄屏保持单行横向滚动，不能溢出屏幕；工具栏仅提供格式化操作，不替换复制、粘贴等系统选区菜单。
 
 ## Interactions
 
@@ -44,7 +49,7 @@ Status: Draft（v2：所见即所得）
 | 切换文档/退出 | 全局 | 保存当前文档后执行 |
 | `Ctrl/Cmd + S` | 桌面 | 立即保存，状态栏闪「已保存」1s |
 | `Ctrl/Cmd + B / I / U` | 桌面 | 加粗/斜体/下划线（编辑器内置） |
-| 选中文本 | 内容区 | 选区上方浮现上下文工具栏；点击空白或 `Esc` 收起 |
+| 选中文本 | 内容区 | 在选区锚点附近浮现上下文工具栏；点击空白或 `Esc` 收起 |
 | `Ctrl/Cmd + Shift + F` | 桌面 | 进入沉浸模式 |
 | `Esc` | 沉浸模式 | 退出沉浸模式 |
 | 状态栏点击今日进度 | 全局 | 打开设置页定位到「每日目标字数」 |
@@ -66,7 +71,7 @@ Status: Draft（v2：所见即所得）
 | 退出（Android） | **主路径：系统返回手势/返回键**（PopScope 拦截 → 退出沉浸，不退出 App）；**兜底：顶部 48px 热区**——点按弹出「退出 + 当前字数」条（触摸设备无 hover，需显式触碰目标），向下滑热区直接退出 |
 | 热区与滚动 | 热区是固定于屏幕顶部的独立 overlay 层，不拦截编辑区滚动；编辑器顶部留足 padding，不遮挡首行 |
 | 状态保持 | 进出不打断光标位置与滚动 |
-| 格式化 | 选中文本 → 浮动工具栏照常浮现（桌面/移动一致），无需退出沉浸；沉浸模式不提供常驻工具栏 |
+| 格式化 | 非沉浸时选中文本 → 选区锚定工具栏浮现；沉浸模式不显示格式化工具栏，也不提供常驻工具栏 |
 | 字数可见性 | Android 沉浸时字数隐藏；点按顶部热区弹出的条内显示「本文 x 字 · 今日 x/目标」 |
 | 打字机滚动 | V1 不做（backlog） |
 
@@ -82,12 +87,13 @@ Status: Draft（v2：所见即所得）
 ```text
 EditorView
 ├─ EditorHeader（docTitle / FocusButton / SettingsButton）
-├─ ContentArea（QuillEditor, maxWidth 720, centered）
-├─ FloatingFormatToolbar（选中文本浮现：Heading / Bold / Italic / Underline / Strike / List / Quote / Code）
-└─ StatusBar
-    ├─ TodayProgress（今日增量 / 目标 + LinearProgressIndicator）
-    └─ DocWordCount
-FocusView ──包装──► EditorView（隐藏 chrome）
+├─ ContentArea
+│  └─ QuillEditor
+│     └─ SelectionOverlay（contextMenuBuilder → FloatingFormatToolbar）
+├─ StatusBar
+│  ├─ TodayProgress（今日增量 / 目标 + LinearProgressIndicator）
+│  └─ DocWordCount
+└─ FocusView ──包装──► EditorView（隐藏 chrome）
 ```
 
 ## Page Entry Points

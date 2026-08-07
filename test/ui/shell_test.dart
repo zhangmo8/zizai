@@ -13,12 +13,22 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  Future<(LibraryController, SettingsController)> makeApp({bool seed = false}) async {
+  Future<(LibraryController, SettingsController)> makeApp({
+    bool seed = false,
+  }) async {
     final db = await Db.open(inMemoryDatabasePath);
     if (seed) {
       final nb = await db.createNotebook('小说');
-      final doc = await db.createDocument(nb.id, title: '第一章', content: '[{"insert":"正文"}]');
-      await db.saveDocument(id: doc.id, title: doc.title, content: '[{"insert":"正文一二三"}]');
+      final doc = await db.createDocument(
+        nb.id,
+        title: '第一章',
+        content: '[{"insert":"正文"}]',
+      );
+      await db.saveDocument(
+        id: doc.id,
+        title: doc.title,
+        content: '[{"insert":"正文一二三"}]',
+      );
     }
     final settings = SettingsController(db);
     await settings.load();
@@ -32,6 +42,16 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
+  /// 推进 FFI 数据库的真实异步写入及其返回后的 widget 刷新。
+  Future<void> settleDatabaseWrite(WidgetTester tester) async {
+    for (var i = 0; i < 25; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pump();
+    }
   }
 
   testWidgets('桌面尺寸：渲染侧边栏 + 空态引导 + 状态栏', (tester) async {
@@ -82,16 +102,17 @@ void main() {
     await tester.pump();
     // 空态按钮 → 行内编辑（默认名「新笔记本」），Enter 确认
     await tester.testTextInput.receiveAction(TextInputAction.done);
-    // 让真实异步（DB 写入）完成后再刷新
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
-    await tester.pump();
+    // 行内提交等待真实 FFI 数据库写入；多轮推进异步 continuation 后刷新 UI。
+    await settleDatabaseWrite(tester);
     expect(find.text('新笔记本'), findsOneWidget);
     expect(find.text('新建一本笔记本，开始写'), findsNothing);
   });
 
   testWidgets('有数据：状态栏渲染今日进度与文档字数', (tester) async {
     await pumpAtSize(tester, const Size(1200, 800));
-    final (library, settings) = (await tester.runAsync(() => makeApp(seed: true)))!;
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(seed: true),
+    ))!;
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
     await tester.pump();
 

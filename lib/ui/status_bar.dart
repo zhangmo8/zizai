@@ -25,7 +25,7 @@ class StatusBar extends StatefulWidget {
   final SettingsController settings;
   final BackupManager? backup;
   final Future<void> Function()? onRetrySave;
-  final void Function({bool focusDailyGoal, bool focusSync})? onOpenSettings;
+  final void Function({bool focusDailyGoal, bool focusBackup})? onOpenSettings;
 
   @override
   State<StatusBar> createState() => _StatusBarState();
@@ -138,7 +138,7 @@ class _StatusBarState extends State<StatusBar> {
             if (widget.backup != null)
               _BackupIndicator(
                 backup: widget.backup!,
-                onTap: () => widget.onOpenSettings?.call(focusSync: true),
+                onTap: () => widget.onOpenSettings?.call(focusBackup: true),
               ),
             if (_showSaved)
               Text(

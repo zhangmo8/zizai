@@ -24,7 +24,9 @@ void main() {
   Future<void> settle(WidgetTester tester) async {
     // 写库是真实异步（sqflite_common_ffi），慢 CI 上需要更多真实时间窗口。
     for (var i = 0; i < 25; i++) {
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
       await tester.pump();
     }
   }
@@ -48,7 +50,10 @@ void main() {
     return (library, settings);
   }
 
-  Future<void> pumpSidebar(WidgetTester tester, LibraryController library) async {
+  Future<void> pumpSidebar(
+    WidgetTester tester,
+    LibraryController library,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(),
@@ -86,12 +91,20 @@ void main() {
   }
 
   testWidgets('树渲染：笔记本展开 + 文档 + 当前文档高亮', (tester) async {
-    final (library, _) = (await tester.runAsync(() => makeApp(tree: [
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
           ('小说', ['第一章', '第二章']),
           ('随笔集', []),
-        ])))!;
+        ],
+      ),
+    ))!;
     // 确定当前文档
-    await tester.runAsync(() => library.switchDocument(library.documentsOf(library.notebooks.first.id).first.id));
+    await tester.runAsync(
+      () => library.switchDocument(
+        library.documentsOf(library.notebooks.first.id).first.id,
+      ),
+    );
     await pumpSidebar(tester, library);
 
     expect(find.text('小说'), findsOneWidget);
@@ -117,9 +130,9 @@ void main() {
   });
 
   testWidgets('顶栏 + 新建笔记本（默认名）', (tester) async {
-    final (library, _) = (await tester.runAsync(() => makeApp(tree: [
-          ('旧本', []),
-        ])))!;
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(tree: [('旧本', [])]),
+    ))!;
     await pumpSidebar(tester, library);
 
     await tester.tap(find.byTooltip('新建笔记本'));
@@ -131,9 +144,9 @@ void main() {
   });
 
   testWidgets('新建章节：默认名行内重命名', (tester) async {
-    final (library, _) = (await tester.runAsync(() => makeApp(tree: [
-          ('小说', []),
-        ])))!;
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', [])]),
+    ))!;
     await pumpSidebar(tester, library);
 
     await tester.tap(find.text('新建章节'));
@@ -145,10 +158,32 @@ void main() {
     expect(find.text('01-开端.md'), findsOneWidget);
   });
 
+  testWidgets('新建章节：可用取消按钮退出且不创建文档', (tester) async {
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', [])]),
+    ))!;
+    await pumpSidebar(tester, library);
+
+    await tester.tap(find.text('新建章节'));
+    await tester.pump();
+    await tester.enterText(find.byType(CupertinoTextField), '临时章节');
+    await tester.tap(find.byTooltip('取消编辑'));
+    await tester.pump();
+
+    final notebookId = library.notebooks.single.id;
+    expect(library.documentsOf(notebookId), isEmpty);
+    expect(find.byType(CupertinoTextField), findsNothing);
+    expect(find.text('新建章节'), findsOneWidget);
+  });
+
   testWidgets('重命名文档：⋮ → 重命名 → Enter', (tester) async {
-    final (library, _) = (await tester.runAsync(() => makeApp(tree: [
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
           ('小说', ['第一章']),
-        ])))!;
+        ],
+      ),
+    ))!;
     await pumpSidebar(tester, library);
 
     await openRowMenu(tester, 1); // 第 1 个 ⋮ 是笔记本行，第 2 个是文档行
@@ -160,9 +195,13 @@ void main() {
   });
 
   testWidgets('重名冲突：错误态不允许提交', (tester) async {
-    final (library, _) = (await tester.runAsync(() => makeApp(tree: [
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
           ('小说', ['第一章', '第二章']),
-        ])))!;
+        ],
+      ),
+    ))!;
     await pumpSidebar(tester, library);
 
     await openRowMenu(tester, 2); // 第二章
@@ -175,9 +214,13 @@ void main() {
   });
 
   testWidgets('非法文件名（含 /）错误态', (tester) async {
-    final (library, _) = (await tester.runAsync(() => makeApp(tree: [
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
           ('小说', ['第一章']),
-        ])))!;
+        ],
+      ),
+    ))!;
     await pumpSidebar(tester, library);
 
     await openRowMenu(tester, 1);
@@ -186,9 +229,13 @@ void main() {
   });
 
   testWidgets('Esc 取消编辑，不产生变更', (tester) async {
-    final (library, _) = (await tester.runAsync(() => makeApp(tree: [
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
           ('小说', ['第一章']),
-        ])))!;
+        ],
+      ),
+    ))!;
     await pumpSidebar(tester, library);
 
     await openRowMenu(tester, 1);
@@ -203,9 +250,13 @@ void main() {
   });
 
   testWidgets('文档上移/下移', (tester) async {
-    final (library, _) = (await tester.runAsync(() => makeApp(tree: [
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
           ('小说', ['第一章', '第二章']),
-        ])))!;
+        ],
+      ),
+    ))!;
     await pumpSidebar(tester, library);
     final nbId = library.notebooks.first.id;
     expect(library.documentsOf(nbId).map((d) => d.title), ['第一章', '第二章']);
@@ -224,9 +275,13 @@ void main() {
   });
 
   testWidgets('单击文档切换当前文档，先触发 beforeSwitchSave', (tester) async {
-    final (library, _) = (await tester.runAsync(() => makeApp(tree: [
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
           ('小说', ['第一章', '第二章']),
-        ])))!;
+        ],
+      ),
+    ))!;
     var saved = false;
     library.beforeSwitchSave = () async {
       saved = true;
@@ -240,9 +295,13 @@ void main() {
   });
 
   testWidgets('删除文档：确认条出现 → 确认后移除', (tester) async {
-    final (library, settings) = (await tester.runAsync(() => makeApp(tree: [
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
           ('小说', ['第一章', '第二章']),
-        ])))!;
+        ],
+      ),
+    ))!;
     // 用完整 Shell 渲染确认条（编辑器区顶部）
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
     tester.view.physicalSize = const Size(1200, 800);
@@ -263,9 +322,13 @@ void main() {
   });
 
   testWidgets('删除取消：5s 无操作自动关闭（不删除）', (tester) async {
-    final (library, settings) = (await tester.runAsync(() => makeApp(tree: [
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
           ('小说', ['第一章']),
-        ])))!;
+        ],
+      ),
+    ))!;
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1.0;
