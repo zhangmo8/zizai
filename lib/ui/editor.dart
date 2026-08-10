@@ -1,15 +1,22 @@
-/// 所见即所得编辑器：Quill 编辑器 + 上下文工具栏 + 自动保存 + 字数。
+/// 所见即所得编辑器：Quill 编辑器 + 页面大标题 + 斜杠命令菜单 +
+/// Markdown 快捷语法 + 上下文工具栏 + 自动保存 + 字数。
 ///
 /// 设计依据：docs/app/ui-editor.md（Region Layout / Interactions /
 /// Word Count / State Variants）、docs/app/style.md（§3 tokens、§4 字体、
 /// §5 尺寸、§9 组件样式）、docs/app/README.md §7（自动保存优先、无模态打断）。
+/// 视觉方向：Notion-inspired —— 页面即纸张、块级排版、低打扰 chrome。
 library;
+
+// flutter_quill 的输入快捷事件 API 标注 @experimental（11.x 起稳定提供，
+// AppFlowy 同源实现）；markdown 快捷语法依赖它，按版本锁定使用。
+// ignore_for_file: experimental_member_use
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show LogicalKeyboardKey;
+import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' as q;
 
 import '../app.dart' show appColorsOf;
@@ -26,12 +33,12 @@ import '../util/platform.dart';
 import 'focus_view.dart';
 import 'glass.dart';
 import 'settings_view.dart';
+import 'slash_menu.dart';
 import 'status_bar.dart';
 
 const int _autoSaveDebounceMs = 1000;
 const int _journalThrottleMs = 500;
 const double _maxContentWidth = 760;
-const double _contentVPadding = 88;
 
 class EditorView extends StatefulWidget {
   const EditorView({
@@ -73,6 +80,7 @@ class EditorView extends StatefulWidget {
 
 class _EditorViewState extends State<EditorView> {
   late final q.QuillController _quill;
+  final GlobalKey<q.EditorState> _editorKey = GlobalKey<q.EditorState>();
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scroll = ScrollController();
   final Debouncer _saveDebounce = Debouncer(
@@ -90,6 +98,14 @@ class _EditorViewState extends State<EditorView> {
   /// 崩溃恢复待确认项。
   CrashJournalEntry? _pendingRecover;
 
+  // ── 斜杠命令菜单状态（overlay 承载，锚定光标）─────────────
+  OverlayEntry? _slashOverlay;
+  int _slashAnchor = -1;
+  List<SlashCommand> _slashMatches = kSlashCommands;
+  int _slashIndex = 0;
+  Offset _slashPosition = Offset.zero;
+  bool _slashKeyHandlerAdded = false;
+
   @override
   void initState() {
     super.initState();
@@ -99,6 +115,8 @@ class _EditorViewState extends State<EditorView> {
     );
     _lastSavedContent = widget.library.currentDocument?.content ?? '';
     _changesSub = _quill.document.changes.listen(_onDocChange);
+    _quill.addListener(_onQuillChanged);
+    _scroll.addListener(_onEditorScrolled);
     _focusNode.addListener(_onFocusChanged);
     widget.toolbarDismissTick?.addListener(_onDismissToolbar);
     widget.saveTick?.addListener(_onSaveTick);
@@ -119,7 +137,9 @@ class _EditorViewState extends State<EditorView> {
 
   @override
   void dispose() {
+    _closeSlash();
     _changesSub?.cancel();
+    _quill.removeListener(_onQuillChanged);
     _quill.dispose();
     _focusNode.dispose();
     _scroll.dispose();
@@ -169,6 +189,7 @@ class _EditorViewState extends State<EditorView> {
   }
 
   void _loadDocument(m.Document doc) {
+    _closeSlash();
     _changesSub?.cancel();
     _quill.document = _documentFromJson(doc.content);
     _changesSub = _quill.document.changes.listen(_onDocChange);
@@ -176,13 +197,14 @@ class _EditorViewState extends State<EditorView> {
     widget.library.reportLiveWords(doc.words);
   }
 
-  // ── 变更 → 字数 / 自动保存 / 崩溃日志 ──────────────────────
+  // ── 变更 → 字数 / 自动保存 / 崩溃日志 / 斜杠菜单 ────────────
 
-  void _onDocChange(q.DocChange _) {
+  void _onDocChange(q.DocChange change) {
     final words = wordCount(_quill.document.toPlainText());
     widget.library.reportLiveWords(words);
     _saveDebounce.schedule(_saveNow);
     _journalDebounce.schedule(_writeJournal);
+    _handleSlashTrigger(change);
   }
 
   void _onFocusChanged() {
@@ -258,6 +280,322 @@ class _EditorViewState extends State<EditorView> {
     widget.journal?.clear();
   }
 
+  // ── Markdown 快捷语法（行首触发词 + 空格 → 块格式）──────────
+
+  /// 触发词整行匹配时：删除触发词并格式化当前行。
+  ///
+  /// 不用 flutter_quill 内置 handler 的「插入 \n 占位再删除」技巧——
+  /// 该技巧在文档末尾会被 EnsureLastLineBreak 删除规则拦截，
+  /// 留下一个多余空行。
+  static bool _formatLinePrefix(
+    q.QuillController controller,
+    q.QuillText node,
+    String phrase,
+    q.Attribute attribute,
+  ) {
+    final lineStart = node.documentOffset;
+    // 仅当光标恰好位于触发词之后（行首输入场景）才转换。
+    if (controller.selection.baseOffset != lineStart + phrase.length) {
+      return false;
+    }
+    controller
+      ..replaceText(
+        lineStart,
+        phrase.length,
+        '',
+        TextSelection.collapsed(offset: lineStart),
+      )
+      ..formatSelection(attribute);
+    return true;
+  }
+
+  /// 行首「触发词 + 空格」→ 块格式（Notion/markdown 惯例）。
+  static final List<q.SpaceShortcutEvent> _spaceShortcuts = [
+    for (final (phrase, attr) in <(String, q.Attribute)>[
+      ('#', q.Attribute.h1),
+      ('##', q.Attribute.h2),
+      ('###', q.Attribute.h3),
+      ('-', q.Attribute.ul),
+      ('*', q.Attribute.ul),
+      ('1.', q.Attribute.ol),
+      ('>', q.Attribute.blockQuote),
+      ('[]', q.Attribute.unchecked),
+      ('[x]', q.Attribute.checked),
+      ('```', q.Attribute.codeBlock),
+    ])
+      q.SpaceShortcutEvent(
+        character: phrase,
+        handler: (node, controller) =>
+            _formatLinePrefix(controller, node, phrase, attr),
+      ),
+  ];
+
+  // ── 斜杠命令菜单 ──────────────────────────────────────────
+
+  /// 单次插入的纯文本（多段插入/删除返回 null）。
+  String? _insertedText(q.DocChange change) {
+    String? inserted;
+    for (final op in change.change.toList()) {
+      if (op.isInsert) {
+        if (inserted != null) return null;
+        final data = op.data;
+        if (data is! String) return null;
+        inserted = data;
+      } else if (op.isDelete) {
+        return null;
+      }
+    }
+    return inserted;
+  }
+
+  void _handleSlashTrigger(q.DocChange change) {
+    if (_slashOverlay != null) {
+      _refreshSlash();
+      return;
+    }
+    if (change.source != q.ChangeSource.local) return;
+    if (_insertedText(change) != '/') return;
+    final sel = _quill.selection;
+    if (!sel.isValid || !sel.isCollapsed) return;
+    _slashAnchor = sel.baseOffset - 1;
+    if (_slashAnchor < 0) return;
+    _slashMatches = kSlashCommands;
+    _slashIndex = 0;
+    _openSlashOverlay();
+  }
+
+  /// 控制器任何通知（选区/文档）时校验菜单有效性并刷新过滤。
+  void _onQuillChanged() {
+    if (_slashOverlay != null) _refreshSlash();
+  }
+
+  void _onEditorScrolled() {
+    if (_slashOverlay != null) _positionSlash();
+  }
+
+  void _refreshSlash() {
+    final sel = _quill.selection;
+    if (!sel.isValid || !sel.isCollapsed) return _closeSlash();
+    final caret = sel.baseOffset;
+    final plain = _quill.document.toPlainText();
+    if (_slashAnchor < 0 ||
+        _slashAnchor >= plain.length ||
+        plain[_slashAnchor] != '/' ||
+        caret <= _slashAnchor) {
+      return _closeSlash();
+    }
+    final query = plain.substring(_slashAnchor + 1, math.min(caret, plain.length));
+    if (query.contains('\n') || query.length > 16) return _closeSlash();
+    final matches = filterSlashCommands(query);
+    if (matches.isEmpty) return _closeSlash();
+    _slashMatches = matches;
+    if (_slashIndex >= matches.length) _slashIndex = 0;
+    _slashOverlay?.markNeedsBuild();
+    _positionSlash();
+  }
+
+  void _openSlashOverlay() {
+    _slashOverlay = OverlayEntry(
+      builder: (context) => Stack(
+        children: [
+          // 透明监听层：点击任意处关闭菜单，且不拦截下层交互。
+          Positioned.fill(
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (_) => _closeSlash(),
+            ),
+          ),
+          Positioned(
+            left: _slashPosition.dx,
+            top: _slashPosition.dy,
+            child: SlashMenuPanel(
+              commands: _slashMatches,
+              selectedIndex: _slashIndex,
+              onSelect: _applySlash,
+              onHover: (i) {
+                if (_slashIndex == i) return;
+                _slashIndex = i;
+                _slashOverlay?.markNeedsBuild();
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+    Overlay.of(context).insert(_slashOverlay!);
+    HardwareKeyboard.instance.addHandler(_onSlashKey);
+    _slashKeyHandlerAdded = true;
+    _positionSlash();
+  }
+
+  /// 菜单锚定光标下缘；触底翻转到上缘（Notion 行为）。
+  void _positionSlash() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _slashOverlay == null) return;
+      final editorState = _editorKey.currentState;
+      if (editorState == null) return;
+      final render = editorState.renderEditor;
+      if (!render.attached) return;
+      final caret = render.getLocalRectForCaret(
+        TextPosition(offset: _slashAnchor),
+      );
+      final bottomLeft = render.localToGlobal(caret.bottomLeft);
+      final topLeft = render.localToGlobal(caret.topLeft);
+      final screen = MediaQuery.sizeOf(context);
+      final menuHeight = math.min(
+        SlashMenuPanel.maxHeight,
+        _slashMatches.length * SlashMenuPanel.itemHeight + 34,
+      );
+      var pos = Offset(bottomLeft.dx, bottomLeft.dy + 6);
+      if (pos.dy + menuHeight > screen.height - 12) {
+        pos = Offset(topLeft.dx, topLeft.dy - menuHeight - 6);
+      }
+      pos = Offset(
+        pos.dx.clamp(8.0, math.max(8.0, screen.width - SlashMenuPanel.width - 8)),
+        math.max(8.0, pos.dy),
+      );
+      if ((pos - _slashPosition).distance > 0.5) {
+        _slashPosition = pos;
+        _slashOverlay?.markNeedsBuild();
+      }
+    });
+  }
+
+  /// 菜单开启时接管 ↑↓/Enter/Esc（先于编辑器焦点系统分发）。
+  bool _onSlashKey(KeyEvent event) {
+    if (_slashOverlay == null || event is KeyUpEvent) return false;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowDown) {
+      _slashIndex = (_slashIndex + 1) % _slashMatches.length;
+      _slashOverlay!.markNeedsBuild();
+      return true;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) {
+      _slashIndex =
+          (_slashIndex - 1 + _slashMatches.length) % _slashMatches.length;
+      _slashOverlay!.markNeedsBuild();
+      return true;
+    }
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.tab) {
+      _applySlash(_slashMatches[_slashIndex]);
+      return true;
+    }
+    if (key == LogicalKeyboardKey.escape) {
+      _closeSlash();
+      return true;
+    }
+    return false;
+  }
+
+  void _applySlash(SlashCommand cmd) {
+    final anchor = _slashAnchor;
+    final caret = _quill.selection.baseOffset;
+    _closeSlash();
+    if (anchor < 0) return;
+    // 删除「/query」触发文本，再对所在行应用块格式。
+    final end = math.max(caret, anchor + 1);
+    _quill.replaceText(
+      anchor,
+      end - anchor,
+      '',
+      TextSelection.collapsed(offset: anchor),
+    );
+    switch (cmd.id) {
+      case 'text':
+        for (final attr in <q.Attribute<dynamic>>[
+          q.Attribute.header,
+          q.Attribute.list,
+          q.Attribute.blockQuote,
+          q.Attribute.codeBlock,
+        ]) {
+          _quill.formatSelection(q.Attribute.clone(attr, null));
+        }
+      case 'h1':
+        _quill.formatSelection(q.Attribute.h1);
+      case 'h2':
+        _quill.formatSelection(q.Attribute.h2);
+      case 'h3':
+        _quill.formatSelection(q.Attribute.h3);
+      case 'bullet':
+        _quill.formatSelection(q.Attribute.ul);
+      case 'ordered':
+        _quill.formatSelection(q.Attribute.ol);
+      case 'todo':
+        _quill.formatSelection(q.Attribute.unchecked);
+      case 'quote':
+        _quill.formatSelection(q.Attribute.blockQuote);
+      case 'code':
+        _quill.formatSelection(q.Attribute.codeBlock);
+    }
+    _focusNode.requestFocus();
+  }
+
+  void _closeSlash() {
+    if (_slashKeyHandlerAdded) {
+      HardwareKeyboard.instance.removeHandler(_onSlashKey);
+      _slashKeyHandlerAdded = false;
+    }
+    final entry = _slashOverlay;
+    _slashOverlay = null;
+    _slashAnchor = -1;
+    if (entry != null) {
+      entry
+        ..remove()
+        ..dispose();
+    }
+  }
+
+  // ── 链接 ──────────────────────────────────────────────────
+
+  static String _normalizeUrl(String url) =>
+      url.contains('://') || url.startsWith('mailto:') ? url : 'https://$url';
+
+  Future<void> _promptLink() async {
+    final current =
+        _quill.getSelectionStyle().attributes['link']?.value as String? ?? '';
+    final input = TextEditingController(text: current);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('链接'),
+        content: SizedBox(
+          width: 380,
+          child: TextField(
+            controller: input,
+            autofocus: true,
+            decoration: const InputDecoration(hintText: 'https://…'),
+            onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+          ),
+        ),
+        actions: [
+          if (current.isNotEmpty)
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(''),
+              child: const Text('移除链接'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(input.text.trim()),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    if (result != null) {
+      if (result.isEmpty) {
+        _quill.formatSelection(q.Attribute.clone(q.Attribute.link, null));
+      } else {
+        _quill.formatSelection(q.LinkAttribute(_normalizeUrl(result)));
+      }
+    }
+    input.dispose();
+  }
+
   // ── 构建 ──────────────────────────────────────────────────
 
   @override
@@ -266,6 +604,13 @@ class _EditorViewState extends State<EditorView> {
     final colors = Theme.of(context).colorScheme;
     final focusMode = widget.focusMode;
     final meta = isMacOS;
+    final doc = widget.library.currentDocument;
+    final notebookName = doc == null
+        ? null
+        : widget.library.notebooks
+              .where((nb) => nb.id == doc.notebookId)
+              .map((nb) => nb.name)
+              .firstOrNull;
     return Shortcuts(
       shortcuts: {
         // Ctrl/Cmd+S 立即保存（ui-editor.md Interactions）。
@@ -291,8 +636,8 @@ class _EditorViewState extends State<EditorView> {
               ),
             if (!focusMode)
               _EditorHeader(
-                title: widget.library.currentDocument?.title ?? '',
-                focusMode: focusMode,
+                title: doc?.title ?? '',
+                notebookName: notebookName,
                 onToggleFocusMode: widget.onToggleFocusMode,
                 onOpenSettings: () => _openSettings(),
               ),
@@ -308,10 +653,8 @@ class _EditorViewState extends State<EditorView> {
                 child: FocusView(
                   focusMode: focusMode,
                   onExit: widget.onToggleFocusMode,
-                  liveWords:
-                      widget.library.liveDocWords ??
-                      widget.library.currentDocument?.words ??
-                      0,
+                  liveWords: widget.library.liveWords,
+                  fallbackWords: doc?.words ?? 0,
                   todayDelta: widget.library.todayDelta,
                   dailyGoal: s.dailyGoal,
                   child: _buildEditorArea(s, colors),
@@ -338,70 +681,113 @@ class _EditorViewState extends State<EditorView> {
   }
 
   Widget _buildEditorArea(m.Settings s, ColorScheme colors) {
-    // 空文档：Quill 占位 + 垂直居中的引导语（不再"悬在左上角"）。
     final doc = widget.library.currentDocument;
-    final empty =
-        doc == null || doc.content.isEmpty || doc.content == emptyDeltaJson;
-    return Stack(
+    final hasDoc = doc != null;
+    final focusMode = widget.focusMode;
+    final editor = q.QuillEditor(
+      controller: _quill,
+      focusNode: _focusNode,
+      scrollController: _scroll,
+      config: q.QuillEditorConfig(
+        editorKey: _editorKey,
+        placeholder: hasDoc ? '输入 / 唤起命令，或直接开始写…' : null,
+        autoFocus: false,
+        expands: true,
+        scrollable: true,
+        padding: EdgeInsets.fromLTRB(
+          24,
+          focusMode ? 88 : 8,
+          24,
+          focusMode ? 88 : 160,
+        ),
+        customStyles: _buildStyles(s),
+        characterShortcutEvents: q.standardCharactersShortcutEvents,
+        spaceShortcutEvents: _spaceShortcuts,
+        // 桌面点击菜单/侧栏不丢编辑焦点（Notion 行为）；移动端收起键盘。
+        onTapOutside: (event, focusNode) {
+          if (!isDesktopPlatform) focusNode.unfocus();
+        },
+        // Quill 负责选区锚点和安全区域翻转：桌面贴近鼠标完成选取的
+        // 位置，移动端贴近实际选段，避免工具栏固定在页面顶部。
+        enableSelectionToolbar: !focusMode,
+        contextMenuBuilder: focusMode
+            ? null
+            : (context, rawEditorState) => _SelectionToolbarMenu(
+                anchors: rawEditorState.contextMenuAnchors,
+                buttonItems: rawEditorState.contextMenuButtonItems,
+                child: _FloatingToolbar(quill: _quill, onLink: _promptLink),
+              ),
+      ),
+    );
+    return Column(
       children: [
-        Positioned.fill(
-          child: Center(
+        // Notion 式页面大标题：编辑即重命名，Enter 落入正文。
+        if (hasDoc && !focusMode)
+          Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: _maxContentWidth),
-              child: q.QuillEditor(
-                controller: _quill,
-                focusNode: _focusNode,
-                scrollController: _scroll,
-                config: q.QuillEditorConfig(
-                  placeholder: empty ? '' : '从这里开始写…',
-                  autoFocus: false,
-                  expands: true,
-                  scrollable: true,
-                  padding: const EdgeInsets.symmetric(
-                    vertical: _contentVPadding,
-                    horizontal: 24,
-                  ),
-                  customStyles: _buildStyles(s),
-                  // Quill 负责选区锚点和安全区域翻转：桌面贴近鼠标完成选取的
-                  // 位置，移动端贴近实际选段，避免工具栏固定在页面顶部。
-                  enableSelectionToolbar: !widget.focusMode,
-                  contextMenuBuilder: widget.focusMode
-                      ? null
-                      : (context, rawEditorState) => _SelectionToolbarMenu(
-                          anchors: rawEditorState.contextMenuAnchors,
-                          buttonItems: rawEditorState.contextMenuButtonItems,
-                          child: _FloatingToolbar(quill: _quill),
-                        ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 34, 24, 0),
+                child: _PageTitle(
+                  docId: doc.id,
+                  title: doc.title,
+                  onRename: (name) async {
+                    try {
+                      await widget.library.renameDocument(doc.id, name);
+                    } catch (_) {
+                      // 改名失败不打断书写；标题下次同步回库内值。
+                    }
+                  },
+                  onNext: () {
+                    _quill.updateSelection(
+                      const TextSelection.collapsed(offset: 0),
+                      q.ChangeSource.local,
+                    );
+                    _focusNode.requestFocus();
+                  },
                 ),
               ),
             ),
+          ),
+        Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: _maxContentWidth,
+                    ),
+                    child: editor,
+                  ),
+                ),
+              ),
+              // 未选择文档：编辑器保持挂载（占位空态），上面盖引导提示。
+              if (!hasDoc)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: ColoredBox(
+                      color: Theme.of(context).scaffoldBackgroundColor,
+                      child: _NoDocumentHint(colors: colors),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
-        if (empty)
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Center(
-                child: Text(
-                  '从这里开始写…',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontStyle: FontStyle.italic,
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            ),
-          ),
       ],
     );
   }
 
-  /// 编辑器样式：设置字号/行距/字体 + 标题阶梯（style.md §4）。
+  /// 编辑器样式：设置字号/行距/字体 + Notion 式块排版
+  /// （标题阶梯留白、引用竖线、代码块底色、行内代码红字）。
   q.DefaultStyles _buildStyles(m.Settings s) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
     final base = TextStyle(
       fontSize: s.fontSize,
       height: s.lineHeight,
-      color: Theme.of(context).colorScheme.onSurface,
+      color: colors.onSurface,
       letterSpacing: -0.12,
       fontFamily: s.fontFamily.isEmpty ? null : s.fontFamily,
       decoration: TextDecoration.none,
@@ -412,18 +798,70 @@ class _EditorViewState extends State<EditorView> {
       fontWeight: FontWeight.w700,
       letterSpacing: -0.45,
     );
-    q.DefaultTextBlockStyle block(TextStyle style) => q.DefaultTextBlockStyle(
+    final mono = base.copyWith(
+      fontSize: s.fontSize - 1.5,
+      height: 1.55,
+      letterSpacing: 0,
+      fontFamily: 'Menlo',
+      fontFamilyFallback: const ['Consolas', 'monospace'],
+    );
+    q.DefaultTextBlockStyle block(
+      TextStyle style, {
+      q.VerticalSpacing spacing = const q.VerticalSpacing(3, 3),
+    }) => q.DefaultTextBlockStyle(
       style,
       const q.HorizontalSpacing(0, 0),
-      const q.VerticalSpacing(4, 2),
+      spacing,
       const q.VerticalSpacing(0, 0),
-      BoxDecoration(),
+      const BoxDecoration(),
     );
     return q.DefaultStyles(
       paragraph: block(base),
-      h1: block(header(30)),
-      h2: block(header(24)),
-      h3: block(header(20)),
+      placeHolder: block(base.copyWith(color: appColors.textTertiary)),
+      h1: block(header(30), spacing: const q.VerticalSpacing(24, 6)),
+      h2: block(header(24), spacing: const q.VerticalSpacing(18, 5)),
+      h3: block(header(20), spacing: const q.VerticalSpacing(14, 4)),
+      lists: q.DefaultListBlockStyle(
+        base,
+        const q.HorizontalSpacing(0, 0),
+        const q.VerticalSpacing(3, 3),
+        const q.VerticalSpacing(0, 0),
+        null,
+        null,
+      ),
+      quote: q.DefaultTextBlockStyle(
+        base,
+        const q.HorizontalSpacing(14, 0),
+        const q.VerticalSpacing(6, 6),
+        const q.VerticalSpacing(0, 0),
+        BoxDecoration(
+          border: Border(
+            left: BorderSide(
+              color: colors.onSurface.withValues(alpha: 0.8),
+              width: 3,
+            ),
+          ),
+        ),
+      ),
+      code: q.DefaultTextBlockStyle(
+        mono,
+        const q.HorizontalSpacing(0, 0),
+        const q.VerticalSpacing(8, 8),
+        const q.VerticalSpacing(0, 0),
+        BoxDecoration(
+          color: appColors.callout,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: colors.outline),
+        ),
+      ),
+      inlineCode: q.InlineCodeStyle(
+        style: mono.copyWith(
+          fontSize: s.fontSize - 2,
+          color: const Color(0xFFEB5757),
+        ),
+        backgroundColor: appColors.callout,
+        radius: const Radius.circular(4),
+      ),
     );
   }
 
@@ -460,17 +898,145 @@ class _SaveIntent extends Intent {
   const _SaveIntent();
 }
 
-/// 顶栏：轻量 breadcrumb + 页面操作。
+/// Notion 式页面大标题：TextField 即改名入口，600ms 防抖入库。
+class _PageTitle extends StatefulWidget {
+  const _PageTitle({
+    required this.docId,
+    required this.title,
+    required this.onRename,
+    required this.onNext,
+  });
+
+  final String docId;
+  final String title;
+  final Future<void> Function(String name) onRename;
+
+  /// Enter → 聚焦正文首行。
+  final VoidCallback onNext;
+
+  @override
+  State<_PageTitle> createState() => _PageTitleState();
+}
+
+class _PageTitleState extends State<_PageTitle> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.title,
+  );
+  final FocusNode _focus = FocusNode();
+  final Debouncer _renameDebounce = Debouncer(
+    const Duration(milliseconds: 600),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(() {
+      if (!_focus.hasFocus) _renameDebounce.flush(_commit);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _PageTitle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.docId != widget.docId) {
+      _renameDebounce.cancel();
+      _controller.text = widget.title;
+    } else if (oldWidget.title != widget.title &&
+        !_focus.hasFocus &&
+        _controller.text != widget.title) {
+      // 侧栏重命名等外部变更；输入中（有焦点）不回写，避免打断。
+      _controller.text = widget.title;
+    }
+  }
+
+  @override
+  void dispose() {
+    _renameDebounce.cancel();
+    _controller.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _commit() {
+    final name = _controller.text.trim();
+    if (name.isEmpty || name == widget.title) return;
+    widget.onRename(name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    return TextField(
+      controller: _controller,
+      focusNode: _focus,
+      maxLines: 1,
+      style: TextStyle(
+        fontSize: 32,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.6,
+        height: 1.25,
+        color: colors.onSurface,
+      ),
+      cursorColor: colors.onSurface,
+      decoration: InputDecoration(
+        isDense: true,
+        border: InputBorder.none,
+        contentPadding: EdgeInsets.zero,
+        hintText: '无标题',
+        hintStyle: TextStyle(
+          fontSize: 32,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.6,
+          color: appColors.textTertiary,
+        ),
+      ),
+      textInputAction: TextInputAction.done,
+      onChanged: (_) => _renameDebounce.schedule(_commit),
+      onSubmitted: (_) {
+        _renameDebounce.flush(_commit);
+        widget.onNext();
+      },
+    );
+  }
+}
+
+/// 未选择文档的引导空态（编辑器区中央）。
+class _NoDocumentHint extends StatelessWidget {
+  const _NoDocumentHint({required this.colors});
+
+  final ColorScheme colors;
+
+  @override
+  Widget build(BuildContext context) {
+    final appColors = appColorsOf(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.edit_note, size: 44, color: appColors.textTertiary),
+          const SizedBox(height: 10),
+          Text(
+            '在左侧选择或新建一篇文档，开始写作',
+            style: TextStyle(fontSize: 14, color: colors.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 顶栏：轻量 breadcrumb（笔记本 / 文档）+ 页面操作。
 class _EditorHeader extends StatelessWidget {
   const _EditorHeader({
     required this.title,
-    required this.focusMode,
+    required this.notebookName,
     required this.onToggleFocusMode,
     required this.onOpenSettings,
   });
 
   final String title;
-  final bool focusMode;
+  final String? notebookName;
   final VoidCallback onToggleFocusMode;
   final VoidCallback onOpenSettings;
 
@@ -478,7 +1044,11 @@ class _EditorHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final appColors = appColorsOf(context);
-    final displayTitle = title.isEmpty ? '未选择文档' : title;
+    final crumb = title.isEmpty
+        ? '未选择文档'
+        : notebookName == null
+        ? title
+        : '$notebookName / $title';
     return GlassSurface(
       color: Theme.of(context).scaffoldBackgroundColor,
       border: Border(bottom: BorderSide(color: colors.outline)),
@@ -495,7 +1065,7 @@ class _EditorHeader extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                displayTitle,
+                crumb,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -633,9 +1203,10 @@ class _SelectionToolbarMenu extends StatelessWidget {
 
 /// 上下文工具栏：选中文本时浮现（Notion-like compact floating bar）。
 class _FloatingToolbar extends StatelessWidget {
-  const _FloatingToolbar({required this.quill});
+  const _FloatingToolbar({required this.quill, required this.onLink});
 
   final q.QuillController quill;
+  final VoidCallback onLink;
 
   @override
   Widget build(BuildContext context) {
@@ -766,6 +1337,12 @@ class _FloatingToolbar extends StatelessWidget {
               isActive: isActive('strike'),
               onTap: () => quill.formatSelection(q.Attribute.strikeThrough),
             ),
+            btn(
+              icon: const Icon(Icons.link),
+              tooltip: '链接',
+              isActive: isActive('link'),
+              onTap: onLink,
+            ),
             _sep(colors),
             btn(
               icon: const Icon(Icons.format_list_bulleted),
@@ -778,6 +1355,13 @@ class _FloatingToolbar extends StatelessWidget {
               tooltip: '有序列表',
               isActive: isActive('list', 'ordered'),
               onTap: () => quill.formatSelection(q.Attribute.ol),
+            ),
+            btn(
+              icon: const Icon(Icons.check_box_outlined),
+              tooltip: '待办清单',
+              isActive:
+                  isActive('list', 'unchecked') || isActive('list', 'checked'),
+              onTap: () => quill.formatSelection(q.Attribute.unchecked),
             ),
             _sep(colors),
             btn(

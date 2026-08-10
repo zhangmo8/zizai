@@ -190,6 +190,17 @@ class _SidebarState extends State<Sidebar> {
                 onToggle: () => setState(() {
                   if (!_expanded.add(nb.id)) _expanded.remove(nb.id);
                 }),
+                onNewDocument: () {
+                  // Notion 式行内 +：展开该笔记本并进入新章节命名。
+                  setState(() => _expanded.add(nb.id));
+                  _startEdit(
+                    _EditSession(
+                      target: _EditTarget.document,
+                      initial: '新章节.md',
+                      notebookId: nb.id,
+                    ),
+                  );
+                },
                 onEdit: () => _startEdit(
                   _EditSession(
                     id: nb.id,
@@ -343,12 +354,13 @@ class _HeaderBar extends StatelessWidget {
   }
 }
 
-/// 笔记本行：展开/折叠 + ⋮ 操作菜单（桌面端 hover 行才浮现）。
+/// 笔记本行：展开/折叠 + hover 浮现「+ 新建章节」与 ⋯ 操作菜单。
 class _NotebookTile extends StatefulWidget {
   const _NotebookTile({
     required this.notebook,
     required this.expanded,
     required this.onToggle,
+    required this.onNewDocument,
     required this.onEdit,
     required this.onDelete,
     required this.onMoveUp,
@@ -358,6 +370,7 @@ class _NotebookTile extends StatefulWidget {
   final Notebook notebook;
   final bool expanded;
   final VoidCallback onToggle;
+  final VoidCallback onNewDocument;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onMoveUp;
@@ -407,13 +420,22 @@ class _NotebookTileState extends State<_NotebookTile> {
           fontWeight: FontWeight.w600,
           color: colors.onSurface,
         ),
-        trailing: _RowMenu(
-          visible: _hover || !isDesktopPlatform,
-          items: [
-            ('上移', widget.onMoveUp),
-            ('下移', widget.onMoveDown),
-            ('重命名', widget.onEdit),
-            ('删除', widget.onDelete),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _HoverReveal(
+              visible: _hover || !isDesktopPlatform,
+              child: _QuickAddButton(onPressed: widget.onNewDocument),
+            ),
+            _RowMenu(
+              visible: _hover || !isDesktopPlatform,
+              items: [
+                ('上移', Icons.arrow_upward, widget.onMoveUp),
+                ('下移', Icons.arrow_downward, widget.onMoveDown),
+                ('重命名', Icons.drive_file_rename_outline, widget.onEdit),
+                ('删除', Icons.delete_outline, widget.onDelete),
+              ],
+            ),
           ],
         ),
       ),
@@ -473,13 +495,48 @@ class _DocumentTileState extends State<_DocumentTile> {
         trailing: _RowMenu(
           visible: _hover || !isDesktopPlatform,
           items: [
-            ('上移', widget.onMoveUp),
-            ('下移', widget.onMoveDown),
-            ('重命名', widget.onEdit),
-            ('删除', widget.onDelete),
+            ('上移', Icons.arrow_upward, widget.onMoveUp),
+            ('下移', Icons.arrow_downward, widget.onMoveDown),
+            ('重命名', Icons.drive_file_rename_outline, widget.onEdit),
+            ('删除', Icons.delete_outline, widget.onDelete),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// hover 才浮现的轻量容器（桌面端低打扰 chrome）。
+class _HoverReveal extends StatelessWidget {
+  const _HoverReveal({required this.visible, required this.child});
+
+  final bool visible;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 90),
+      opacity: visible ? 1 : 0,
+      child: IgnorePointer(ignoring: !visible, child: child),
+    );
+  }
+}
+
+/// 笔记本行的快捷「+」：新建章节。
+class _QuickAddButton extends StatelessWidget {
+  const _QuickAddButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: '新建章节',
+      visualDensity: VisualDensity.compact,
+      onPressed: onPressed,
+      icon: Icon(Icons.add, size: 16, color: colors.onSurfaceVariant),
     );
   }
 }
@@ -694,12 +751,12 @@ class _InlineEditAction extends StatelessWidget {
   }
 }
 
-/// 行操作 ⋮ 菜单：桌面端由行 hover 控制显隐（低打扰 chrome），触摸端常显。
+/// 行操作 ⋯ 菜单：桌面端由行 hover 控制显隐（低打扰 chrome），触摸端常显。
 class _RowMenu extends StatelessWidget {
   const _RowMenu({required this.visible, required this.items});
 
   final bool visible;
-  final List<(String, VoidCallback)> items;
+  final List<(String, IconData, VoidCallback)> items;
 
   @override
   Widget build(BuildContext context) {
@@ -717,13 +774,34 @@ class _RowMenu extends StatelessWidget {
             color: colors.onSurfaceVariant,
           ),
           onSelected: (key) {
-            for (final (label, action) in items) {
+            for (final (label, _, action) in items) {
               if (label == key) action();
             }
           },
           itemBuilder: (context) => [
-            for (final (label, _) in items)
-              PopupMenuItem<String>(value: label, child: Text(label)),
+            for (final (label, icon, _) in items)
+              PopupMenuItem<String>(
+                value: label,
+                height: 34,
+                child: Row(
+                  children: [
+                    Icon(
+                      icon,
+                      size: 15,
+                      color: label == '删除'
+                          ? colors.error
+                          : colors.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 9),
+                    Text(
+                      label,
+                      style: label == '删除'
+                          ? TextStyle(color: colors.error)
+                          : null,
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),

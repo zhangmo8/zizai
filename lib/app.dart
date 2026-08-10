@@ -228,6 +228,26 @@ abstract final class AppTheme {
       splashFactory: NoSplash.splashFactory,
       highlightColor: Colors.transparent,
       hoverColor: surfaceHover,
+      // 文本选区：低饱和 accent（Notion 选区观感），光标同 accent。
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: accent,
+        selectionColor: accent.withValues(alpha: 0.28),
+        selectionHandleColor: accent,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: surfaceRaised,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: hairline),
+        ),
+        titleTextStyle: TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          color: textPrimary,
+        ),
+        contentTextStyle: TextStyle(fontSize: 13, color: textSecondary),
+      ),
       fontFamily: null,
       textTheme: const TextTheme().apply(
         bodyColor: textPrimary,

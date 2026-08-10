@@ -46,8 +46,11 @@ class LibraryController extends ChangeNotifier {
   String? get error => _error;
 
   /// 实时本文字数（编辑器每次变更更新；null 时回退保存快照）。
-  int? _liveDocWords;
-  int? get liveDocWords => _liveDocWords;
+  ///
+  /// 用 ValueNotifier 而非 notifyListeners：字数每键都变，只有状态栏/
+  /// 沉浸态字数条订阅它，避免整个 Shell 子树逐键重建。
+  final ValueNotifier<int?> liveWords = ValueNotifier<int?>(null);
+  int? get liveDocWords => liveWords.value;
 
   /// 保存失败信息（状态栏错误条 + 重试）。
   String? _saveError;
@@ -215,11 +218,16 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 实时字数上报（编辑器变更时）。
+  /// 实时字数上报（编辑器变更时）：只更新 ValueNotifier，不触发全树刷新。
   void reportLiveWords(int words) {
-    if (words == _liveDocWords) return;
-    _liveDocWords = words;
-    notifyListeners();
+    liveWords.value = words;
+  }
+
+  @override
+  void dispose() {
+    savedAt.dispose();
+    liveWords.dispose();
+    super.dispose();
   }
 
   void reportSaveError(String message) {

@@ -5,6 +5,7 @@
 /// 热区不拦截编辑区滚动；Android 沉浸时字数隐藏，点热区才显示）。
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../util/platform.dart';
@@ -15,6 +16,7 @@ class FocusView extends StatelessWidget {
     required this.focusMode,
     required this.onExit,
     required this.liveWords,
+    required this.fallbackWords,
     required this.todayDelta,
     required this.dailyGoal,
     required this.child,
@@ -22,7 +24,12 @@ class FocusView extends StatelessWidget {
 
   final bool focusMode;
   final VoidCallback onExit;
-  final int liveWords;
+
+  /// 实时字数（逐键更新，只有字数条订阅，避免沉浸态全树重建）。
+  final ValueListenable<int?> liveWords;
+
+  /// liveWords 为 null 时的保存快照回退。
+  final int fallbackWords;
   final int todayDelta;
   final int dailyGoal;
   final Widget child;
@@ -47,6 +54,7 @@ class FocusView extends StatelessWidget {
               child: _AndroidHotZone(
                 onExit: onExit,
                 liveWords: liveWords,
+                fallbackWords: fallbackWords,
                 todayDelta: todayDelta,
                 dailyGoal: dailyGoal,
               ),
@@ -69,12 +77,14 @@ class _AndroidHotZone extends StatefulWidget {
   const _AndroidHotZone({
     required this.onExit,
     required this.liveWords,
+    required this.fallbackWords,
     required this.todayDelta,
     required this.dailyGoal,
   });
 
   final VoidCallback onExit;
-  final int liveWords;
+  final ValueListenable<int?> liveWords;
+  final int fallbackWords;
   final int todayDelta;
   final int dailyGoal;
 
@@ -112,9 +122,13 @@ class _AndroidHotZoneState extends State<_AndroidHotZone> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  '本文 ${widget.liveWords} 字 · 今日 ${widget.todayDelta}/${widget.dailyGoal}',
-                  style: TextStyle(fontSize: 13, color: colors.onSurface),
+                ValueListenableBuilder<int?>(
+                  valueListenable: widget.liveWords,
+                  builder: (context, live, _) => Text(
+                    '本文 ${live ?? widget.fallbackWords} 字 · '
+                    '今日 ${widget.todayDelta}/${widget.dailyGoal}',
+                    style: TextStyle(fontSize: 13, color: colors.onSurface),
+                  ),
                 ),
                 const SizedBox(width: 12),
                 TextButton(onPressed: widget.onExit, child: const Text('退出')),

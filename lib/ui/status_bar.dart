@@ -104,10 +104,6 @@ class _StatusBarState extends State<StatusBar> {
     final goal = widget.settings.settings.dailyGoal;
     final delta = widget.library.todayDelta;
     final progress = goal <= 0 ? 0.0 : (delta / goal).clamp(0.0, 1.0);
-    final words =
-        widget.library.liveDocWords ??
-        widget.library.currentDocument?.words ??
-        0;
 
     return GlassSurface(
       color: Theme.of(context).scaffoldBackgroundColor,
@@ -150,9 +146,21 @@ class _StatusBarState extends State<StatusBar> {
                 ),
               )
             else
-              Text(
-                '本文 $words 字',
-                style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+              // 字数逐键变化，用 ValueListenableBuilder 局部刷新，
+              // 不惊动状态栏之外的任何子树。
+              ValueListenableBuilder<int?>(
+                valueListenable: widget.library.liveWords,
+                builder: (context, live, _) {
+                  final words =
+                      live ?? widget.library.currentDocument?.words ?? 0;
+                  return Text(
+                    '本文 $words 字',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  );
+                },
               ),
           ],
         ),

@@ -33,9 +33,11 @@ Status: Draft（v3：选区锚定工具栏）
 
 | 区域 | 内容 |
 |---|---|
-| 顶栏 | 文档名（长名省略）、沉浸按钮、设置按钮 |
-| 内容区 | flutter_quill 编辑器（`QuillEditor`），行宽约束 720px，居中 |
-| 上下文工具栏 | 选中文本时在实际选区上方浮现：标题 H1–H3、加粗/斜体/下划线/删除线、无序/有序列表、引用、行内代码、代码块；由 `QuillEditorConfig.contextMenuBuilder` 交给 Flutter/Quill 选区锚点定位；平时不占界面 |
+| 顶栏 | 面包屑「笔记本 / 文档名」（长名省略）、沉浸按钮、设置按钮 |
+| 页面标题 | Notion 式可编辑大标题（32px/W700）：编辑即重命名（600ms 防抖入库，与侧栏双向同步）；`Enter` 聚焦正文首行；沉浸模式隐藏 |
+| 内容区 | flutter_quill 编辑器（`QuillEditor`），行宽约束 760px，居中 |
+| 上下文工具栏 | 选中文本时在实际选区上方浮现：标题 H1–H3、加粗/斜体/下划线/删除线、链接、无序/有序列表、待办清单、引用、行内代码、代码块；由 `QuillEditorConfig.contextMenuBuilder` 交给 Flutter/Quill 选区锚点定位；平时不占界面 |
+| 斜杠菜单 | 输入 `/` 在光标下方浮现块命令菜单（触底翻转到上方）：正文、H1–H3、无序/有序列表、待办清单、引用、代码块；继续输入过滤（中文/英文/拼音关键词），`↑↓` 导航、`Enter` 应用、`Esc`/点击外部关闭 |
 | 状态栏 | 今日增量/目标 + 进度条 + 本文总字数（纯文本口径） |
 
 工具栏内容在窄屏保持单行横向滚动，不能溢出屏幕；工具栏仅提供格式化操作，不替换复制、粘贴等系统选区菜单。
@@ -49,12 +51,18 @@ Status: Draft（v3：选区锚定工具栏）
 | 切换文档/退出 | 全局 | 保存当前文档后执行 |
 | `Ctrl/Cmd + S` | 桌面 | 立即保存，状态栏闪「已保存」1s |
 | `Ctrl/Cmd + B / I / U` | 桌面 | 加粗/斜体/下划线（编辑器内置） |
+| 行首触发词 + 空格 | 内容区 | Markdown 快捷块转换：`#`/`##`/`###` → H1–H3、`-`/`*` → 无序列表、`1.` → 有序列表、`>` → 引用、`[]`/`[x]` → 待办、`` ``` `` → 代码块（触发词被消费，不入正文） |
+| 行内 markdown | 内容区 | `**加粗**`、`*斜体*`、`` `行内代码` ``、`~~删除线~~`（flutter_quill 标准字符事件） |
+| 输入 `/` | 内容区 | 打开斜杠命令菜单（锚定光标）；选择后删除 `/query` 并转换当前行块格式 |
 | 选中文本 | 内容区 | 在选区锚点附近浮现上下文工具栏；点击空白或 `Esc` 收起 |
+| 工具栏「链接」 | 选区 | 弹小对话框输入 URL（无协议自动补 `https://`）；已有链接可移除 |
 | `Ctrl/Cmd + Shift + F` | 桌面 | 进入沉浸模式 |
 | `Esc` | 沉浸模式 | 退出沉浸模式 |
 | 状态栏点击今日进度 | 全局 | 打开设置页定位到「每日目标字数」 |
 
 自动保存失败：状态栏「保存失败」红色提示 + 重试；文本缓冲区保留在内存，直至保存成功。
+
+性能约束：实时字数经 `LibraryController.liveWords`（`ValueNotifier`）下发，仅状态栏/沉浸字数条局部重建；逐键输入不触发 Shell 全树 rebuild。
 
 ## Word Count 规则
 
@@ -77,7 +85,8 @@ Status: Draft（v3：选区锚定工具栏）
 
 ## State Variants
 
-- **空文档**：内容区占位「从这里开始写…」（输入后消失，非插入文本）。
+- **空文档**：内容区首行占位「输入 / 唤起命令，或直接开始写…」（Quill 原生占位，输入后消失）。
+- **未选择文档**：内容区居中引导「在左侧选择或新建一篇文档，开始写作」（编辑器保持挂载）。
 - **保存失败**：状态栏错误条 + 重试。
 - **恢复**：启动时内存缓冲与库中内容不一致（崩溃场景）→「检测到未保存内容，恢复？」确认条。
 - **db 损坏**：打开失败 → 提示 + 尝试 `.bak` 恢复，恢复失败则引导导出 db 文件。
@@ -86,13 +95,16 @@ Status: Draft（v3：选区锚定工具栏）
 
 ```text
 EditorView
-├─ EditorHeader（docTitle / FocusButton / SettingsButton）
+├─ EditorHeader（breadcrumb / FocusButton / SettingsButton）
+├─ PageTitle（可编辑大标题 → renameDocument）
 ├─ ContentArea
 │  └─ QuillEditor
-│     └─ SelectionOverlay（contextMenuBuilder → FloatingFormatToolbar）
+│     ├─ SelectionOverlay（contextMenuBuilder → FloatingFormatToolbar）
+│     └─ spaceShortcutEvents / characterShortcutEvents（markdown 快捷）
+├─ SlashMenu（OverlayEntry：锚定光标的块命令菜单）
 ├─ StatusBar
 │  ├─ TodayProgress（今日增量 / 目标 + LinearProgressIndicator）
-│  └─ DocWordCount
+│  └─ DocWordCount（ValueListenableBuilder ← liveWords）
 └─ FocusView ──包装──► EditorView（隐藏 chrome）
 ```
 
