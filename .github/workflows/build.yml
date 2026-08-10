@@ -82,6 +82,7 @@ jobs:
         with:
           name: zizai-android
           path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 1
       - name: 生成清单条目（供 release job 汇总）
         run: |
           sha=$(shasum -a 256 build/app/outputs/flutter-apk/app-release.apk | cut -d' ' -f1)
@@ -91,6 +92,7 @@ jobs:
         with:
           name: manifest-android
           path: android-entry.json
+          retention-days: 1
 
   macos:
     name: macOS .app
@@ -116,6 +118,7 @@ jobs:
         with:
           name: zizai-macos
           path: build/macos/Build/Products/Release/zizai-macos.zip
+          retention-days: 1
       - name: 生成清单条目
         run: |
           sha=$(shasum -a 256 build/macos/Build/Products/Release/zizai-macos.zip | cut -d' ' -f1)
@@ -125,6 +128,7 @@ jobs:
         with:
           name: manifest-macos
           path: macos-entry.json
+          retention-days: 1
 
   windows:
     name: Windows exe
@@ -150,6 +154,7 @@ jobs:
         with:
           name: zizai-windows
           path: build/windows/x64/runner/Release/zizai-windows.zip
+          retention-days: 1
       - name: 生成清单条目
         shell: pwsh
         run: |
@@ -160,6 +165,7 @@ jobs:
         with:
           name: manifest-windows
           path: windows-entry.json
+          retention-days: 1
 
   release:
     name: GitHub Release + update.json
