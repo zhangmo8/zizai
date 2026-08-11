@@ -1,5 +1,5 @@
 /// 所见即所得编辑器：Quill 编辑器 + 页面大标题 + 斜杠命令菜单 +
-/// Markdown 快捷语法 + 上下文工具栏 + 自动保存 + 字数。
+/// Markdown 快捷语法 + 常驻格式工具栏 + 选区浮动工具栏 + 自动保存 + 字数。
 ///
 /// 设计依据：docs/app/ui-editor.md（Region Layout / Interactions /
 /// Word Count / State Variants）、docs/app/style.md（§3 tokens、§4 字体、
@@ -552,6 +552,24 @@ class _EditorViewState extends State<EditorView> {
   static String _normalizeUrl(String url) =>
       url.contains('://') || url.startsWith('mailto:') ? url : 'https://$url';
 
+  /// 清除格式：移除选区（或光标处）的行内样式与块级样式，回到正文。
+  void _clearFormat() {
+    for (final attr in <q.Attribute<dynamic>>[
+      q.Attribute.bold,
+      q.Attribute.italic,
+      q.Attribute.underline,
+      q.Attribute.strikeThrough,
+      q.Attribute.inlineCode,
+      q.Attribute.link,
+      q.Attribute.header,
+      q.Attribute.list,
+      q.Attribute.blockQuote,
+      q.Attribute.codeBlock,
+    ]) {
+      _quill.formatSelection(q.Attribute.clone(attr, null));
+    }
+  }
+
   Future<void> _promptLink() async {
     final current =
         _quill.getSelectionStyle().attributes['link']?.value as String? ?? '';
@@ -634,13 +652,20 @@ class _EditorViewState extends State<EditorView> {
                 onCancel: widget.library.cancelDelete,
                 onConfirm: widget.library.confirmDelete,
               ),
-            if (!focusMode)
+            if (!focusMode) ...[
               _EditorHeader(
                 title: doc?.title ?? '',
                 notebookName: notebookName,
                 onToggleFocusMode: widget.onToggleFocusMode,
                 onOpenSettings: () => _openSettings(),
               ),
+              // 常驻格式工具栏：字体样式始终可见，不随选区隐藏。
+              _FormatToolbar(
+                quill: _quill,
+                onLink: _promptLink,
+                onClear: _clearFormat,
+              ),
+            ],
             if (_pendingRecover != null)
               _RecoveryBar(
                 entry: _pendingRecover!,
@@ -1201,12 +1226,22 @@ class _SelectionToolbarMenu extends StatelessWidget {
   }
 }
 
-/// 上下文工具栏：选中文本时浮现（Notion-like compact floating bar）。
-class _FloatingToolbar extends StatelessWidget {
-  const _FloatingToolbar({required this.quill, required this.onLink});
+/// 格式按钮组：常驻工具栏与选区浮动工具栏共用同一套按钮。
+///
+/// [showHistory] 追加撤销/重做（常驻工具栏用）；[onClear] 非空时追加
+/// 「清除格式」按钮。
+class _FormatButtons extends StatelessWidget {
+  const _FormatButtons({
+    required this.quill,
+    required this.onLink,
+    this.showHistory = false,
+    this.onClear,
+  });
 
   final q.QuillController quill;
   final VoidCallback onLink;
+  final bool showHistory;
+  final VoidCallback? onClear;
 
   @override
   Widget build(BuildContext context) {
@@ -1225,12 +1260,13 @@ class _FloatingToolbar extends StatelessWidget {
       required String tooltip,
       required bool isActive,
       required VoidCallback onTap,
+      bool enabled = true,
     }) {
       return Tooltip(
         message: tooltip,
         child: InkWell(
           borderRadius: BorderRadius.circular(4),
-          onTap: onTap,
+          onTap: enabled ? onTap : null,
           child: Container(
             width: 30,
             height: 30,
@@ -1242,7 +1278,11 @@ class _FloatingToolbar extends StatelessWidget {
             child: IconTheme(
               data: IconThemeData(
                 size: 17,
-                color: isActive ? colors.onSurface : colors.onSurfaceVariant,
+                color: !enabled
+                    ? appColors.textTertiary
+                    : isActive
+                    ? colors.onSurface
+                    : colors.onSurfaceVariant,
               ),
               child: icon,
             ),
@@ -1283,108 +1323,124 @@ class _FloatingToolbar extends StatelessWidget {
       );
     }
 
-    return GlassSurface(
-      radius: 7,
-      shadow: true,
-      color: appColors.surfaceRaised,
-      border: Border.all(color: colors.outline),
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            textBtn(
-              'H1',
-              '标题 1',
-              isActive('header', 1),
-              () => quill.formatSelection(q.Attribute.h1),
-            ),
-            textBtn(
-              'H2',
-              '标题 2',
-              isActive('header', 2),
-              () => quill.formatSelection(q.Attribute.h2),
-            ),
-            textBtn(
-              'H3',
-              '标题 3',
-              isActive('header', 3),
-              () => quill.formatSelection(q.Attribute.h3),
-            ),
-            _sep(colors),
-            btn(
-              icon: const Icon(Icons.format_bold),
-              tooltip: '加粗',
-              isActive: isActive('bold'),
-              onTap: () => quill.formatSelection(q.Attribute.bold),
-            ),
-            btn(
-              icon: const Icon(Icons.format_italic),
-              tooltip: '斜体',
-              isActive: isActive('italic'),
-              onTap: () => quill.formatSelection(q.Attribute.italic),
-            ),
-            btn(
-              icon: const Icon(Icons.format_underline),
-              tooltip: '下划线',
-              isActive: isActive('underline'),
-              onTap: () => quill.formatSelection(q.Attribute.underline),
-            ),
-            btn(
-              icon: const Icon(Icons.format_strikethrough),
-              tooltip: '删除线',
-              isActive: isActive('strike'),
-              onTap: () => quill.formatSelection(q.Attribute.strikeThrough),
-            ),
-            btn(
-              icon: const Icon(Icons.link),
-              tooltip: '链接',
-              isActive: isActive('link'),
-              onTap: onLink,
-            ),
-            _sep(colors),
-            btn(
-              icon: const Icon(Icons.format_list_bulleted),
-              tooltip: '无序列表',
-              isActive: isActive('list', 'bullet'),
-              onTap: () => quill.formatSelection(q.Attribute.ul),
-            ),
-            btn(
-              icon: const Icon(Icons.format_list_numbered),
-              tooltip: '有序列表',
-              isActive: isActive('list', 'ordered'),
-              onTap: () => quill.formatSelection(q.Attribute.ol),
-            ),
-            btn(
-              icon: const Icon(Icons.check_box_outlined),
-              tooltip: '待办清单',
-              isActive:
-                  isActive('list', 'unchecked') || isActive('list', 'checked'),
-              onTap: () => quill.formatSelection(q.Attribute.unchecked),
-            ),
-            _sep(colors),
-            btn(
-              icon: const Icon(Icons.format_quote),
-              tooltip: '引用',
-              isActive: isActive('blockquote'),
-              onTap: () => quill.formatSelection(q.Attribute.blockQuote),
-            ),
-            btn(
-              icon: const Icon(Icons.code),
-              tooltip: '行内代码',
-              isActive: isActive('code'),
-              onTap: () => quill.formatSelection(q.Attribute.inlineCode),
-            ),
-            btn(
-              icon: const Icon(Icons.data_object),
-              tooltip: '代码块',
-              isActive: isActive('code-block'),
-              onTap: () => quill.formatSelection(q.Attribute.codeBlock),
-            ),
-          ],
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (showHistory) ...[
+          btn(
+            icon: const Icon(Icons.undo),
+            tooltip: '撤销',
+            isActive: false,
+            enabled: quill.hasUndo,
+            onTap: quill.undo,
+          ),
+          btn(
+            icon: const Icon(Icons.redo),
+            tooltip: '重做',
+            isActive: false,
+            enabled: quill.hasRedo,
+            onTap: quill.redo,
+          ),
+          _sep(colors),
+        ],
+        textBtn(
+          'H1',
+          '标题 1',
+          isActive('header', 1),
+          () => quill.formatSelection(q.Attribute.h1),
         ),
-      ),
+        textBtn(
+          'H2',
+          '标题 2',
+          isActive('header', 2),
+          () => quill.formatSelection(q.Attribute.h2),
+        ),
+        textBtn(
+          'H3',
+          '标题 3',
+          isActive('header', 3),
+          () => quill.formatSelection(q.Attribute.h3),
+        ),
+        _sep(colors),
+        btn(
+          icon: const Icon(Icons.format_bold),
+          tooltip: '加粗',
+          isActive: isActive('bold'),
+          onTap: () => quill.formatSelection(q.Attribute.bold),
+        ),
+        btn(
+          icon: const Icon(Icons.format_italic),
+          tooltip: '斜体',
+          isActive: isActive('italic'),
+          onTap: () => quill.formatSelection(q.Attribute.italic),
+        ),
+        btn(
+          icon: const Icon(Icons.format_underline),
+          tooltip: '下划线',
+          isActive: isActive('underline'),
+          onTap: () => quill.formatSelection(q.Attribute.underline),
+        ),
+        btn(
+          icon: const Icon(Icons.format_strikethrough),
+          tooltip: '删除线',
+          isActive: isActive('strike'),
+          onTap: () => quill.formatSelection(q.Attribute.strikeThrough),
+        ),
+        btn(
+          icon: const Icon(Icons.link),
+          tooltip: '链接',
+          isActive: isActive('link'),
+          onTap: onLink,
+        ),
+        _sep(colors),
+        btn(
+          icon: const Icon(Icons.format_list_bulleted),
+          tooltip: '无序列表',
+          isActive: isActive('list', 'bullet'),
+          onTap: () => quill.formatSelection(q.Attribute.ul),
+        ),
+        btn(
+          icon: const Icon(Icons.format_list_numbered),
+          tooltip: '有序列表',
+          isActive: isActive('list', 'ordered'),
+          onTap: () => quill.formatSelection(q.Attribute.ol),
+        ),
+        btn(
+          icon: const Icon(Icons.check_box_outlined),
+          tooltip: '待办清单',
+          isActive:
+              isActive('list', 'unchecked') || isActive('list', 'checked'),
+          onTap: () => quill.formatSelection(q.Attribute.unchecked),
+        ),
+        _sep(colors),
+        btn(
+          icon: const Icon(Icons.format_quote),
+          tooltip: '引用',
+          isActive: isActive('blockquote'),
+          onTap: () => quill.formatSelection(q.Attribute.blockQuote),
+        ),
+        btn(
+          icon: const Icon(Icons.code),
+          tooltip: '行内代码',
+          isActive: isActive('code'),
+          onTap: () => quill.formatSelection(q.Attribute.inlineCode),
+        ),
+        btn(
+          icon: const Icon(Icons.data_object),
+          tooltip: '代码块',
+          isActive: isActive('code-block'),
+          onTap: () => quill.formatSelection(q.Attribute.codeBlock),
+        ),
+        if (onClear != null) ...[
+          _sep(colors),
+          btn(
+            icon: const Icon(Icons.format_clear),
+            tooltip: '清除格式',
+            isActive: false,
+            onTap: onClear!,
+          ),
+        ],
+      ],
     );
   }
 
@@ -1394,6 +1450,71 @@ class _FloatingToolbar extends StatelessWidget {
     margin: const EdgeInsets.symmetric(horizontal: 4),
     color: colors.outline,
   );
+}
+
+/// 常驻格式工具栏：顶栏下方始终可见（沉浸模式除外），字体样式一目了然。
+///
+/// 监听控制器，选区/光标移动时实时高亮当前格式；含撤销/重做与清除格式。
+class _FormatToolbar extends StatelessWidget {
+  const _FormatToolbar({
+    required this.quill,
+    required this.onLink,
+    required this.onClear,
+  });
+
+  final q.QuillController quill;
+  final VoidCallback onLink;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        border: Border(bottom: BorderSide(color: colors.outline)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      child: ListenableBuilder(
+        listenable: quill,
+        builder: (context, _) => SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: _FormatButtons(
+            quill: quill,
+            onLink: onLink,
+            showHistory: true,
+            onClear: onClear,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 上下文工具栏：选中文本时浮现（Notion-like compact floating bar）。
+class _FloatingToolbar extends StatelessWidget {
+  const _FloatingToolbar({required this.quill, required this.onLink});
+
+  final q.QuillController quill;
+  final VoidCallback onLink;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    return GlassSurface(
+      radius: 7,
+      shadow: true,
+      color: appColors.surfaceRaised,
+      border: Border.all(color: colors.outline),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: _FormatButtons(quill: quill, onLink: onLink),
+      ),
+    );
+  }
 }
 
 /// 崩溃恢复确认条（启动时缓冲与库不一致）。

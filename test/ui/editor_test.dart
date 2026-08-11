@@ -181,6 +181,48 @@ void main() {
     expect(controller.selection.isCollapsed, isTrue);
   });
 
+  testWidgets('常驻格式工具栏：未选中也可见 → 加粗 → 清除格式', (tester) async {
+    final (library, settings, _, _, _) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pump();
+
+    // 无选区时工具栏即常驻可见（不随选中浮现）。
+    expect(find.byTooltip('加粗'), findsOneWidget);
+    expect(find.byTooltip('清除格式'), findsOneWidget);
+    expect(find.byTooltip('撤销'), findsOneWidget);
+
+    await typeText(tester, '你好世界');
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    final controller = editor.controller;
+    controller.updateSelection(
+      const TextSelection(baseOffset: 0, extentOffset: 4),
+      q.ChangeSource.local,
+    );
+    await tester.pump();
+
+    // 点击常驻工具栏「加粗」→ 选区获得 bold。
+    await tester.tap(find.byTooltip('加粗'));
+    await tester.pump();
+    expect(
+      controller.getSelectionStyle().attributes.containsKey('bold'),
+      isTrue,
+    );
+
+    // 点击「清除格式」→ bold 移除。
+    await tester.tap(find.byTooltip('清除格式'));
+    await tester.pump();
+    expect(
+      controller.getSelectionStyle().attributes.containsKey('bold'),
+      isFalse,
+    );
+  });
+
   testWidgets('沉浸模式：Ctrl+Shift+F 进入隐藏 chrome，Esc 退出', (tester) async {
     final (library, settings, _, _, _) = (await tester.runAsync(
       () => makeApp(),
@@ -205,6 +247,8 @@ void main() {
     expect(find.textContaining('今日'), findsNothing);
     expect(find.text('第一章'), findsNothing);
     expect(find.text('新建章节'), findsNothing);
+    // 常驻格式工具栏也随 chrome 隐藏
+    expect(find.byTooltip('加粗'), findsNothing);
     // 沉浸态：编辑器仍在
     expect(find.byType(q.QuillEditor), findsOneWidget);
 
