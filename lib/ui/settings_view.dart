@@ -699,7 +699,7 @@ class _SettingsViewState extends State<SettingsView> {
   Widget _updateUrlField() {
     return _notionField(
       controller: _updateUrlController,
-      hint: 'https://…/zizai/apps/update.json',
+      hint: 'https://pub-xxxxx.r2.dev/update.json',
       onSubmitted: (v) => widget.settings.db.setSetting('update.url', v.trim()),
     );
   }

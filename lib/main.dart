@@ -23,6 +23,11 @@ import 'state/library_controller.dart';
 import 'state/settings_controller.dart';
 import 'util/platform.dart';
 
+/// 构建时注入的默认更新地址（CI 传 --dart-define=UPDATE_URL=…）。
+/// 为空 → 不自动检查；用户仍可在设置页覆盖。
+const _defaultUpdateUrl =
+    String.fromEnvironment('UPDATE_URL', defaultValue: '');
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (isDesktopPlatform) {
@@ -60,13 +65,13 @@ Future<void> main() async {
   await updatesDir.create(recursive: true);
   final updateChecker = UpdateChecker(
     httpClient: http.Client(),
-    updateUrl: await db.getSetting('update.url') ?? '',
+    updateUrl: await db.getSetting('update.url') ?? _defaultUpdateUrl,
     appVersion: appVersion,
     dbSchemaVersion: dbSchema,
     installDir: updatesDir,
   );
 
-  // 启动后异步检查一次（update.md §3）；失败静默（设置页可手动重试）。
+  // 启动后异步检查一次（update.md §3）；地址为空（未配置且未注入）则跳过。
   if (updateChecker.updateUrl.trim().isNotEmpty) {
     unawaited(updateChecker.check().catchError((_) => null));
   }

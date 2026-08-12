@@ -16,6 +16,8 @@ permissions:
 
 env:
   FLUTTER_VERSION: '3.44.8'
+  R2_BUCKET: zizai-releases          # ← 改成你的 R2 桶名
+  R2_RELEASES_PREFIX: releases       # R2 里的目录前缀
 
 jobs:
   validate:
@@ -61,10 +63,21 @@ jobs:
               throw error;
             }
 
+  # ────────────────────────────────────────────
+  #  以下 R2 上传步骤统一使用 env 传递密钥：
+  #    AWS_ACCESS_KEY_ID     ← secrets.R2_ACCESS_KEY_ID
+  #    AWS_SECRET_ACCESS_KEY ← secrets.R2_SECRET_ACCESS_KEY
+  #    R2_ENDPOINT           ← secrets.R2_ACCOUNT_ID 拼接
+  #  AWS CLI 已预装在 ubuntu/macos/windows runner 中。
+  # ────────────────────────────────────────────
+
   android:
     name: Android APK
     needs: validate
     runs-on: ubuntu-latest
+    outputs:
+      file: ${{ steps.manifest.outputs.file }}
+      sha256: ${{ steps.manifest.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,31 +86,38 @@ jobs:
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
+          cache: false
       - run: flutter pub get
-      - run: flutter test
-      - run: flutter build apk --release
-      - name: 上传 APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: zizai-android
-          path: build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 1
-      - name: 生成清单条目（供 release job 汇总）
+      - name: Build APK
+        env:
+          UPDATE_URL: ${{ secrets.R2_PUBLIC_BASE }}/update.json
+        run: flutter build apk --release --dart-define=UPDATE_URL="${UPDATE_URL}"
+      - id: manifest
+        name: Compute sha256
         run: |
           sha=$(shasum -a 256 build/app/outputs/flutter-apk/app-release.apk | cut -d' ' -f1)
-          echo "{\"android\": {\"file\": \"app-release.apk\", \"sha256\": \"$sha\"}}" > android-entry.json
-      - name: 上传清单条目
-        uses: actions/upload-artifact@v4
-        with:
-          name: manifest-android
-          path: android-entry.json
-          retention-days: 1
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "file=app-release.apk" >> "$GITHUB_OUTPUT"
+      - name: Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_KEY: ${{ env.R2_RELEASES_PREFIX }}/${{ needs.validate.outputs.tag }}/app-release.apk
+        run: |
+          aws s3 cp build/app/outputs/flutter-apk/app-release.apk \
+            "s3://${R2_BUCKET}/${R2_KEY}" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --no-progress
 
   macos:
     name: macOS .app
     needs: validate
     runs-on: macos-latest
+    outputs:
+      file: ${{ steps.manifest.outputs.file }}
+      sha256: ${{ steps.manifest.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -106,34 +126,42 @@ jobs:
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
+          cache: false
       - run: flutter pub get
-      - run: flutter build macos --release
-      - name: 打包 zip（更新分发格式）
+      - name: Build macOS
+        env:
+          UPDATE_URL: ${{ secrets.R2_PUBLIC_BASE }}/update.json
+        run: flutter build macos --release --dart-define=UPDATE_URL="${UPDATE_URL}"
+      - name: 打包 zip
         run: |
           cd build/macos/Build/Products/Release
           ditto -c -k --sequesterRsrc --keepParent zi_zai.app zizai-macos.zip
-      - name: 上传 macOS 包
-        uses: actions/upload-artifact@v4
-        with:
-          name: zizai-macos
-          path: build/macos/Build/Products/Release/zizai-macos.zip
-          retention-days: 1
-      - name: 生成清单条目
+      - id: manifest
+        name: Compute sha256
         run: |
           sha=$(shasum -a 256 build/macos/Build/Products/Release/zizai-macos.zip | cut -d' ' -f1)
-          echo "{\"macos\": {\"file\": \"zizai-macos.zip\", \"sha256\": \"$sha\"}}" > macos-entry.json
-      - name: 上传清单条目
-        uses: actions/upload-artifact@v4
-        with:
-          name: manifest-macos
-          path: macos-entry.json
-          retention-days: 1
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "file=zizai-macos.zip" >> "$GITHUB_OUTPUT"
+      - name: Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_KEY: ${{ env.R2_RELEASES_PREFIX }}/${{ needs.validate.outputs.tag }}/zizai-macos.zip
+        run: |
+          aws s3 cp build/macos/Build/Products/Release/zizai-macos.zip \
+            "s3://${R2_BUCKET}/${R2_KEY}" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --no-progress
 
   windows:
     name: Windows exe
     needs: validate
     runs-on: windows-latest
+    outputs:
+      file: ${{ steps.manifest.outputs.file }}
+      sha256: ${{ steps.manifest.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -142,30 +170,37 @@ jobs:
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
+          cache: false
       - run: flutter pub get
-      - run: flutter build windows --release
+      - name: Build Windows
+        shell: bash
+        env:
+          UPDATE_URL: ${{ secrets.R2_PUBLIC_BASE }}/update.json
+        run: flutter build windows --release --dart-define=UPDATE_URL="${UPDATE_URL}"
       - name: 打包 zip
         run: |
           cd build/windows/x64/runner/Release
           powershell Compress-Archive -Path * -DestinationPath zizai-windows.zip
-      - name: 上传 Windows 包
-        uses: actions/upload-artifact@v4
-        with:
-          name: zizai-windows
-          path: build/windows/x64/runner/Release/zizai-windows.zip
-          retention-days: 1
-      - name: 生成清单条目
+      - id: manifest
+        name: Compute sha256
         shell: pwsh
         run: |
           $hash = (Get-FileHash -Algorithm SHA256 'build/windows/x64/runner/Release/zizai-windows.zip').Hash.ToLower()
-          @{ windows = @{ file = 'zizai-windows.zip'; sha256 = $hash } } | ConvertTo-Json -Compress | Out-File -Encoding utf8 'windows-entry.json'
-      - name: 上传清单条目
-        uses: actions/upload-artifact@v4
-        with:
-          name: manifest-windows
-          path: windows-entry.json
-          retention-days: 1
+          echo "sha256=$hash" >> $env:GITHUB_OUTPUT
+          echo "file=zizai-windows.zip" >> $env:GITHUB_OUTPUT
+      - name: Upload to R2
+        shell: pwsh
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_KEY: ${{ env.R2_RELEASES_PREFIX }}/${{ needs.validate.outputs.tag }}/zizai-windows.zip
+        run: |
+          aws s3 cp build/windows/x64/runner/Release/zizai-windows.zip `
+            "s3://$env:R2_BUCKET/$env:R2_KEY" `
+            --endpoint-url "$env:R2_ENDPOINT" `
+            --no-progress
 
   release:
     name: GitHub Release + update.json
@@ -175,47 +210,68 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.validate.outputs.tag }}
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: manifest-*
-          merge-multiple: true
-          path: manifests
-      - name: 汇总三端清单为 update.json（URL 指向本 Release 的可预测下载地址）
+      - name: Generate update.json (URLs point to R2)
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+          R2_PUBLIC_BASE: ${{ secrets.R2_PUBLIC_BASE }}
+          ANDROID_FILE: ${{ needs.android.outputs.file }}
+          ANDROID_SHA: ${{ needs.android.outputs.sha256 }}
+          MACOS_FILE: ${{ needs.macos.outputs.file }}
+          MACOS_SHA: ${{ needs.macos.outputs.sha256 }}
+          WINDOWS_FILE: ${{ needs.windows.outputs.file }}
+          WINDOWS_SHA: ${{ needs.windows.outputs.sha256 }}
         run: |
           python3 - <<'EOF'
-          import json, glob, re
-          tag = '${{ needs.validate.outputs.tag }}'
-          base = f"https://github.com/zhangmo8/zizai/releases/download/{tag}"
-          entries = {}
-          for f in glob.glob('manifests/*.json'):
-              with open(f) as fh:
-                  for platform, meta in json.load(fh).items():
-                      entries[platform] = {
-                          "url": f"{base}/{meta['file']}",
-                          "sha256": meta["sha256"],
-                      }
+          import json, re, os
+          tag = os.environ['TAG']
+          base = os.environ['R2_PUBLIC_BASE'].rstrip('/')
           version = re.sub(r'^v', '', tag)
           manifest = {
               "latest": version,
               "minDbSchema": 2,
-              "platforms": entries,
+              "platforms": {
+                  "android": {
+                      "url": f"{base}/releases/{tag}/{os.environ['ANDROID_FILE']}",
+                      "sha256": os.environ['ANDROID_SHA'],
+                  },
+                  "macos": {
+                      "url": f"{base}/releases/{tag}/{os.environ['MACOS_FILE']}",
+                      "sha256": os.environ['MACOS_SHA'],
+                  },
+                  "windows": {
+                      "url": f"{base}/releases/{tag}/{os.environ['WINDOWS_FILE']}",
+                      "sha256": os.environ['WINDOWS_SHA'],
+                  },
+              },
               "notes": f"自动构建 v{version}",
           }
           with open('update.json', 'w') as fh:
               json.dump(manifest, fh, ensure_ascii=False, indent=2)
           print(open('update.json').read())
           EOF
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: zizai-*
-          merge-multiple: true
-          path: packages
-      - name: 发布 Release
+      - name: Upload update.json to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          # 版本归档
+          aws s3 cp update.json \
+            "s3://${R2_BUCKET}/releases/${{ needs.validate.outputs.tag }}/update.json" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --content-type "application/json" \
+            --cache-control "no-cache" \
+            --no-progress
+          # 根路径覆盖，App 始终检查同一 URL 获取最新版
+          aws s3 cp update.json \
+            "s3://${R2_BUCKET}/update.json" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --content-type "application/json" \
+            --cache-control "no-cache" \
+            --no-progress
+      - name: 发布 Release（仅 release notes，二进制在 R2）
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.validate.outputs.tag }}
-          files: |
-            packages/*.zip
-            packages/*.apk
-            update.json
           generate_release_notes: true

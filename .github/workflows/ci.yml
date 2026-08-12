@@ -22,7 +22,7 @@ jobs:
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
+          cache: false          # ← 不再占用 GitHub Actions Cache
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test

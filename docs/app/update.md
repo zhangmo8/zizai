@@ -37,11 +37,16 @@ Status: Draft
 ### 分发结构（同一 R2 bucket）
 
 ```text
-zizai/apps/update.json
-zizai/apps/zizai-1.2.0-macos.zip
-zizai/apps/zizai-1.2.0-windows.zip
-zizai/apps/zizai-1.2.0.apk
+update.json                              ← 根路径，App 始终检查此 URL
+releases/v1.2.0/app-release.apk
+releases/v1.2.0/zizai-macos.zip
+releases/v1.2.0/zizai-windows.zip
+releases/v1.2.0/update.json              ← 版本归档
 ```
+
+构建时通过 `--dart-define=UPDATE_URL=…` 注入默认更新地址，
+App 首次启动即可自动检查更新，无需手动配置。
+用户仍可在设置页覆盖此地址。
 
 ### 更新清单 update.json
 
@@ -78,14 +83,29 @@ zizai/apps/zizai-1.2.0.apk
 | 新旧 App 互相同步 | 协议版本不一致 → 409 + 升级提示 |
 | 更新清单 minDbSchema > 本地 | 更新安装后首次启动自动迁移 |
 
-## 5. GitHub Release 构建
+## 5. CI/CD 构建（R2 分发）
 
-GitHub Actions 工作流 [build.yml](../../.github/workflows/build.yml) 负责三端打包、生成 `update.json`，并创建 GitHub Release。
+GitHub Actions 工作流 [build.yml](../../.github/workflows/build.yml) 负责三端打包、
+上传 R2、生成 `update.json`，并创建 GitHub Release（仅 release notes）。
 
 - 触发方式：推送符合 `v<major>.<minor>.<patch>` 格式的 tag，或在 Actions 中手动输入**已推送到远程的同格式 tag**。
 - 前置校验：工作流会在启动三端构建前验证 tag 格式及其远程存在性；不存在时立即失败，不启动构建 runner。
 - 正常发布流程：先将 `pubspec.yaml` 的 App 版本更新为对应版本，验证 CI 后执行 `git tag v<version>` 与 `git push origin v<version>`。tag push 会自动触发发布。
-- 构建输出：Android APK、macOS `.app` zip、Windows zip、带 sha256 的 `update.json` 作为同一 GitHub Release 附件。
+- 构建产物上传至 R2（不在 GitHub 产生 artifact 缓存）：
+  - 三端包 → `s3://<bucket>/releases/<tag>/`
+  - `update.json` → `s3://<bucket>/releases/<tag>/update.json`（归档）+ `s3://<bucket>/update.json`（根路径覆盖，App 始终检查此 URL）
+- `update.json` 中的下载 URL 指向 R2 公开域名（`R2_PUBLIC_BASE` secret）。
+- 构建时通过 `--dart-define=UPDATE_URL=<R2_PUBLIC_BASE>/update.json` 将默认更新地址注入二进制。
+- GitHub Release 仅保留自动生成的 release notes，不再上传二进制资产。
+
+### 所需 GitHub Secrets
+
+| Secret | 说明 |
+|---|---|
+| `R2_ACCOUNT_ID` | Cloudflare Account ID |
+| `R2_ACCESS_KEY_ID` | R2 API Token Access Key ID |
+| `R2_SECRET_ACCESS_KEY` | R2 API Token Secret Access Key |
+| `R2_PUBLIC_BASE` | R2 公开访问域名（如 `https://pub-xxxxx.r2.dev`，结尾不带 `/`） |
 
 ## 6. 测试
 
