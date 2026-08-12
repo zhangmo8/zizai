@@ -1,8 +1,8 @@
 /// 设置页：外观 / 写作 / 数据 三区（同步区归 sync-ui-003，关于区归 upd-001）。
 ///
 /// 设计依据：docs/app/ui-settings.md（Region Layout / Interactions /
-/// State Variants / Component Tree）、docs/app/style.md（§3 tokens、§5 尺寸、
-/// §6 圆角阴影）、docs/app/README.md §8（平台差异：桌面保存对话框 /
+/// State Variants / Component Tree）、design.md（Notion token / 控件 /
+/// 交互反馈）、docs/app/README.md §8（平台差异：桌面保存对话框 /
 /// Android 系统分享）。
 library;
 
@@ -10,7 +10,6 @@ import 'dart:io';
 
 import 'package:archive/archive_io.dart' show extractFileToDisk;
 import 'package:file_selector/file_selector.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show MethodChannel;
 import 'package:share_plus/share_plus.dart';
@@ -23,6 +22,7 @@ import '../core/update.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/platform.dart';
+import 'zz.dart';
 
 /// 常见中文字体候选（「系统默认」= 空串）。跨端一致的字体枚举无官方 API，
 /// 预设列表 + 编辑器回退系统字体兜底（style.md §4）。
@@ -81,13 +81,11 @@ class SettingsView extends StatefulWidget {
 }
 
 class _SettingsViewState extends State<SettingsView> {
-  String? _exportError;
   bool _exporting = false;
-  String? _installNote;
+  bool _checkingUpdate = false;
   final FocusNode _goalFocus = FocusNode();
-  late final TextEditingController _goalController = TextEditingController(
-    text: widget.settings.settings.dailyGoal.toString(),
-  );
+  final TextEditingController _goalController = TextEditingController();
+  String? _goalNotebookId;
 
   Settings get _s => widget.settings.settings;
 
@@ -100,7 +98,11 @@ class _SettingsViewState extends State<SettingsView> {
   @override
   void initState() {
     super.initState();
-    if (widget.autoFocusDailyGoal) {
+    _goalNotebookId =
+        widget.library.currentDocument?.notebookId ??
+        widget.library.notebooks.firstOrNull?.id;
+    _syncGoalController();
+    if (widget.autoFocusDailyGoal && _goalNotebookId != null) {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => _goalFocus.requestFocus(),
       );
@@ -131,7 +133,6 @@ class _SettingsViewState extends State<SettingsView> {
     _backupBucketController.dispose();
     _backupAccessController.dispose();
     _backupSecretController.dispose();
-    _updateUrlController.dispose();
     super.dispose();
   }
 
@@ -141,15 +142,13 @@ class _SettingsViewState extends State<SettingsView> {
     final doc = widget.library.currentDocument;
     if (doc == null) return;
     final text = exportPlainText(doc);
-    setState(() {
-      _exporting = true;
-      _exportError = null;
-    });
+    setState(() => _exporting = true);
     try {
       final handler = widget.exporter ?? _defaultExport;
       await handler(doc, text);
-    } catch (e) {
-      setState(() => _exportError = '导出失败: $e');
+      if (mounted) showZzToast(context, '文档已导出');
+    } catch (_) {
+      if (mounted) showZzToast(context, '导出失败，请稍后重试', error: true);
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -244,25 +243,18 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   Future<void> _confirmReset() async {
-    final confirmed = await showCupertinoDialog<bool>(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('恢复默认设置？'),
-        content: const Text('主题、字体、字号、行距和每日目标会恢复为默认值；不会删除文档或备份。'),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('恢复默认'),
-          ),
-        ],
-      ),
+    final confirmed = await zzConfirm(
+      context,
+      title: '恢复默认设置？',
+      message: '主题、字体、字号、行距和每日目标会恢复为默认值；不会删除文档或备份。',
+      confirmLabel: '恢复默认',
+      danger: true,
     );
-    if (confirmed == true) _update(const Settings());
+    if (confirmed) {
+      await widget.settings.update(const Settings());
+      await widget.settings.resetNotebookGoals();
+      _syncGoalController();
+    }
   }
 
   Widget _buildCategoryPage() => switch (_category) {
@@ -310,10 +302,58 @@ class _SettingsViewState extends State<SettingsView> {
     ],
   );
 
-  Widget _writingPage() => _SettingsGroup(
-    label: '写作目标',
-    children: [_row('每日目标字数', _goalField(), description: '用于状态栏的今日进度提醒')],
-  );
+  Widget _writingPage() {
+    final notebooks = widget.library.notebooks;
+    final notebookId = _goalNotebookId;
+    if (notebooks.isEmpty || notebookId == null) {
+      return _SettingsGroup(
+        label: '写作目标',
+        children: [
+          Text(
+            '新建笔记本后即可设定独立的每日目标',
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      );
+    }
+    final goal = widget.settings.goalForNotebook(notebookId);
+    return _SettingsGroup(
+      label: '写作目标',
+      children: [
+        _row(
+          '笔记本',
+          ZzSelect<String>(
+            value: notebookId,
+            display: notebooks.firstWhere((n) => n.id == notebookId).name,
+            options: [for (final n in notebooks) (label: n.name, value: n.id)],
+            onChanged: (id) {
+              setState(() {
+                _goalNotebookId = id;
+                _syncGoalController();
+              });
+            },
+          ),
+          description: '每本书独立计算今日进度',
+        ),
+        _row(
+          '启用今日目标',
+          ZzSwitch(
+            value: goal.enabled,
+            onChanged: (enabled) => widget.settings.updateNotebookGoal(
+              notebookId,
+              enabled: enabled,
+            ),
+          ),
+          description: '关闭后不在状态栏和沉浸模式显示',
+        ),
+        if (goal.enabled)
+          _row('每日目标字数', _goalField(notebookId), description: '只计入该笔记本今天新增的文字'),
+      ],
+    );
+  }
 
   Widget _backupPage() => _SettingsGroup(
     label: 'R2 备份',
@@ -364,10 +404,7 @@ class _SettingsViewState extends State<SettingsView> {
         ),
         _SettingsGroup(
           label: '软件更新',
-          children: [
-            _row('更新地址', _updateUrlField(), description: '发布 update.json 的地址'),
-            _row('检查更新', _checkUpdateRow()),
-          ],
+          children: [_row('检查更新', _checkUpdateRow())],
         ),
       ],
     );
@@ -377,7 +414,7 @@ class _SettingsViewState extends State<SettingsView> {
       _SettingsRow(label: label, description: description, control: control);
 
   Widget _themePicker() {
-    return _ValuePicker<String>(
+    return ZzSelect<String>(
       value: _s.theme,
       display: switch (_s.theme) {
         'system' => '跟随系统',
@@ -395,7 +432,7 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   Widget _fontPicker() {
-    return _ValuePicker<String>(
+    return ZzSelect<String>(
       value: _s.fontFamily,
       display: _s.fontFamily.isEmpty ? '系统默认' : _s.fontFamily,
       options: [
@@ -416,7 +453,7 @@ class _SettingsViewState extends State<SettingsView> {
     return Row(
       children: [
         Expanded(
-          child: CupertinoSlider(
+          child: ZzSlider(
             value: value.clamp(min, max),
             min: min,
             max: max,
@@ -441,7 +478,7 @@ class _SettingsViewState extends State<SettingsView> {
     final s = _s;
     return Container(
       margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
         color: appColorsOf(context).callout,
         border: Border.all(color: Theme.of(context).dividerColor),
@@ -458,9 +495,16 @@ class _SettingsViewState extends State<SettingsView> {
     );
   }
 
-  Widget _goalField() {
-    // 外部（恢复默认等）变更时同步输入框内容；聚焦时不动。
-    final current = _s.dailyGoal.toString();
+  void _syncGoalController() {
+    final current = widget.settings.goalForNotebook(_goalNotebookId).words;
+    _goalController.text = current.toString();
+  }
+
+  Widget _goalField(String notebookId) {
+    final current = widget.settings
+        .goalForNotebook(notebookId)
+        .words
+        .toString();
     if (!_goalFocus.hasFocus && _goalController.text != current) {
       _goalController.text = current;
     }
@@ -472,7 +516,7 @@ class _SettingsViewState extends State<SettingsView> {
       onSubmitted: (v) {
         final n = int.tryParse(v.trim());
         if (n == null || n < 100 || n > 50000) return;
-        _update(_s.copyWith(dailyGoal: n));
+        widget.settings.updateNotebookGoal(notebookId, words: n);
       },
     );
   }
@@ -493,7 +537,7 @@ class _SettingsViewState extends State<SettingsView> {
     await widget.backup!.reloadConfig();
   }
 
-  /// iOS 风格输入框（hairline 描边、圆角 6、placeholder 用次要文字色）。
+  /// Notion 式输入框（浅底、focus accent 描边；见 zz.dart）。
   Widget _notionField({
     required TextEditingController controller,
     required String hint,
@@ -502,23 +546,12 @@ class _SettingsViewState extends State<SettingsView> {
     FocusNode? focusNode,
     required ValueChanged<String> onSubmitted,
   }) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
-    return CupertinoTextField(
+    return ZzTextField(
       controller: controller,
       focusNode: focusNode,
       keyboardType: keyboardType,
-      obscureText: obscure,
-      style: TextStyle(fontSize: 13, color: colors.onSurface),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: appColors.callout,
-        border: Border.all(color: colors.outline),
-        borderRadius: BorderRadius.circular(7),
-      ),
-      placeholder: hint,
-      placeholderStyle: TextStyle(fontSize: 13, color: appColors.textTertiary),
-      cursorColor: colors.primary,
+      obscure: obscure,
+      hint: hint,
       onSubmitted: onSubmitted,
     );
   }
@@ -601,13 +634,13 @@ class _SettingsViewState extends State<SettingsView> {
           children: [
             Row(
               children: [
-                _SettingsButton.primary(
+                ZzButton.primary(
                   label: '上传备份',
                   busy: backup.state.value == BackupState.uploading,
                   onPressed: (!configured || busy) ? null : _runUpload,
                 ),
                 const SizedBox(width: 8),
-                _SettingsButton.secondary(
+                ZzButton.secondary(
                   label: '下载恢复',
                   color: colors.error,
                   busy: backup.state.value == BackupState.downloading,
@@ -640,7 +673,7 @@ class _SettingsViewState extends State<SettingsView> {
             if (error != null && !busy)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
-                child: _SettingsButton.link(
+                child: ZzButton.link(
                   label: '重试',
                   color: colors.error,
                   onPressed: () => backup.upload(),
@@ -653,55 +686,33 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   Future<void> _runUpload() async {
-    await widget.backup!.upload();
+    final ok = await widget.backup!.upload();
+    if (!mounted) return;
+    showZzToast(context, ok ? '备份已上传' : '备份失败，请稍后重试', error: !ok);
   }
 
   /// 下载恢复会覆盖本地数据 → 二次确认；恢复后刷新库与设置控制器。
   Future<void> _confirmDownload() async {
-    final confirmed = await showCupertinoDialog<bool>(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('下载恢复'),
-        content: const Text(
+    final confirmed = await zzConfirm(
+      context,
+      title: '下载恢复',
+      message:
           '将用云端备份覆盖本地全部数据。\n'
           '本地数据会先自动备份为 .bak 文件（保留最近 3 份），仍可找回。',
-        ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('恢复'),
-          ),
-        ],
-      ),
+      confirmLabel: '恢复',
+      danger: true,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     final ok = await widget.backup!.download();
     if (ok && mounted) {
       await widget.library.restore();
       await widget.settings.load();
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('已从云端备份恢复')));
+        showZzToast(context, '已从云端备份恢复');
       }
+    } else if (mounted) {
+      showZzToast(context, '恢复失败，请稍后重试', error: true);
     }
-  }
-
-  late final TextEditingController _updateUrlController = TextEditingController(
-    text: widget.updateChecker?.updateUrl ?? '',
-  );
-
-  Widget _updateUrlField() {
-    return _notionField(
-      controller: _updateUrlController,
-      hint: 'https://pub-xxxxx.r2.dev/update.json',
-      onSubmitted: (v) => widget.settings.db.setSetting('update.url', v.trim()),
-    );
   }
 
   /// 检查更新：accent 徽标 + 确认下载 + 进度 + 安装（ui-settings.md 关于区）。
@@ -714,7 +725,6 @@ class _SettingsViewState extends State<SettingsView> {
         checker.progress,
       ]),
       builder: (context, _) {
-        final colors = Theme.of(context).colorScheme;
         final status = checker.status.value;
         final downloading = status == UpdateStatus.downloading;
         final version = checker.availableVersion.value ?? '';
@@ -728,10 +738,12 @@ class _SettingsViewState extends State<SettingsView> {
           children: [
             Row(
               children: [
-                _SettingsButton.primary(
+                ZzButton.primary(
                   label: label,
-                  busy: downloading,
-                  onPressed: downloading ? null : () => _runUpdateCheck(),
+                  busy: downloading || _checkingUpdate,
+                  onPressed: downloading || _checkingUpdate
+                      ? null
+                      : _runUpdateCheck,
                 ),
                 if (downloading && checker.progress.value != null)
                   Padding(
@@ -743,21 +755,6 @@ class _SettingsViewState extends State<SettingsView> {
                   ),
               ],
             ),
-            if (checker.error.value != null)
-              Text(
-                checker.error.value!,
-                style: TextStyle(fontSize: 12, color: colors.error),
-              ),
-            if (checker.readyPath.value != null && _installNote == null)
-              Text(
-                '安装包已就绪：${checker.readyPath.value}',
-                style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
-              ),
-            if (_installNote != null)
-              Text(
-                _installNote!,
-                style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
-              ),
           ],
         );
       },
@@ -766,19 +763,45 @@ class _SettingsViewState extends State<SettingsView> {
 
   Future<void> _runUpdateCheck() async {
     final checker = widget.updateChecker!;
+    final status = checker.status.value;
+    if (status == UpdateStatus.none || status == UpdateStatus.error) {
+      setState(() => _checkingUpdate = true);
+    }
     try {
-      switch (checker.status.value) {
+      switch (status) {
         case UpdateStatus.none || UpdateStatus.error:
-          await checker.check(); // 第一步：发现新版 → available（待确认）
+          final manifest = await checker.check();
+          if (!mounted) return;
+          showZzToast(
+            context,
+            manifest == null ? '已是最新版本' : '发现新版本 v${manifest.latest}',
+          );
         case UpdateStatus.available:
-          await checker.install(); // 第二步：确认下载 → 校验 → ready
+          final manifest = await checker.install();
+          if (mounted) showZzToast(context, 'v${manifest.latest} 已下载并通过校验');
         case UpdateStatus.ready:
-          await _installPackage(); // 已就绪：执行平台安装/解压
+          await _installPackage();
+          if (mounted) {
+            showZzToast(
+              context,
+              isAndroidPlatform ? '已打开系统安装器' : '已打开更新文件夹，替换应用后重启',
+            );
+          }
         case UpdateStatus.downloading:
-          break; // 进行中
+          break;
       }
     } catch (_) {
-      // 错误已入 checker.error
+      if (mounted) {
+        showZzToast(
+          context,
+          status == UpdateStatus.none || status == UpdateStatus.error
+              ? '检查失败，请稍后重试'
+              : '更新失败，请稍后重试',
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted && _checkingUpdate) setState(() => _checkingUpdate = false);
     }
   }
 
@@ -801,12 +824,12 @@ class _SettingsViewState extends State<SettingsView> {
     );
     await target.create(recursive: true);
     await extractFileToDisk(zipPath, target.path);
-    if (mounted) {
-      setState(
-        () => _installNote =
-            '安装包已解压：${target.path}\n'
-            '请替换应用目录后重启（macOS 未签名 App 首次需右键打开）',
-      );
+    if (Platform.isMacOS) {
+      await Process.run('open', [target.path]);
+    } else if (Platform.isWindows) {
+      await Process.run('explorer', [target.path]);
+    } else if (Platform.isLinux) {
+      await Process.run('xdg-open', [target.path]);
     }
   }
 
@@ -824,7 +847,7 @@ class _SettingsViewState extends State<SettingsView> {
           ),
         ),
         if (!isAndroidPlatform)
-          _SettingsButton.link(label: '打开目录', onPressed: _openDbDir),
+          ZzButton.link(label: '打开目录', onPressed: _openDbDir),
       ],
     );
   }
@@ -841,82 +864,17 @@ class _SettingsViewState extends State<SettingsView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SettingsButton.primary(
+        ZzButton.primary(
           label: '导出',
           busy: _exporting,
           onPressed: _exporting ? null : _export,
         ),
-        if (_exportError != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: _InlineNote(
-              text: _exportError!,
-              color: colors.error,
-              icon: Icons.error_outline,
-            ),
-          ),
       ],
     );
   }
 }
 
-/// iOS 风格选择器：显示当前值，点按弹 CupertinoActionSheet。
-class _ValuePicker<T> extends StatelessWidget {
-  const _ValuePicker({
-    required this.value,
-    required this.display,
-    required this.options,
-    required this.onChanged,
-  });
-
-  final T value;
-  final String display;
-  final List<({String label, T value})> options;
-  final ValueChanged<T> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return CupertinoButton(
-      padding: EdgeInsets.zero,
-      onPressed: () async {
-        final picked = await showCupertinoModalPopup<T>(
-          context: context,
-          builder: (context) => CupertinoActionSheet(
-            actions: [
-              for (final o in options)
-                CupertinoActionSheetAction(
-                  isDefaultAction: o.value == value,
-                  onPressed: () => Navigator.of(context).pop(o.value),
-                  child: Text(o.label),
-                ),
-            ],
-            cancelButton: CupertinoActionSheetAction(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('取消'),
-            ),
-          ),
-        );
-        if (picked != null) onChanged(picked);
-      },
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: Text(
-              display,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 13, color: colors.onSurface),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Icon(Icons.chevron_right, size: 14, color: colors.onSurfaceVariant),
-        ],
-      ),
-    );
-  }
-}
+/// 选择器：Notion 式锚定下拉菜单（见 zz.dart ZzSelect）。
 
 class _Header extends StatelessWidget {
   const _Header({required this.onClose});
@@ -927,7 +885,7 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 10, 12),
+      padding: const EdgeInsets.fromLTRB(20, 12, 8, 12),
       decoration: BoxDecoration(
         color: Theme.of(context).scaffoldBackgroundColor,
         border: Border(bottom: BorderSide(color: colors.outline)),
@@ -1080,11 +1038,11 @@ class _SettingsNavItemState extends State<_SettingsNavItem> {
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: InkWell(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(4),
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 100),
-          height: 36,
+          height: 32,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
             color: widget.selected
@@ -1092,12 +1050,12 @@ class _SettingsNavItemState extends State<_SettingsNavItem> {
                 : _hovered
                 ? appColors.surfaceHover
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(4),
           ),
           child: Row(
             children: [
               Icon(icon, size: 16, color: colors.onSurfaceVariant),
-              const SizedBox(width: 9),
+              const SizedBox(width: 8),
               Text(
                 label,
                 style: TextStyle(
@@ -1139,27 +1097,24 @@ class _MobileSettingsNav extends StatelessWidget {
         border: Border(bottom: BorderSide(color: colors.outline)),
       ),
       child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         scrollDirection: Axis.horizontal,
         itemCount: categories.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 6),
+        separatorBuilder: (_, _) => const SizedBox(width: 4),
         itemBuilder: (context, index) {
           final category = categories[index];
           final active = category == selected;
-          return CupertinoButton(
-            padding: EdgeInsets.zero,
-            minimumSize: Size.zero,
-            onPressed: () => onSelected(category),
-            child: DecoratedBox(
+          return InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: () => onSelected(category),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 100),
               decoration: BoxDecoration(
                 color: active ? appColors.rowSelected : Colors.transparent,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(4),
               ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 child: Text(
                   category.label,
                   style: TextStyle(
@@ -1234,18 +1189,17 @@ class _SettingsGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 28),
+      padding: const EdgeInsets.only(bottom: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
             label,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: colors.onSurface,
+              color: appColorsOf(context).textTertiary,
             ),
           ),
           const SizedBox(height: 8),
@@ -1271,8 +1225,8 @@ class _SettingsRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Container(
-      constraints: const BoxConstraints(minHeight: 54),
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      constraints: const BoxConstraints(minHeight: 52),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: colors.outline)),
       ),
@@ -1329,155 +1283,11 @@ class _MobileSettingsFooter extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _SettingsButton.link(label: '恢复默认', onPressed: onReset),
+          ZzButton.link(label: '恢复默认', onPressed: onReset),
           const Spacer(),
-          _SettingsButton.primary(label: '关闭', onPressed: onClose),
+          ZzButton.primary(label: '关闭', onPressed: onClose),
         ],
       ),
     );
   }
 }
-
-class _InlineNote extends StatelessWidget {
-  const _InlineNote({
-    required this.text,
-    required this.color,
-    required this.icon,
-  });
-
-  final String text;
-  final Color color;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            text,
-            style: TextStyle(fontSize: 12, height: 1.35, color: color),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SettingsButton extends StatelessWidget {
-  const _SettingsButton._({
-    required this.label,
-    required this.onPressed,
-    required this.variant,
-    this.color,
-    this.busy = false,
-  });
-
-  factory _SettingsButton.primary({
-    required String label,
-    required VoidCallback? onPressed,
-    bool busy = false,
-  }) => _SettingsButton._(
-    label: label,
-    onPressed: onPressed,
-    variant: _SettingsButtonVariant.primary,
-    busy: busy,
-  );
-
-  factory _SettingsButton.secondary({
-    required String label,
-    required VoidCallback? onPressed,
-    Color? color,
-    bool busy = false,
-  }) => _SettingsButton._(
-    label: label,
-    onPressed: onPressed,
-    variant: _SettingsButtonVariant.secondary,
-    color: color,
-    busy: busy,
-  );
-
-  factory _SettingsButton.link({
-    required String label,
-    required VoidCallback? onPressed,
-    Color? color,
-  }) => _SettingsButton._(
-    label: label,
-    onPressed: onPressed,
-    variant: _SettingsButtonVariant.link,
-    color: color,
-  );
-
-  final String label;
-  final VoidCallback? onPressed;
-  final _SettingsButtonVariant variant;
-  final Color? color;
-  final bool busy;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
-    final enabled = onPressed != null && !busy;
-    final foreground =
-        color ??
-        (variant == _SettingsButtonVariant.primary
-            ? colors.onPrimary
-            : colors.onSurfaceVariant);
-    final background = switch (variant) {
-      _SettingsButtonVariant.primary => colors.primary,
-      _SettingsButtonVariant.secondary => appColors.callout,
-      _SettingsButtonVariant.link => Colors.transparent,
-    };
-    final border = switch (variant) {
-      _SettingsButtonVariant.primary => colors.primary,
-      _SettingsButtonVariant.secondary => colors.outline,
-      _SettingsButtonVariant.link => Colors.transparent,
-    };
-    return CupertinoButton(
-      minimumSize: Size.zero,
-      padding: EdgeInsets.zero,
-      onPressed: enabled ? onPressed : null,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 100),
-        padding: variant == _SettingsButtonVariant.link
-            ? const EdgeInsets.symmetric(horizontal: 2, vertical: 4)
-            : const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
-        decoration: BoxDecoration(
-          color: enabled ? background : appColors.callout,
-          border: Border.all(
-            color: enabled ? border : colors.outline.withValues(alpha: 0.6),
-          ),
-          borderRadius: BorderRadius.circular(7),
-        ),
-        child: busy
-            ? SizedBox(
-                width: 15,
-                height: 15,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: variant == _SettingsButtonVariant.primary
-                      ? colors.onPrimary
-                      : colors.primary,
-                ),
-              )
-            : Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.2,
-                  fontWeight: FontWeight.w500,
-                  color: enabled
-                      ? foreground
-                      : colors.onSurfaceVariant.withValues(alpha: 0.45),
-                ),
-              ),
-      ),
-    );
-  }
-}
-
-enum _SettingsButtonVariant { primary, secondary, link }

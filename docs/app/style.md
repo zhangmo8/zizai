@@ -1,6 +1,9 @@
 # 视觉风格规范 — macOS 26 / iOS 26（Liquid Glass）
 
-Status: Draft（2026-08 改版：从「极简留白 + Notion」迁移到 Apple Liquid Glass）
+Status: Deprecated
+
+> 历史方案，仅供追溯，禁止作为新实现依据。2026-08 起的唯一视觉事实源为
+> 根目录 [design.md](../../design.md)（Notion 风格）。
 
 ## 1. 风格定位
 

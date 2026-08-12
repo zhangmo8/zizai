@@ -14,7 +14,11 @@ enum DeletionKind { notebook, document }
 
 /// 删除确认请求：非模态确认条（5s 无操作自动取消）。
 class DeletionRequest {
-  const DeletionRequest({required this.kind, required this.id, required this.name});
+  const DeletionRequest({
+    required this.kind,
+    required this.id,
+    required this.name,
+  });
 
   final DeletionKind kind;
   final String id;
@@ -72,11 +76,11 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
     try {
       await _reloadTree();
-      _todayDelta = await _db.todayDelta();
       final lastOpen = await _db.loadLastOpen();
       if (lastOpen?.documentId != null) {
         _currentDocument = await _db.getDocument(lastOpen!.documentId!);
       }
+      await _refreshTodayDelta();
     } catch (e) {
       _error = '加载失败: $e';
     } finally {
@@ -93,6 +97,7 @@ class LibraryController extends ChangeNotifier {
     final doc = await _db.getDocument(documentId);
     if (doc == null) return;
     _currentDocument = doc;
+    await _refreshTodayDelta();
     await _db.saveLastOpen(
       notebookId: doc.notebookId,
       documentId: doc.id,
@@ -102,16 +107,43 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// 保存当前文档（edit-003 自动保存调用）：返回字数增量并刷新今日增量/快照。
-  Future<int> saveCurrentDocument({required String title, required String content}) async {
-    final doc = _currentDocument;
-    if (doc == null) {
-      throw StateError('无当前文档可保存');
+  Future<int> saveDocument({
+    required String documentId,
+    required String title,
+    required String content,
+    required int writtenWords,
+  }) async {
+    final delta = await _db.saveDocument(
+      id: documentId,
+      title: title,
+      content: content,
+      writtenWords: writtenWords,
+    );
+    // 旧文档的异步保存可能在切换后才完成；禁止它覆盖当前文档。
+    if (_currentDocument?.id == documentId) {
+      final refreshed = await _db.getDocument(documentId);
+      if (_currentDocument?.id == documentId) {
+        _currentDocument = refreshed;
+        await _refreshTodayDelta();
+        notifyListeners();
+      }
     }
-    final delta = await _db.saveDocument(id: doc.id, title: title, content: content);
-    _todayDelta = await _db.todayDelta();
-    _currentDocument = await _db.getDocument(doc.id);
-    notifyListeners();
     return delta;
+  }
+
+  /// 兼容旧调用；编辑器应传入明确的 documentId 以避免切换竞态。
+  Future<int> saveCurrentDocument({
+    required String title,
+    required String content,
+  }) {
+    final doc = _currentDocument;
+    if (doc == null) throw StateError('无当前文档可保存');
+    return saveDocument(
+      documentId: doc.id,
+      title: title,
+      content: content,
+      writtenWords: 0,
+    );
   }
 
   // ── 笔记本 CRUD ───────────────────────────────────────────
@@ -143,7 +175,10 @@ class LibraryController extends ChangeNotifier {
 
   // ── 文档 CRUD ─────────────────────────────────────────────
 
-  Future<Document> createDocument(String notebookId, {String title = '新章节.md'}) async {
+  Future<Document> createDocument(
+    String notebookId, {
+    String title = '新章节.md',
+  }) async {
     final doc = await _db.createDocument(notebookId, title: title);
     await _reloadTree();
     return doc;
@@ -183,7 +218,11 @@ class LibraryController extends ChangeNotifier {
 
   // ── 删除确认（非模态，5s 自动关由 UI 层 Timer 驱动）──────────
 
-  void requestDelete({required DeletionKind kind, required String id, required String name}) {
+  void requestDelete({
+    required DeletionKind kind,
+    required String id,
+    required String name,
+  }) {
     _pendingDeletion = DeletionRequest(kind: kind, id: id, name: name);
     notifyListeners();
   }
@@ -216,6 +255,12 @@ class LibraryController extends ChangeNotifier {
     }
     _documentsByNotebook = map;
     notifyListeners();
+  }
+
+  Future<void> _refreshTodayDelta() async {
+    _todayDelta = await _db.todayDelta(
+      notebookId: _currentDocument?.notebookId,
+    );
   }
 
   /// 实时字数上报（编辑器变更时）：只更新 ValueNotifier，不触发全树刷新。

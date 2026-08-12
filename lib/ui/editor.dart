@@ -2,8 +2,8 @@
 /// Markdown 快捷语法 + 常驻格式工具栏 + 选区浮动工具栏 + 自动保存 + 字数。
 ///
 /// 设计依据：docs/app/ui-editor.md（Region Layout / Interactions /
-/// Word Count / State Variants）、docs/app/style.md（§3 tokens、§4 字体、
-/// §5 尺寸、§9 组件样式）、docs/app/README.md §7（自动保存优先、无模态打断）。
+/// Word Count / State Variants）、design.md（Notion token / 光标 /
+/// icon 优先）、docs/app/README.md §7（自动保存优先、无模态打断）。
 /// 视觉方向：Notion-inspired —— 页面即纸张、块级排版、低打扰 chrome。
 library;
 
@@ -25,14 +25,12 @@ import '../core/export.dart' show emptyDeltaJson, parseDeltaOps;
 import '../core/models.dart' as m;
 import '../core/word_count.dart';
 import '../core/backup/backup.dart';
-import '../core/update.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/debounce.dart';
 import '../util/platform.dart';
 import 'focus_view.dart';
 import 'glass.dart';
-import 'settings_view.dart';
 import 'slash_menu.dart';
 import 'status_bar.dart';
 
@@ -47,8 +45,8 @@ class EditorView extends StatefulWidget {
     required this.settings,
     required this.focusMode,
     required this.onToggleFocusMode,
+    required this.onOpenSettings,
     this.backup,
-    this.updateChecker,
     this.toolbarDismissTick,
     this.saveTick,
     this.journal,
@@ -58,6 +56,7 @@ class EditorView extends StatefulWidget {
   final SettingsController settings;
   final bool focusMode;
   final VoidCallback onToggleFocusMode;
+  final void Function({bool focusDailyGoal, bool focusBackup}) onOpenSettings;
 
   /// Esc 收起工具栏通知（Shell 全局处理，与焦点无关）。
   final ValueNotifier<int>? toolbarDismissTick;
@@ -67,9 +66,6 @@ class EditorView extends StatefulWidget {
 
   /// 同步引擎（null = 未接线，如单测）。
   final BackupManager? backup;
-
-  /// 更新检查（null = 未接线，如单测）。
-  final UpdateChecker? updateChecker;
 
   /// 崩溃日志（null = 未接线，如测试）。
   final CrashJournal? journal;
@@ -95,6 +91,13 @@ class _EditorViewState extends State<EditorView> {
   /// 上次成功保存的内容（Delta JSON），避免空保存。
   String _lastSavedContent = '';
 
+  /// 从上次保存起实际新增的字数；删除不倒扣今日产出。
+  int _pendingWrittenWords = 0;
+  int _lastObservedWords = 0;
+
+  /// 保存串行化，防止自动保存与切换前保存竞态。
+  Future<void>? _saveInFlight;
+
   /// 崩溃恢复待确认项。
   CrashJournalEntry? _pendingRecover;
 
@@ -106,6 +109,10 @@ class _EditorViewState extends State<EditorView> {
   Offset _slashPosition = Offset.zero;
   bool _slashKeyHandlerAdded = false;
 
+  /// 编辑器当前已装载的文档 id（切换检测不能比较 widget.library ——
+  /// 前后是同一个 controller 实例，currentDocument 永远相等）。
+  String? _loadedDocumentId;
+
   @override
   void initState() {
     super.initState();
@@ -113,11 +120,14 @@ class _EditorViewState extends State<EditorView> {
       document: _documentFromCurrent(),
       selection: const TextSelection.collapsed(offset: 0),
     );
+    _loadedDocumentId = widget.library.currentDocument?.id;
     _lastSavedContent = widget.library.currentDocument?.content ?? '';
+    _lastObservedWords = wordCount(_quill.document.toPlainText());
     _changesSub = _quill.document.changes.listen(_onDocChange);
     _quill.addListener(_onQuillChanged);
     _scroll.addListener(_onEditorScrolled);
     _focusNode.addListener(_onFocusChanged);
+    widget.library.addListener(_onLibraryChanged);
     widget.toolbarDismissTick?.addListener(_onDismissToolbar);
     widget.saveTick?.addListener(_onSaveTick);
     // 切换/退出前先保存（防丢）。
@@ -125,13 +135,23 @@ class _EditorViewState extends State<EditorView> {
     _checkRecovery();
   }
 
-  @override
-  void didUpdateWidget(covariant EditorView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.library.currentDocument?.id !=
-        widget.library.currentDocument?.id) {
-      final doc = widget.library.currentDocument;
-      if (doc != null) _loadDocument(doc);
+  /// 库状态变化 → 当前文档 id 与已装载不一致时重载编辑器内容。
+  void _onLibraryChanged() {
+    final doc = widget.library.currentDocument;
+    if (doc?.id == _loadedDocumentId) return;
+    if (doc != null) {
+      _loadDocument(doc);
+    } else {
+      _loadedDocumentId = null;
+      _saveDebounce.cancel();
+      _journalDebounce.cancel();
+      _closeSlash();
+      _changesSub?.cancel();
+      _quill.document = q.Document();
+      _changesSub = _quill.document.changes.listen(_onDocChange);
+      _lastSavedContent = '';
+      _pendingWrittenWords = 0;
+      _lastObservedWords = 0;
     }
   }
 
@@ -143,6 +163,7 @@ class _EditorViewState extends State<EditorView> {
     _quill.dispose();
     _focusNode.dispose();
     _scroll.dispose();
+    widget.library.removeListener(_onLibraryChanged);
     _saveDebounce.cancel();
     _journalDebounce.cancel();
     widget.toolbarDismissTick?.removeListener(_onDismissToolbar);
@@ -189,11 +210,20 @@ class _EditorViewState extends State<EditorView> {
   }
 
   void _loadDocument(m.Document doc) {
+    _loadedDocumentId = doc.id;
+    _saveDebounce.cancel();
+    _journalDebounce.cancel();
     _closeSlash();
     _changesSub?.cancel();
     _quill.document = _documentFromJson(doc.content);
+    _quill.updateSelection(
+      const TextSelection.collapsed(offset: 0),
+      q.ChangeSource.local,
+    );
     _changesSub = _quill.document.changes.listen(_onDocChange);
     _lastSavedContent = doc.content;
+    _pendingWrittenWords = 0;
+    _lastObservedWords = wordCount(_quill.document.toPlainText());
     widget.library.reportLiveWords(doc.words);
   }
 
@@ -201,6 +231,10 @@ class _EditorViewState extends State<EditorView> {
 
   void _onDocChange(q.DocChange change) {
     final words = wordCount(_quill.document.toPlainText());
+    if (words > _lastObservedWords) {
+      _pendingWrittenWords += words - _lastObservedWords;
+    }
+    _lastObservedWords = words;
     widget.library.reportLiveWords(words);
     _saveDebounce.schedule(_saveNow);
     _journalDebounce.schedule(_writeJournal);
@@ -215,16 +249,47 @@ class _EditorViewState extends State<EditorView> {
 
   /// 保存当前缓冲：成功清崩溃日志 + 闪「已保存」；失败保留缓冲 + 错误条。
   Future<void> _saveNow() async {
+    final activeSave = _saveInFlight;
+    if (activeSave != null) await activeSave;
+
     final cur = widget.library.currentDocument;
-    if (cur == null) return;
+    final documentId = _loadedDocumentId;
+    if (cur == null || documentId == null || cur.id != documentId) return;
     final content = jsonEncode(_quill.document.toDelta().toJson());
-    if (content == _lastSavedContent) return;
+    final writtenWords = _pendingWrittenWords;
+    if (content == _lastSavedContent && writtenWords == 0) return;
+
+    final operation = _performSave(
+      documentId: documentId,
+      title: cur.title,
+      content: content,
+      writtenWords: writtenWords,
+    );
+    _saveInFlight = operation;
     try {
-      await widget.library.saveCurrentDocument(
-        title: cur.title,
+      await operation;
+    } finally {
+      if (identical(_saveInFlight, operation)) _saveInFlight = null;
+    }
+  }
+
+  Future<void> _performSave({
+    required String documentId,
+    required String title,
+    required String content,
+    required int writtenWords,
+  }) async {
+    try {
+      await widget.library.saveDocument(
+        documentId: documentId,
+        title: title,
         content: content,
+        writtenWords: writtenWords,
       );
+      // 保存期间可能已切换文档；旧结果不得污染新文档的基线。
+      if (_loadedDocumentId != documentId) return;
       _lastSavedContent = content;
+      _pendingWrittenWords = math.max(0, _pendingWrittenWords - writtenWords);
       widget.library.savedAt.value = DateTime.now();
       widget.library.clearSaveError();
       await widget.journal?.clear();
@@ -384,7 +449,10 @@ class _EditorViewState extends State<EditorView> {
         caret <= _slashAnchor) {
       return _closeSlash();
     }
-    final query = plain.substring(_slashAnchor + 1, math.min(caret, plain.length));
+    final query = plain.substring(
+      _slashAnchor + 1,
+      math.min(caret, plain.length),
+    );
     if (query.contains('\n') || query.length > 16) return _closeSlash();
     final matches = filterSlashCommands(query);
     if (matches.isEmpty) return _closeSlash();
@@ -451,7 +519,10 @@ class _EditorViewState extends State<EditorView> {
         pos = Offset(topLeft.dx, topLeft.dy - menuHeight - 6);
       }
       pos = Offset(
-        pos.dx.clamp(8.0, math.max(8.0, screen.width - SlashMenuPanel.width - 8)),
+        pos.dx.clamp(
+          8.0,
+          math.max(8.0, screen.width - SlashMenuPanel.width - 8),
+        ),
         math.max(8.0, pos.dy),
       );
       if ((pos - _slashPosition).distance > 0.5) {
@@ -623,6 +694,7 @@ class _EditorViewState extends State<EditorView> {
     final focusMode = widget.focusMode;
     final meta = isMacOS;
     final doc = widget.library.currentDocument;
+    final goal = widget.settings.goalForNotebook(doc?.notebookId);
     final notebookName = doc == null
         ? null
         : widget.library.notebooks
@@ -657,7 +729,6 @@ class _EditorViewState extends State<EditorView> {
                 title: doc?.title ?? '',
                 notebookName: notebookName,
                 onToggleFocusMode: widget.onToggleFocusMode,
-                onOpenSettings: () => _openSettings(),
               ),
               // 常驻格式工具栏：字体样式始终可见，不随选区隐藏。
               _FormatToolbar(
@@ -681,7 +752,8 @@ class _EditorViewState extends State<EditorView> {
                   liveWords: widget.library.liveWords,
                   fallbackWords: doc?.words ?? 0,
                   todayDelta: widget.library.todayDelta,
-                  dailyGoal: s.dailyGoal,
+                  dailyGoal: goal.words,
+                  goalEnabled: goal.enabled,
                   child: _buildEditorArea(s, colors),
                 ),
               ),
@@ -692,12 +764,7 @@ class _EditorViewState extends State<EditorView> {
                 settings: widget.settings,
                 onRetrySave: _saveNow,
                 backup: widget.backup,
-                onOpenSettings:
-                    ({bool focusDailyGoal = false, bool focusBackup = false}) =>
-                        _openSettings(
-                          focusDailyGoal: focusDailyGoal,
-                          focusBackup: focusBackup,
-                        ),
+                onOpenSettings: widget.onOpenSettings,
               ),
           ],
         ),
@@ -709,39 +776,54 @@ class _EditorViewState extends State<EditorView> {
     final doc = widget.library.currentDocument;
     final hasDoc = doc != null;
     final focusMode = widget.focusMode;
-    final editor = q.QuillEditor(
-      controller: _quill,
-      focusNode: _focusNode,
-      scrollController: _scroll,
-      config: q.QuillEditorConfig(
-        editorKey: _editorKey,
-        placeholder: hasDoc ? '输入 / 唤起命令，或直接开始写…' : null,
-        autoFocus: false,
-        expands: true,
-        scrollable: true,
-        padding: EdgeInsets.fromLTRB(
-          24,
-          focusMode ? 88 : 8,
-          24,
-          focusMode ? 88 : 160,
+    final editor = Theme(
+      // flutter_quill 会把 macOS 当作 iOS 绘制带偏移的圆角光标。
+      // 桌面端强制使用 Material 光标：2px、无偏移、accent 色。
+      data: Theme.of(context).copyWith(
+        platform: isDesktopPlatform
+            ? TargetPlatform.windows
+            : Theme.of(context).platform,
+      ),
+      child: q.QuillEditor(
+        controller: _quill,
+        focusNode: _focusNode,
+        scrollController: _scroll,
+        config: q.QuillEditorConfig(
+          editorKey: _editorKey,
+          placeholder: hasDoc ? '输入 / 唤起命令，或直接开始写…' : null,
+          autoFocus: false,
+          expands: true,
+          scrollable: true,
+          padding: EdgeInsets.fromLTRB(
+            24,
+            focusMode ? 88 : 8,
+            24,
+            focusMode ? 88 : 160,
+          ),
+          customStyles: _buildStyles(s),
+          textSelectionThemeData: TextSelectionThemeData(
+            cursorColor: colors.primary,
+            selectionColor: colors.primary.withValues(alpha: 0.22),
+            selectionHandleColor: colors.primary,
+          ),
+          paintCursorAboveText: false,
+          characterShortcutEvents: q.standardCharactersShortcutEvents,
+          spaceShortcutEvents: _spaceShortcuts,
+          // 桌面点击菜单/侧栏不丢编辑焦点（Notion 行为）；移动端收起键盘。
+          onTapOutside: (event, focusNode) {
+            if (!isDesktopPlatform) focusNode.unfocus();
+          },
+          // Quill 负责选区锚点和安全区域翻转：桌面贴近鼠标完成选取的
+          // 位置，移动端贴近实际选段，避免工具栏固定在页面顶部。
+          enableSelectionToolbar: !focusMode,
+          contextMenuBuilder: focusMode
+              ? null
+              : (context, rawEditorState) => _SelectionToolbarMenu(
+                  anchors: rawEditorState.contextMenuAnchors,
+                  buttonItems: rawEditorState.contextMenuButtonItems,
+                  child: _FloatingToolbar(quill: _quill, onLink: _promptLink),
+                ),
         ),
-        customStyles: _buildStyles(s),
-        characterShortcutEvents: q.standardCharactersShortcutEvents,
-        spaceShortcutEvents: _spaceShortcuts,
-        // 桌面点击菜单/侧栏不丢编辑焦点（Notion 行为）；移动端收起键盘。
-        onTapOutside: (event, focusNode) {
-          if (!isDesktopPlatform) focusNode.unfocus();
-        },
-        // Quill 负责选区锚点和安全区域翻转：桌面贴近鼠标完成选取的
-        // 位置，移动端贴近实际选段，避免工具栏固定在页面顶部。
-        enableSelectionToolbar: !focusMode,
-        contextMenuBuilder: focusMode
-            ? null
-            : (context, rawEditorState) => _SelectionToolbarMenu(
-                anchors: rawEditorState.contextMenuAnchors,
-                buttonItems: rawEditorState.contextMenuButtonItems,
-                child: _FloatingToolbar(quill: _quill, onLink: _promptLink),
-              ),
       ),
     );
     return Column(
@@ -889,33 +971,6 @@ class _EditorViewState extends State<EditorView> {
       ),
     );
   }
-
-  /// 打开设置：桌面双栏模态对话框 / Android 全屏页（ui-settings.md）。
-  void _openSettings({bool focusDailyGoal = false, bool focusBackup = false}) {
-    final view = SettingsView(
-      settings: widget.settings,
-      library: widget.library,
-      backup: widget.backup,
-      updateChecker: widget.updateChecker,
-      dbSchemaVersion: widget.updateChecker?.dbSchemaVersion,
-      autoFocusDailyGoal: focusDailyGoal,
-      autoFocusBackup: focusBackup,
-    );
-    if (isAndroidPlatform) {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          fullscreenDialog: true,
-          builder: (_) => Scaffold(body: view),
-        ),
-      );
-    } else {
-      showDialog<void>(
-        context: context,
-        builder: (_) =>
-            Dialog(child: SizedBox(width: 840, height: 620, child: view)),
-      );
-    }
-  }
 }
 
 /// 保存意图（Ctrl/Cmd+S）。
@@ -1003,7 +1058,9 @@ class _PageTitleState extends State<_PageTitle> {
         height: 1.25,
         color: colors.onSurface,
       ),
-      cursorColor: colors.onSurface,
+      cursorColor: colors.primary,
+      cursorWidth: 2,
+      cursorRadius: const Radius.circular(1),
       decoration: InputDecoration(
         isDense: true,
         border: InputBorder.none,
@@ -1057,13 +1114,11 @@ class _EditorHeader extends StatelessWidget {
     required this.title,
     required this.notebookName,
     required this.onToggleFocusMode,
-    required this.onOpenSettings,
   });
 
   final String title;
   final String? notebookName;
   final VoidCallback onToggleFocusMode;
-  final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -1106,14 +1161,6 @@ class _EditorHeader extends StatelessWidget {
               onPressed: onToggleFocusMode,
               tooltip: '沉浸模式 (${isMacOS ? '⌘' : 'Ctrl'}+Shift+F)',
               icon: Icons.open_in_full,
-              label: '专注',
-            ),
-            const SizedBox(width: 4),
-            _HeaderAction(
-              onPressed: onOpenSettings,
-              tooltip: '设置',
-              icon: Icons.tune,
-              label: '偏好',
             ),
             const SizedBox(width: 12),
           ],
@@ -1128,13 +1175,11 @@ class _HeaderAction extends StatefulWidget {
     required this.onPressed,
     required this.tooltip,
     required this.icon,
-    required this.label,
   });
 
   final VoidCallback onPressed;
   final String tooltip;
   final IconData icon;
-  final String label;
 
   @override
   State<_HeaderAction> createState() => _HeaderActionState();
@@ -1153,28 +1198,18 @@ class _HeaderActionState extends State<_HeaderAction> {
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
         child: InkWell(
-          borderRadius: BorderRadius.circular(5),
+          borderRadius: BorderRadius.circular(4),
           onTap: widget.onPressed,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 90),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            width: 28,
+            height: 28,
+            alignment: Alignment.center,
             decoration: BoxDecoration(
               color: _hover ? appColors.surfaceHover : Colors.transparent,
-              borderRadius: BorderRadius.circular(5),
+              borderRadius: BorderRadius.circular(4),
             ),
-            child: Row(
-              children: [
-                Icon(widget.icon, size: 15, color: colors.onSurfaceVariant),
-                const SizedBox(width: 5),
-                Text(
-                  widget.label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
+            child: Icon(widget.icon, size: 16, color: colors.onSurfaceVariant),
           ),
         ),
       ),
@@ -1504,7 +1539,7 @@ class _FloatingToolbar extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final appColors = appColorsOf(context);
     return GlassSurface(
-      radius: 7,
+      radius: 6,
       shadow: true,
       color: appColors.surfaceRaised,
       border: Border.all(color: colors.outline),

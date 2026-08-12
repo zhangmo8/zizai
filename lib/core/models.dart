@@ -39,12 +39,12 @@ class Notebook {
   final int updatedAt;
 
   factory Notebook.fromRow(Map<String, Object?> row) => Notebook(
-        id: row['id']! as String,
-        name: row['name']! as String,
-        position: row['position']! as int,
-        createdAt: row['created_at']! as int,
-        updatedAt: (row['updated_at'] as int?) ?? 0,
-      );
+    id: row['id']! as String,
+    name: row['name']! as String,
+    position: row['position']! as int,
+    createdAt: row['created_at']! as int,
+    updatedAt: (row['updated_at'] as int?) ?? 0,
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -86,15 +86,15 @@ class Document {
   final int updatedAt;
 
   factory Document.fromRow(Map<String, Object?> row) => Document(
-        id: row['id']! as String,
-        notebookId: row['notebook_id']! as String,
-        title: row['title']! as String,
-        content: row['content']! as String,
-        words: row['words']! as int,
-        position: row['position']! as int,
-        createdAt: row['created_at']! as int,
-        updatedAt: row['updated_at']! as int,
-      );
+    id: row['id']! as String,
+    notebookId: row['notebook_id']! as String,
+    title: row['title']! as String,
+    content: row['content']! as String,
+    words: row['words']! as int,
+    position: row['position']! as int,
+    createdAt: row['created_at']! as int,
+    updatedAt: row['updated_at']! as int,
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -109,8 +109,16 @@ class Document {
       other.updatedAt == updatedAt;
 
   @override
-  int get hashCode =>
-      Object.hash(id, notebookId, title, content, words, position, createdAt, updatedAt);
+  int get hashCode => Object.hash(
+    id,
+    notebookId,
+    title,
+    content,
+    words,
+    position,
+    createdAt,
+    updatedAt,
+  );
 }
 
 /// 设置（UI 可配置项）。settings 表为 KV，其余键（如同步配置）由调用方
@@ -144,12 +152,12 @@ class Settings {
   ];
 
   Map<String, String> toMap() => {
-        'theme': theme,
-        'fontFamily': fontFamily,
-        'fontSize': fontSize.toString(),
-        'lineHeight': lineHeight.toString(),
-        'dailyGoal': dailyGoal.toString(),
-      };
+    'theme': theme,
+    'fontFamily': fontFamily,
+    'fontSize': fontSize.toString(),
+    'lineHeight': lineHeight.toString(),
+    'dailyGoal': dailyGoal.toString(),
+  };
 
   Settings copyWith({
     String? theme,
@@ -157,14 +165,13 @@ class Settings {
     double? fontSize,
     double? lineHeight,
     int? dailyGoal,
-  }) =>
-      Settings(
-        theme: theme ?? this.theme,
-        fontFamily: fontFamily ?? this.fontFamily,
-        fontSize: fontSize ?? this.fontSize,
-        lineHeight: lineHeight ?? this.lineHeight,
-        dailyGoal: dailyGoal ?? this.dailyGoal,
-      );
+  }) => Settings(
+    theme: theme ?? this.theme,
+    fontFamily: fontFamily ?? this.fontFamily,
+    fontSize: fontSize ?? this.fontSize,
+    lineHeight: lineHeight ?? this.lineHeight,
+    dailyGoal: dailyGoal ?? this.dailyGoal,
+  );
 
   factory Settings.fromMap(Map<String, String> kv) {
     double parseD(String k, double fallback, double min, double max) {
@@ -192,6 +199,19 @@ class Settings {
   }
 }
 
+/// 单个笔记本的每日写作目标。
+class NotebookGoal {
+  const NotebookGoal({this.enabled = true, this.words = 2000});
+
+  final bool enabled;
+  final int words;
+
+  NotebookGoal copyWith({bool? enabled, int? words}) => NotebookGoal(
+    enabled: enabled ?? this.enabled,
+    words: (words ?? this.words).clamp(100, 50000),
+  );
+}
+
 /// last_open 表记录（启动恢复用）。
 class LastOpen {
   const LastOpen({this.notebookId, this.documentId, required this.words});
@@ -201,8 +221,8 @@ class LastOpen {
   final int words;
 
   factory LastOpen.fromRow(Map<String, Object?> row) => LastOpen(
-        notebookId: row['notebook_id'] as String?,
-        documentId: row['document_id'] as String?,
-        words: row['words']! as int,
-      );
+    notebookId: row['notebook_id'] as String?,
+    documentId: row['document_id'] as String?,
+    words: row['words']! as int,
+  );
 }

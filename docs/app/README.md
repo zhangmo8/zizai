@@ -15,8 +15,8 @@ Status: Draft（v2：SQLite 存储 + 所见即所得编辑器）
 | 笔记本 | `Notebook` | 一个写作项目（书/文集），库内一条记录 |
 | 文档 | `Document` | 一章/一篇，库内一条记录，内容为富文本 Delta JSON |
 | 字数 | `wordCount` | 文档纯文本：中文字符数 + 英文连续词数 |
-| 每日目标 | `dailyGoal` | 当日目标字数（可配置） |
-| 今日增量 | `todayDelta` | 当日累计新增字数，见 §4 增量规则 |
+| 每日目标 | `NotebookGoal` | 按笔记本独立设定的当日目标，可关闭 |
+| 今日增量 | `todayDelta` | 当前笔记本当日累计新增字数，见 §4 增量规则 |
 | 沉浸模式 | `FocusMode` | 隐藏侧边栏、工具栏、状态栏的纯编辑状态 |
 | 设备 | `Device` | 安装实例（UUID）；快照导出的来源标记 |
 | 备份状态 | `BackupState` | idle / uploading / downloading / error（状态栏指示） |
@@ -67,7 +67,7 @@ CREATE TABLE settings (
 );
 
 CREATE TABLE stats (
-  date  TEXT PRIMARY KEY,   -- 'YYYY-MM-DD'
+  date  TEXT PRIMARY KEY,   -- '旧版 YYYY-MM-DD；笔记本统计 YYYY-MM-DD::notebookId'
   words INTEGER NOT NULL
 );
 
@@ -79,14 +79,17 @@ CREATE TABLE last_open (
 );
 ```
 
-- settings 键：`theme` / `fontFamily` / `fontSize` / `lineHeight` / `dailyGoal`。
+- settings 键：`theme` / `fontFamily` / `fontSize` / `lineHeight`；笔记本目标使用
+  `notebookGoal.<notebookId>.enabled/words`。旧 `dailyGoal` 仅作未迁移笔记本的默认值。
 - 升级路径：sqflite `onUpgrade` 版本化迁移（`PRAGMA user_version`）；**DB schema 版本号是长期演进基础**——任何加字段/改表必须走迁移链（见 docs/app/update.md §2）；升级前自动备份 db 文件为 `zi-zai.db.bak`（滚动保留 3 份）。
 - 云备份数据模型与快照结构见 docs/app/sync.md。
 - db 位置：`path_provider` 应用支持目录，桌面与 Android 一致；设置页展示路径。
 
 ### 增量规则
 
-每次保存：`增量 = 本次纯文本字数 − 上次保存字数快照`；增量 > 0 累加当日 `stats`，增量 < 0 扣减当日但不下探到 0 以下；字数快照写回 `documents.words` 与 `last_open.words`。
+编辑器按每次文档变更累计正向字数增加；删除文字不倒扣已完成的今日产出。
+保存时将未入库产出累加到 `stats[date::notebookId]`，不同笔记本互不影响；
+`documents.words` 仍是当前文档总字数快照。旧版 `stats[date]` 仅保留作快照/同步兼容。
 
 ## 5. 模块划分
 
@@ -144,7 +147,7 @@ update_checker ──(异步)──► update.json（GitHub Releases）  # 见 d
 
 - **自动保存优先**：任何时刻退出/切换都不弹「是否保存」。
 - **无模态打断写作**：快捷键优先于菜单；删除是唯一需要确认的破坏性操作（轻量确认条）。
-- **字数永不缺位**：状态栏常驻今日目标进度与本文字数。
+- **字数永不缺位**：状态栏常驻本文字数；当前笔记本启用目标时同时显示进度。
 - **所见即所得**：编辑器渲染即效果，不提供任何预览层。
 - **平台习惯**：桌面用 `Cmd/Ctrl` 快捷键 + 右键菜单；Android 用 Drawer + 长按菜单。
 

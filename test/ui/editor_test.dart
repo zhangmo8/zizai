@@ -312,4 +312,30 @@ void main() {
     expect(find.text('重试'), findsOneWidget);
     expect(library.liveDocWords, 4);
   });
+
+  testWidgets('切换章节：先保存旧章节并立即显示新章节内容', (tester) async {
+    final (library, settings, db, _, firstId) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    final second = (await tester.runAsync(
+      () => db.createDocument(
+        library.notebooks.single.id,
+        title: '第二章',
+        content: '[{"insert":"第二章正文"}]',
+      ),
+    ))!;
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    await typeText(tester, '第一章新内容');
+    await tester.runAsync(() => library.switchDocument(second.id));
+    await tester.pump();
+    await settle(tester);
+
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    expect(editor.controller.document.toPlainText().trim(), '第二章正文');
+    expect(library.currentDocument?.id, second.id);
+    final savedFirst = await tester.runAsync(() => db.getDocument(firstId));
+    expect(deltaToPlainText(savedFirst!.content), '第一章新内容');
+  });
 }

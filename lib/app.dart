@@ -4,7 +4,6 @@
 /// 低对比侧栏、克制 hover/selected 状态、内容优先的排版。
 library;
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import 'core/backup/backup.dart';
@@ -21,13 +20,13 @@ abstract final class AppTokens {
   static const lightSidebar = Color(0xFFF7F7F5);
   static const lightSurface = Color(0xFFFFFFFF);
   static const lightSurfaceRaised = Color(0xFFFFFFFF);
-  static const lightRowHover = Color(0xFFEFEFED);
-  static const lightRowSelected = Color(0xFFE9E9E6);
+  static const lightRowHover = Color(0x0A000000);
+  static const lightRowSelected = Color(0x0F000000);
   static const lightTextPrimary = Color(0xFF37352F);
   static const lightTextSecondary = Color(0xFF787774);
   static const lightTextTertiary = Color(0xFF9B9A97);
-  static const lightHairline = Color(0xFFE6E4DF);
-  static const lightAccent = Color(0xFF2EAADC); // Notion blue-ish
+  static const lightHairline = Color(0x1737352F);
+  static const lightAccent = Color(0xFF2383E2);
   static const lightSuccess = Color(0xFF448361);
   static const lightDanger = Color(0xFFE03E3E);
   static const lightCallout = Color(0xFFF7F6F3);
@@ -37,13 +36,13 @@ abstract final class AppTokens {
   static const darkSidebar = Color(0xFF202020);
   static const darkSurface = Color(0xFF252525);
   static const darkSurfaceRaised = Color(0xFF2B2B2B);
-  static const darkRowHover = Color(0xFF2F2F2F);
-  static const darkRowSelected = Color(0xFF373737);
-  static const darkTextPrimary = Color(0xFFEDEDEB);
+  static const darkRowHover = Color(0x0EFFFFFF);
+  static const darkRowSelected = Color(0x16FFFFFF);
+  static const darkTextPrimary = Color(0xDEFFFFFF);
   static const darkTextSecondary = Color(0xFFA3A29E);
   static const darkTextTertiary = Color(0xFF787774);
-  static const darkHairline = Color(0xFF3A3A38);
-  static const darkAccent = Color(0xFF4DAFD7);
+  static const darkHairline = Color(0x18FFFFFF);
+  static const darkAccent = Color(0xFF529CCA);
   static const darkSuccess = Color(0xFF6BAA7F);
   static const darkDanger = Color(0xFFFF7369);
   static const darkCallout = Color(0xFF242424);
@@ -153,24 +152,6 @@ abstract final class AppTheme {
     callout: AppTokens.darkCallout,
   );
 
-  /// Cupertino 控件主题（与 Material 主题同源 token）。
-  static CupertinoThemeData cupertino(Brightness brightness) {
-    final dark = brightness == Brightness.dark;
-    return CupertinoThemeData(
-      brightness: brightness,
-      primaryColor: dark ? AppTokens.darkAccent : AppTokens.lightAccent,
-      scaffoldBackgroundColor: dark ? AppTokens.darkPage : AppTokens.lightPage,
-      barBackgroundColor: dark ? AppTokens.darkSurface : AppTokens.lightSurface,
-      textTheme: CupertinoTextThemeData(
-        textStyle: TextStyle(
-          fontSize: 14,
-          color: dark ? AppTokens.darkTextPrimary : AppTokens.lightTextPrimary,
-          letterSpacing: -0.1,
-        ),
-      ),
-    );
-  }
-
   static ThemeData _build({
     required Brightness brightness,
     required Color page,
@@ -238,7 +219,7 @@ abstract final class AppTheme {
         backgroundColor: surfaceRaised,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(8),
           side: BorderSide(color: hairline),
         ),
         titleTextStyle: TextStyle(
@@ -290,7 +271,7 @@ abstract final class AppTheme {
         elevation: 4,
         textStyle: TextStyle(color: textPrimary, fontSize: 13),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(6),
           side: BorderSide(color: hairline),
         ),
       ),
@@ -325,20 +306,12 @@ class ZiZaiApp extends StatelessWidget {
     return ListenableBuilder(
       listenable: settings,
       builder: (context, _) {
-        final dark =
-            settings.themeMode == ThemeMode.dark ||
-            (settings.themeMode == ThemeMode.system &&
-                MediaQuery.platformBrightnessOf(context) == Brightness.dark);
         return MaterialApp(
           title: '字在',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: settings.themeMode,
-          builder: (context, child) => CupertinoTheme(
-            data: AppTheme.cupertino(dark ? Brightness.dark : Brightness.light),
-            child: child!,
-          ),
           home: Shell(
             library: library,
             settings: settings,

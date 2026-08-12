@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -127,18 +126,19 @@ void main() {
     await openAbout(tester);
 
     // 第一步：检查 → available（待用户确认，不自动下载）
-    await tester.tap(find.widgetWithText(CupertinoButton, '检查更新'));
+    await tester.tap(find.text('检查更新').last);
     await settle(tester);
     expect(checker.status.value, UpdateStatus.available);
     expect(find.text('下载并安装 v1.1.0'), findsOneWidget);
     // 尚未下载：安装包未就绪
-    expect(find.textContaining('安装包已就绪'), findsNothing);
+    expect(find.text('发现新版本 v1.1.0'), findsOneWidget);
 
     // 第二步：确认下载 → ready
     await tester.tap(find.text('下载并安装 v1.1.0'));
     await settle(tester);
     expect(checker.status.value, UpdateStatus.ready);
-    expect(find.textContaining('安装包已就绪'), findsOneWidget);
+    expect(find.text('v1.1.0 已下载并通过校验'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
     await tester.runAsync(() => db.close());
   });
 

@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'dart:ui' show PointerDeviceKind;
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -85,7 +84,7 @@ void main() {
   Future<void> renameViaMenu(WidgetTester tester, String toName) async {
     await tester.tap(find.text('重命名'));
     await tester.pump();
-    await tester.enterText(find.byType(CupertinoTextField), toName);
+    await tester.enterText(find.byType(TextField), toName);
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
   }
@@ -121,7 +120,7 @@ void main() {
     expect(find.text('新建一本笔记本，开始写'), findsOneWidget);
     await tester.tap(find.text('新建笔记本'));
     await tester.pump();
-    await tester.enterText(find.byType(CupertinoTextField), '我的小说');
+    await tester.enterText(find.byType(TextField), '我的小说');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await settle(tester);
 
@@ -137,7 +136,7 @@ void main() {
 
     await tester.tap(find.byTooltip('新建笔记本'));
     await tester.pump();
-    expect(find.byType(CupertinoTextField), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
     await tester.testTextInput.receiveAction(TextInputAction.done); // 默认名「新笔记本」
     await settle(tester);
     expect(find.text('新笔记本'), findsOneWidget);
@@ -151,7 +150,7 @@ void main() {
 
     await tester.tap(find.text('新建章节'));
     await tester.pump();
-    await tester.enterText(find.byType(CupertinoTextField), '01-开端.md');
+    await tester.enterText(find.byType(TextField), '01-开端.md');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await settle(tester);
 
@@ -166,13 +165,13 @@ void main() {
 
     await tester.tap(find.text('新建章节'));
     await tester.pump();
-    await tester.enterText(find.byType(CupertinoTextField), '临时章节');
+    await tester.enterText(find.byType(TextField), '临时章节');
     await tester.tap(find.byTooltip('取消编辑'));
     await tester.pump();
 
     final notebookId = library.notebooks.single.id;
     expect(library.documentsOf(notebookId), isEmpty);
-    expect(find.byType(CupertinoTextField), findsNothing);
+    expect(find.byType(TextField), findsNothing);
     expect(find.text('新建章节'), findsOneWidget);
   });
 
@@ -241,11 +240,11 @@ void main() {
     await openRowMenu(tester, 1);
     await tester.tap(find.text('重命名'));
     await tester.pump();
-    await tester.enterText(find.byType(CupertinoTextField), '临时');
+    await tester.enterText(find.byType(TextField), '临时');
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
 
-    expect(find.byType(CupertinoTextField), findsNothing);
+    expect(find.byType(TextField), findsNothing);
     expect(find.text('第一章'), findsOneWidget);
   });
 

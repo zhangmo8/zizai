@@ -17,12 +17,20 @@ class SettingsController extends ChangeNotifier {
   Settings _settings = const Settings();
   Settings get settings => _settings;
 
+  Map<String, NotebookGoal> _notebookGoals = const {};
+
+  NotebookGoal goalForNotebook(String? notebookId) {
+    if (notebookId == null) return const NotebookGoal(enabled: false);
+    return _notebookGoals[notebookId] ??
+        NotebookGoal(words: _settings.dailyGoal);
+  }
+
   /// 主题三态：system / light / dark。
   ThemeMode get themeMode => switch (_settings.theme) {
-        'light' => ThemeMode.light,
-        'dark' => ThemeMode.dark,
-        _ => ThemeMode.system,
-      };
+    'light' => ThemeMode.light,
+    'dark' => ThemeMode.dark,
+    _ => ThemeMode.system,
+  };
 
   bool _loaded = false;
   bool get loaded => _loaded;
@@ -30,12 +38,33 @@ class SettingsController extends ChangeNotifier {
   /// 库文件路径（设置页「数据」区展示 / 打开目录）。
   String get dbPath => _db.path;
 
-  /// 底层库（设置页持久化其它键用，如 update.url）。
+  /// 底层库（设置页持久化备份等本地配置）。
   Db get db => _db;
 
   /// 启动时从 settings 表载入。
   Future<void> load() async {
-    _settings = await _db.loadSettings();
+    final values = await _db.allSettings();
+    _settings = Settings.fromMap(values);
+    final goals = <String, NotebookGoal>{};
+    for (final entry in values.entries) {
+      const prefix = 'notebookGoal.';
+      if (!entry.key.startsWith(prefix)) continue;
+      final suffix = entry.key.substring(prefix.length);
+      final split = suffix.lastIndexOf('.');
+      if (split <= 0) continue;
+      final notebookId = suffix.substring(0, split);
+      final field = suffix.substring(split + 1);
+      final current =
+          goals[notebookId] ?? NotebookGoal(words: _settings.dailyGoal);
+      if (field == 'enabled') {
+        goals[notebookId] = current.copyWith(enabled: entry.value != 'false');
+      } else if (field == 'words') {
+        goals[notebookId] = current.copyWith(
+          words: int.tryParse(entry.value) ?? _settings.dailyGoal,
+        );
+      }
+    }
+    _notebookGoals = goals;
     _loaded = true;
     notifyListeners();
   }
@@ -46,5 +75,32 @@ class SettingsController extends ChangeNotifier {
     _settings = next;
     notifyListeners();
     await _db.saveSettings(next);
+  }
+
+  /// 笔记本目标独立保存；未配置的笔记本继承旧版全局目标值。
+  Future<void> updateNotebookGoal(
+    String notebookId, {
+    bool? enabled,
+    int? words,
+  }) async {
+    final next = goalForNotebook(
+      notebookId,
+    ).copyWith(enabled: enabled, words: words);
+    _notebookGoals = {..._notebookGoals, notebookId: next};
+    notifyListeners();
+    await _db.setSetting(
+      'notebookGoal.$notebookId.enabled',
+      next.enabled.toString(),
+    );
+    await _db.setSetting(
+      'notebookGoal.$notebookId.words',
+      next.words.toString(),
+    );
+  }
+
+  Future<void> resetNotebookGoals() async {
+    _notebookGoals = const {};
+    notifyListeners();
+    await _db.deleteSettingsWithPrefix('notebookGoal.');
   }
 }

@@ -41,7 +41,8 @@ CREATE TABLE sync_journal (
   last_pulled_at INTEGER
 )''');
       await db.execute(
-          'ALTER TABLE notebooks ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
+        'ALTER TABLE notebooks ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0',
+      );
     },
   ),
 ];
@@ -96,6 +97,9 @@ String _todayKey(int nowMs) {
   return '${dt.year}-$mm-$dd';
 }
 
+String _notebookStatKey(String dateKey, String notebookId) =>
+    '$dateKey::$notebookId';
+
 class Db {
   Db._(this._db, this._path, [this._clock]);
 
@@ -135,6 +139,7 @@ class Db {
       throw LibraryException('打开数据库失败: $e', path: path);
     }
   }
+
   final Database _db;
   final String _path;
   final DateTime Function()? _clock;
@@ -152,7 +157,8 @@ class Db {
 
   Future<void> _initCapabilities() async {
     final j = await _db.rawQuery(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_journal' LIMIT 1");
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_journal' LIMIT 1",
+    );
     _syncJournalExists = j.isNotEmpty;
     final cols = await _db.rawQuery('PRAGMA table_info(notebooks)');
     _nbHasUpdatedAt = cols.any((r) => r['name'] == 'updated_at');
@@ -162,22 +168,20 @@ class Db {
 
   Future<void> _markDirty(String entityId) async {
     if (_syncJournalExists == false) return;
-    await _db.insert(
-      'sync_journal',
-      {'entity_id': entityId, 'dirty': 1},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await _db.insert('sync_journal', {
+      'entity_id': entityId,
+      'dirty': 1,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
     onMutation?.call();
   }
 
   /// 事务内标记脏（saveDocument 在事务中，不能用 _db 再开事务）。
   Future<void> _markDirtyOn(DatabaseExecutor txn, String entityId) async {
     if (_syncJournalExists == false) return;
-    await txn.insert(
-      'sync_journal',
-      {'entity_id': entityId, 'dirty': 1},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await txn.insert('sync_journal', {
+      'entity_id': entityId,
+      'dirty': 1,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// 库文件路径（内存库为 `inMemoryDatabasePath`），设置页展示用。
@@ -245,33 +249,53 @@ CREATE TABLE last_open (
     });
     await _markDirty(id);
     return Notebook(
-        id: id, name: name, position: position, createdAt: now, updatedAt: now);
+      id: id,
+      name: name,
+      position: position,
+      createdAt: now,
+      updatedAt: now,
+    );
   }
 
   Future<List<Notebook>> listNotebooks() async {
-    final rows = await _db.query('notebooks', orderBy: 'position ASC, created_at ASC');
+    final rows = await _db.query(
+      'notebooks',
+      orderBy: 'position ASC, created_at ASC',
+    );
     return rows.map(Notebook.fromRow).toList();
   }
 
   Future<Notebook?> getNotebook(String id) async {
-    final rows = await _db.query('notebooks', where: 'id = ?', whereArgs: [id], limit: 1);
+    final rows = await _db.query(
+      'notebooks',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
     return rows.isEmpty ? null : Notebook.fromRow(rows.first);
   }
 
   Future<void> renameNotebook(String id, String name) async {
     final now = _nowMs();
     final hasUpdatedAt = _notebooksHaveUpdatedAt;
-    final n = await _db.update('notebooks', {
-      'name': name,
-      if (hasUpdatedAt) 'updated_at': now,
-    }, where: 'id = ?', whereArgs: [id]);
+    final n = await _db.update(
+      'notebooks',
+      {'name': name, if (hasUpdatedAt) 'updated_at': now},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
     if (n == 0) throw LibraryException('笔记本不存在: $id', path: _path);
     await _markDirty(id);
   }
 
   Future<void> deleteNotebook(String id) async {
     // 级联删除的文档也要推送 tombstone，先逐个标记脏。
-    final docs = await _db.query('documents', columns: ['id'], where: 'notebook_id = ?', whereArgs: [id]);
+    final docs = await _db.query(
+      'documents',
+      columns: ['id'],
+      where: 'notebook_id = ?',
+      whereArgs: [id],
+    );
     final n = await _db.delete('notebooks', where: 'id = ?', whereArgs: [id]);
     if (n == 0) throw LibraryException('笔记本不存在: $id', path: _path);
     for (final row in docs) {
@@ -286,9 +310,19 @@ CREATE TABLE last_open (
     final otherId = await _swapPosition('notebooks', id, up);
     // 位置属于同步数据（notebook envelope），两个行都要推送。
     if (hasUpdatedAt) {
-      await _db.update('notebooks', {'updated_at': now}, where: 'id = ?', whereArgs: [id]);
+      await _db.update(
+        'notebooks',
+        {'updated_at': now},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
       if (otherId != null) {
-        await _db.update('notebooks', {'updated_at': now}, where: 'id = ?', whereArgs: [otherId]);
+        await _db.update(
+          'notebooks',
+          {'updated_at': now},
+          where: 'id = ?',
+          whereArgs: [otherId],
+        );
       }
     }
     if (otherId != null) {
@@ -347,13 +381,20 @@ CREATE TABLE last_open (
 
   /// 全部文档（跨笔记本；全量快照导出用）。
   Future<List<Document>> listAllDocuments() async {
-    final rows =
-        await _db.query('documents', orderBy: 'position ASC, created_at ASC');
+    final rows = await _db.query(
+      'documents',
+      orderBy: 'position ASC, created_at ASC',
+    );
     return rows.map(Document.fromRow).toList();
   }
 
   Future<Document?> getDocument(String id) async {
-    final rows = await _db.query('documents', where: 'id = ?', whereArgs: [id], limit: 1);
+    final rows = await _db.query(
+      'documents',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
     return rows.isEmpty ? null : Document.fromRow(rows.first);
   }
 
@@ -377,7 +418,12 @@ CREATE TABLE last_open (
 
   Future<void> moveDocument(String id, {required bool up}) async {
     await _db.transaction((txn) async {
-      final rows = await txn.query('documents', where: 'id = ?', whereArgs: [id], limit: 1);
+      final rows = await txn.query(
+        'documents',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
       if (rows.isEmpty) throw LibraryException('文档不存在: $id', path: _path);
       final notebookId = rows.first['notebook_id']! as String;
       await _swapPositionIn(
@@ -399,35 +445,50 @@ CREATE TABLE last_open (
     required String id,
     required String title,
     required String content,
+    int? writtenWords,
   }) async {
     final now = _nowMs();
     final delta = await _db.transaction((txn) async {
-      final rows = await txn.query('documents', where: 'id = ?', whereArgs: [id], limit: 1);
+      final rows = await txn.query(
+        'documents',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
       if (rows.isEmpty) throw LibraryException('保存失败: 文档不存在 $id', path: _path);
       final oldWords = rows.first['words']! as int;
       final newWords = _wordsOf(content);
       final delta = newWords - oldWords;
+      final statsDelta = writtenWords ?? delta;
+      final notebookId = rows.first['notebook_id']! as String;
       await txn.update(
         'documents',
-        {'title': title, 'content': content, 'words': newWords, 'updated_at': now},
+        {
+          'title': title,
+          'content': content,
+          'words': newWords,
+          'updated_at': now,
+        },
         where: 'id = ?',
         whereArgs: [id],
       );
       await _markDirtyOn(txn, id);
-      if (delta != 0) {
-        await _applyDeltaToStats(txn, _todayKey(now), delta);
+      if (statsDelta != 0) {
+        // 全局 key 保留给旧版快照/同步兼容；UI 只读笔记本 key。
+        await _applyDeltaToStats(txn, _todayKey(now), statsDelta);
+        await _applyDeltaToStats(
+          txn,
+          _notebookStatKey(_todayKey(now), notebookId),
+          statsDelta,
+        );
         await _markDirtyOn(txn, 'stats');
       }
-      await txn.insert(
-        'last_open',
-        {
-          'id': 1,
-          'notebook_id': rows.first['notebook_id']! as String,
-          'document_id': id,
-          'words': newWords,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await txn.insert('last_open', {
+        'id': 1,
+        'notebook_id': notebookId,
+        'document_id': id,
+        'words': newWords,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
       return delta;
     });
     // 事务内 _markDirtyOn 不触发回调；提交后通知（同步引擎 30s 防抖推送）。
@@ -438,17 +499,34 @@ CREATE TABLE last_open (
   // ── 设置 ──────────────────────────────────────────────────
 
   Future<String?> getSetting(String key) async {
-    final rows = await _db.query('settings', columns: ['value'], where: 'key = ?', whereArgs: [key], limit: 1);
+    final rows = await _db.query(
+      'settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
     return rows.isEmpty ? null : rows.first['value']! as String;
   }
 
-  Future<void> setSetting(String key, String value, {bool syncDirty = true}) async {
-    await _db.insert('settings', {'key': key, 'value': value},
-        conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> setSetting(
+    String key,
+    String value, {
+    bool syncDirty = true,
+  }) async {
+    await _db.insert('settings', {
+      'key': key,
+      'value': value,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
     // sync.* 键是设备本地配置（token/enabled/deviceId/拉取游标），不参与同步推送。
     if (syncDirty && !key.startsWith('sync.')) {
       await _markDirty('settings');
     }
+  }
+
+  Future<void> deleteSettingsWithPrefix(String prefix) async {
+    await _db.delete('settings', where: 'key LIKE ?', whereArgs: ['$prefix%']);
+    await _markDirty('settings');
   }
 
   Future<Settings> loadSettings() async {
@@ -462,8 +540,10 @@ CREATE TABLE last_open (
   Future<void> saveSettings(Settings s) async {
     // 批量写入 + 单次脏标记（避免逐键往返与重复触发推送）。
     for (final entry in s.toMap().entries) {
-      await _db.insert('settings', {'key': entry.key, 'value': entry.value},
-          conflictAlgorithm: ConflictAlgorithm.replace);
+      await _db.insert('settings', {
+        'key': entry.key,
+        'value': entry.value,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await _markDirty('settings');
   }
@@ -471,9 +551,16 @@ CREATE TABLE last_open (
   // ── 今日增量 ──────────────────────────────────────────────
 
   /// 当日累计增量（无记录返回 0）。
-  Future<int> todayDelta({int? nowMs}) async {
-    final key = _todayKey(nowMs ?? _nowMs());
-    final rows = await _db.query('stats', columns: ['words'], where: 'date = ?', whereArgs: [key], limit: 1);
+  Future<int> todayDelta({String? notebookId, int? nowMs}) async {
+    final date = _todayKey(nowMs ?? _nowMs());
+    final key = notebookId == null ? date : _notebookStatKey(date, notebookId);
+    final rows = await _db.query(
+      'stats',
+      columns: ['words'],
+      where: 'date = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
     return rows.isEmpty ? 0 : rows.first['words']! as int;
   }
 
@@ -484,17 +571,26 @@ CREATE TABLE last_open (
     return rows.isEmpty ? null : LastOpen.fromRow(rows.first);
   }
 
-  Future<void> saveLastOpen({String? notebookId, String? documentId, int words = 0}) async {
-    await _db.insert(
-      'last_open',
-      {'id': 1, 'notebook_id': notebookId, 'document_id': documentId, 'words': words},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+  Future<void> saveLastOpen({
+    String? notebookId,
+    String? documentId,
+    int words = 0,
+  }) async {
+    await _db.insert('last_open', {
+      'id': 1,
+      'notebook_id': notebookId,
+      'document_id': documentId,
+      'words': words,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   // ── 内部工具 ──────────────────────────────────────────────
 
-  Future<int> _count(String table, {String? where, List<Object?>? whereArgs}) async {
+  Future<int> _count(
+    String table, {
+    String? where,
+    List<Object?>? whereArgs,
+  }) async {
     final rows = await _db.rawQuery(
       'SELECT COUNT(*) AS c FROM $table${where == null ? '' : ' WHERE $where'}',
       whereArgs,
@@ -510,11 +606,7 @@ CREATE TABLE last_open (
     }
   }
 
-  Future<String?> _swapPosition(
-    String table,
-    String id,
-    bool up,
-  ) async {
+  Future<String?> _swapPosition(String table, String id, bool up) async {
     String? otherId;
     await _db.transaction((txn) async {
       otherId = await _swapPositionIn(txn, table, id, up);
@@ -544,14 +636,34 @@ CREATE TABLE last_open (
     if (target < 0 || target >= rows.length) return null;
     final cur = rows[idx]['position']! as int;
     final other = rows[target]['position']! as int;
-    await txn.update(table, {'position': other}, where: 'id = ?', whereArgs: [id]);
-    await txn.update(table, {'position': cur}, where: 'id = ?', whereArgs: [rows[target]['id']]);
+    await txn.update(
+      table,
+      {'position': other},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    await txn.update(
+      table,
+      {'position': cur},
+      where: 'id = ?',
+      whereArgs: [rows[target]['id']],
+    );
     return rows[target]['id'] as String;
   }
 
   /// 当日 stats 增减：delta 为负时扣减但不下探到 0 以下。
-  Future<void> _applyDeltaToStats(DatabaseExecutor txn, String dateKey, int delta) async {
-    final rows = await txn.query('stats', columns: ['words'], where: 'date = ?', whereArgs: [dateKey], limit: 1);
+  Future<void> _applyDeltaToStats(
+    DatabaseExecutor txn,
+    String dateKey,
+    int delta,
+  ) async {
+    final rows = await txn.query(
+      'stats',
+      columns: ['words'],
+      where: 'date = ?',
+      whereArgs: [dateKey],
+      limit: 1,
+    );
     final current = rows.isEmpty ? 0 : rows.first['words']! as int;
     final next = current + delta < 0 ? 0 : current + delta;
     if (rows.isEmpty) {
@@ -559,7 +671,12 @@ CREATE TABLE last_open (
         await txn.insert('stats', {'date': dateKey, 'words': next});
       }
     } else {
-      await txn.update('stats', {'words': next}, where: 'date = ?', whereArgs: [dateKey]);
+      await txn.update(
+        'stats',
+        {'words': next},
+        where: 'date = ?',
+        whereArgs: [dateKey],
+      );
     }
   }
 
@@ -567,8 +684,11 @@ CREATE TABLE last_open (
 
   /// 脏实体 id 列表（待推送）。
   Future<List<String>> dirtyEntityIds() async {
-    final rows = await _db.query('sync_journal',
-        columns: ['entity_id'], where: 'dirty = 1');
+    final rows = await _db.query(
+      'sync_journal',
+      columns: ['entity_id'],
+      where: 'dirty = 1',
+    );
     return rows.map((r) => r['entity_id']! as String).toList();
   }
 
@@ -584,32 +704,34 @@ CREATE TABLE last_open (
 
   /// 云端应用（pull）后记录该实体的拉取时间。
   Future<void> touchPulled(String entityId, {required int serverTime}) async {
-    await _db.insert(
-      'sync_journal',
-      {'entity_id': entityId, 'dirty': 0, 'last_pulled_at': serverTime},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await _db.insert('sync_journal', {
+      'entity_id': entityId,
+      'dirty': 0,
+      'last_pulled_at': serverTime,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// 全部设置 KV（同步推送用；token 等 sync.* 键由引擎剔除）。
   Future<Map<String, String>> allSettings() async {
     final rows = await _db.query('settings');
-    return {
-      for (final r in rows) r['key']! as String: r['value']! as String,
-    };
+    return {for (final r in rows) r['key']! as String: r['value']! as String};
   }
 
   /// 全部 stats（date → words）。
   Future<Map<String, int>> allStats() async {
     final rows = await _db.query('stats');
-    return {
-      for (final r in rows) r['date']! as String: r['words']! as int,
-    };
+    return {for (final r in rows) r['date']! as String: r['words']! as int};
   }
 
   /// 云端 stats 应用：按 date 键合并（取较大值，保守不丢字）。
   Future<void> upsertStat(String date, int words) async {
-    final rows = await _db.query('stats', columns: ['words'], where: 'date = ?', whereArgs: [date], limit: 1);
+    final rows = await _db.query(
+      'stats',
+      columns: ['words'],
+      where: 'date = ?',
+      whereArgs: [date],
+      limit: 1,
+    );
     final current = rows.isEmpty ? 0 : rows.first['words']! as int;
     final next = words > current ? words : current;
     if (rows.isEmpty) {
@@ -617,7 +739,12 @@ CREATE TABLE last_open (
         await _db.insert('stats', {'date': date, 'words': next});
       }
     } else if (next != current) {
-      await _db.update('stats', {'words': next}, where: 'date = ?', whereArgs: [date]);
+      await _db.update(
+        'stats',
+        {'words': next},
+        where: 'date = ?',
+        whereArgs: [date],
+      );
     }
   }
 
@@ -633,7 +760,12 @@ CREATE TABLE last_open (
     final now = _nowMs();
     final n = await _db.update(
       'documents',
-      {'title': title, 'content': content, 'words': words, 'updated_at': updatedAt},
+      {
+        'title': title,
+        'content': content,
+        'words': words,
+        'updated_at': updatedAt,
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -720,13 +852,17 @@ CREATE TABLE last_open (
         });
       }
       for (final e in settings.entries) {
-        await txn.insert('settings', {'key': e.key, 'value': e.value},
-            conflictAlgorithm: ConflictAlgorithm.replace);
+        await txn.insert('settings', {
+          'key': e.key,
+          'value': e.value,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       for (final e in stats.entries) {
         if (e.value > 0) {
-          await txn.insert('stats', {'date': e.key, 'words': e.value},
-              conflictAlgorithm: ConflictAlgorithm.replace);
+          await txn.insert('stats', {
+            'date': e.key,
+            'words': e.value,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
         }
       }
     });

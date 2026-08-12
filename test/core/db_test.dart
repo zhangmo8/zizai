@@ -74,7 +74,11 @@ void main() {
       final db = await openDb();
       final nb = await db.createNotebook('书');
       final d1 = await db.createDocument(nb.id);
-      final d2 = await db.createDocument(nb.id, title: '第二章', content: '[{"insert":"正文"}]');
+      final d2 = await db.createDocument(
+        nb.id,
+        title: '第二章',
+        content: '[{"insert":"正文"}]',
+      );
       expect(d1.title, '未命名');
       expect(d1.words, 0);
       expect(await db.listDocuments(nb.id), [d1, d2]);
@@ -135,15 +139,55 @@ void main() {
   });
 
   group('saveDocument 增量', () {
+    test('笔记本进度独立累计，删字不倒扣已写字数', () async {
+      final db = await openDb();
+      final nb1 = await db.createNotebook('书一');
+      final nb2 = await db.createNotebook('书二');
+      final d1 = await db.createDocument(nb1.id);
+      final d2 = await db.createDocument(nb2.id);
+      await db.saveDocument(
+        id: d1.id,
+        title: d1.title,
+        content: '[{"insert":"一二三四"}]',
+        writtenWords: 4,
+      );
+      await db.saveDocument(
+        id: d2.id,
+        title: d2.title,
+        content: '[{"insert":"五六"}]',
+        writtenWords: 2,
+      );
+      expect(await db.todayDelta(notebookId: nb1.id), 4);
+      expect(await db.todayDelta(notebookId: nb2.id), 2);
+      expect(await db.todayDelta(), 6); // 旧版全局统计仅做兼容保留
+
+      await db.saveDocument(
+        id: d1.id,
+        title: d1.title,
+        content: '[{"insert":""}]',
+        writtenWords: 0,
+      );
+      expect(await db.todayDelta(notebookId: nb1.id), 4);
+      await db.close();
+    });
+
     test('新增字数返回正增量并累计当日', () async {
       final db = await openDb();
       final nb = await db.createNotebook('书');
       final d = await db.createDocument(nb.id);
-      final delta1 = await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":"你好世界"}]');
+      final delta1 = await db.saveDocument(
+        id: d.id,
+        title: d.title,
+        content: '[{"insert":"你好世界"}]',
+      );
       expect(delta1, 4);
       expect((await db.getDocument(d.id))!.words, 4);
       expect(await db.todayDelta(), 4);
-      final delta2 = await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":"你好世界 Hello"}]');
+      final delta2 = await db.saveDocument(
+        id: d.id,
+        title: d.title,
+        content: '[{"insert":"你好世界 Hello"}]',
+      );
       expect(delta2, 1); // 5 - 4
       expect(await db.todayDelta(), 5);
       await db.close();
@@ -153,13 +197,25 @@ void main() {
       final db = await openDb();
       final nb = await db.createNotebook('书');
       final d = await db.createDocument(nb.id);
-      await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":"一二三四五六"}]');
+      await db.saveDocument(
+        id: d.id,
+        title: d.title,
+        content: '[{"insert":"一二三四五六"}]',
+      );
       expect(await db.todayDelta(), 6);
-      final delta = await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":""}]');
+      final delta = await db.saveDocument(
+        id: d.id,
+        title: d.title,
+        content: '[{"insert":""}]',
+      );
       expect(delta, -6);
       expect(await db.todayDelta(), 0); // 不下探
       // 继续负增量也保持 0
-      await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":""}]');
+      await db.saveDocument(
+        id: d.id,
+        title: d.title,
+        content: '[{"insert":""}]',
+      );
       expect(await db.todayDelta(), 0);
       await db.close();
     });
@@ -168,7 +224,11 @@ void main() {
       final db = await openDb();
       final nb = await db.createNotebook('书');
       final d = await db.createDocument(nb.id);
-      await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":"五十"}]');
+      await db.saveDocument(
+        id: d.id,
+        title: d.title,
+        content: '[{"insert":"五十"}]',
+      );
       final lo = await db.loadLastOpen();
       expect(lo!.documentId, d.id);
       expect(lo.notebookId, nb.id);
@@ -181,15 +241,25 @@ void main() {
       final db = await Db.open('${tempDir.path}/test.db', clock: () => fakeNow);
       final nb = await db.createNotebook('书');
       final d = await db.createDocument(nb.id);
-      await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":"六字内容一二"}]'); // 6 字
+      await db.saveDocument(
+        id: d.id,
+        title: d.title,
+        content: '[{"insert":"六字内容一二"}]',
+      ); // 6 字
       // 8/1 当天
       expect(await db.todayDelta(), 6);
       // 第二天：新增 1 词（ab）
       fakeNow = DateTime(2026, 8, 2, 9, 0);
-      await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":"六字内容一二ab"}]'); // +1
+      await db.saveDocument(
+        id: d.id,
+        title: d.title,
+        content: '[{"insert":"六字内容一二ab"}]',
+      ); // +1
       expect(await db.todayDelta(), 1);
       // 8/1 的增量独立保留
-      final day1 = await db.todayDelta(nowMs: DateTime(2026, 8, 1, 23, 0).millisecondsSinceEpoch);
+      final day1 = await db.todayDelta(
+        nowMs: DateTime(2026, 8, 1, 23, 0).millisecondsSinceEpoch,
+      );
       expect(day1, 6);
       await db.close();
     });
@@ -199,14 +269,24 @@ void main() {
       final db = await Db.open('${tempDir.path}/test.db', clock: () => fakeNow);
       final nb = await db.createNotebook('书');
       final d = await db.createDocument(nb.id);
-      await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":"一二三四五六"}]');
+      await db.saveDocument(
+        id: d.id,
+        title: d.title,
+        content: '[{"insert":"一二三四五六"}]',
+      );
       fakeNow = DateTime(2026, 8, 4, 10, 0);
       // 8/4 删 4 字：当天从 0 开始 → 扣减不下探，保持 0
-      final delta = await db.saveDocument(id: d.id, title: d.title, content: '[{"insert":"一二"}]');
+      final delta = await db.saveDocument(
+        id: d.id,
+        title: d.title,
+        content: '[{"insert":"一二"}]',
+      );
       expect(delta, -4);
       expect(await db.todayDelta(), 0);
       // 8/3 的 6 字不动
-      final day3 = await db.todayDelta(nowMs: DateTime(2026, 8, 3, 12).millisecondsSinceEpoch);
+      final day3 = await db.todayDelta(
+        nowMs: DateTime(2026, 8, 3, 12).millisecondsSinceEpoch,
+      );
       expect(day3, 6);
       await db.close();
     });
@@ -265,13 +345,15 @@ void main() {
       expect(s.fontSize, 18);
       expect(s.lineHeight, 1.8);
       expect(s.dailyGoal, 2000);
-      await db.saveSettings(const Settings(
-        theme: 'dark',
-        fontFamily: 'PingFang SC',
-        fontSize: 22,
-        lineHeight: 2.0,
-        dailyGoal: 5000,
-      ));
+      await db.saveSettings(
+        const Settings(
+          theme: 'dark',
+          fontFamily: 'PingFang SC',
+          fontSize: 22,
+          lineHeight: 2.0,
+          dailyGoal: 5000,
+        ),
+      );
       final s2 = await db.loadSettings();
       expect(s2.theme, 'dark');
       expect(s2.fontFamily, 'PingFang SC');

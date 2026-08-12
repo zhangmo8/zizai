@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -10,6 +9,7 @@ import 'package:zi_zai/core/models.dart';
 import 'package:zi_zai/state/library_controller.dart';
 import 'package:zi_zai/state/settings_controller.dart';
 import 'package:zi_zai/ui/settings_view.dart';
+import 'package:zi_zai/ui/zz.dart';
 
 void main() {
   setUpAll(() {
@@ -61,12 +61,12 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('顶栏设置按钮 → 对话框出现，含各区块', (tester) async {
+  testWidgets('侧边栏设置入口 → 对话框出现，含各区块', (tester) async {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
     await openSettings(tester);
 
-    expect(find.text('设置'), findsOneWidget);
+    expect(find.text('设置'), findsWidgets);
     expect(find.text('外观'), findsWidgets);
     expect(find.text('写作'), findsOneWidget);
     expect(find.text('数据'), findsOneWidget);
@@ -95,12 +95,11 @@ void main() {
     await pumpApp(tester, library, settings);
     await openSettings(tester);
 
-    final slider = find.byType(CupertinoSlider).first; // 字号
+    final slider = find.byType(Slider).first; // 字号
     final before = settings.settings.fontSize;
-    // 直接驱动 onChanged（拖拽力学非本测试目标；CupertinoSlider 命中区与
-    // Material 不同，避免脆弱的全局坐标拖拽）。
-    final cupertino = tester.widget<CupertinoSlider>(slider);
-    cupertino.onChanged?.call(before + 2);
+    // 直接驱动 onChanged，避免依赖容器尺寸的拖拽坐标。
+    final material = tester.widget<Slider>(slider);
+    material.onChanged?.call(before + 2);
     await tester.pump();
     // 让真实异步写库完成（sqflite 事务在 FakeAsync 内不会自行结束）
     for (var i = 0; i < 5; i++) {
@@ -122,11 +121,18 @@ void main() {
     await openSettings(tester);
     await openCategory(tester, '写作');
 
-    await tester.enterText(find.byType(CupertinoTextField), '3000');
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(SettingsView),
+        matching: find.byType(TextField),
+      ),
+      '3000',
+    );
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
 
-    expect(settings.settings.dailyGoal, 3000);
+    final notebookId = library.currentDocument!.notebookId;
+    expect(settings.goalForNotebook(notebookId).words, 3000);
     // 关闭设置后状态栏反映新目标
     await tester.tap(find.byTooltip('关闭'));
     await tester.pumpAndSettle();
@@ -139,10 +145,33 @@ void main() {
     await openSettings(tester);
     await openCategory(tester, '写作');
 
-    await tester.enterText(find.byType(CupertinoTextField), '50'); // 低于下限
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(SettingsView),
+        matching: find.byType(TextField),
+      ),
+      '50',
+    ); // 低于下限
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
-    expect(settings.settings.dailyGoal, 2000); // 不变
+    final notebookId = library.currentDocument!.notebookId;
+    expect(settings.goalForNotebook(notebookId).words, 2000); // 不变
+  });
+
+  testWidgets('笔记本目标可关闭，关闭后状态栏隐藏进度', (tester) async {
+    final (library, settings) = (await tester.runAsync(() => makeApp()))!;
+    await pumpApp(tester, library, settings);
+    await openSettings(tester);
+    await openCategory(tester, '写作');
+
+    await tester.tap(find.byType(ZzSwitch));
+    await tester.pump();
+    final notebookId = library.currentDocument!.notebookId;
+    expect(settings.goalForNotebook(notebookId).enabled, isFalse);
+
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('今日'), findsNothing);
   });
 
   testWidgets('导出：有文档可用且回调收到当前文档', (tester) async {
@@ -167,10 +196,11 @@ void main() {
     await tester.pump();
 
     await openCategory(tester, '数据');
-    await tester.tap(find.widgetWithText(CupertinoButton, '导出'));
+    await tester.tap(find.widgetWithText(ZzButton, '导出'));
     await tester.pumpAndSettle();
     expect(exported?.title, '第一章');
     expect(exportedText, '正文');
+    await tester.pump(const Duration(seconds: 3));
   });
 
   testWidgets('导出：无文档时禁用并说明', (tester) async {
@@ -182,7 +212,7 @@ void main() {
     await openCategory(tester, '数据');
 
     expect(find.text('先打开一个文档'), findsOneWidget);
-    expect(find.widgetWithText(CupertinoButton, '导出'), findsNothing);
+    expect(find.widgetWithText(ZzButton, '导出'), findsNothing);
   });
 
   testWidgets('恢复默认：设置回默认值，不删文档', (tester) async {

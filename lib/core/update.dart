@@ -105,7 +105,7 @@ class UpdateChecker {
   /// 拉取清单：有新版本（语义化 > 当前）且 minDbSchema <= 本地 → 可更新。
   Future<UpdateManifest?> fetchManifest() async {
     if (updateUrl.trim().isEmpty) {
-      throw UpdateException('更新地址未配置，请在设置中填写 update.json 地址');
+      throw UpdateException('暂时无法检查更新');
     }
     final res = await httpClient.get(Uri.parse(updateUrl)).timeout(const Duration(seconds: 15));
     if (res.statusCode != 200) {

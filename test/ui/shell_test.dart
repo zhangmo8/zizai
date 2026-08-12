@@ -66,8 +66,8 @@ void main() {
     expect(find.text('新建笔记本'), findsOneWidget);
     // 编辑器区空态 = Quill 编辑器（占位「从这里开始写…」由编辑器渲染）
     expect(find.byType(q.QuillEditor), findsOneWidget);
-    // 状态栏：今日 0/2000（默认目标）+ 本文 0 字
-    expect(find.text('今日 0/2000'), findsOneWidget);
+    // 无当前笔记本时不显示目标，仅保留本文字数。
+    expect(find.textContaining('今日'), findsNothing);
     expect(find.text('本文 0 字'), findsOneWidget);
     // 桌面形态无 Drawer
     expect(find.byType(Drawer), findsNothing);
@@ -89,7 +89,7 @@ void main() {
     expect(find.text('新建笔记本'), findsOneWidget);
     // 编辑器全宽显示 Quill 编辑器
     expect(find.byType(q.QuillEditor), findsOneWidget);
-    expect(find.text('今日 0/2000'), findsOneWidget);
+    expect(find.textContaining('今日'), findsNothing);
   });
 
   testWidgets('空库点「新建笔记本」→ 侧边栏出现笔记本', (tester) async {

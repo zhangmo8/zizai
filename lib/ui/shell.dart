@@ -3,7 +3,7 @@
 /// 设计依据：docs/app/ui-shell.md（Region Layout / Interactions：
 /// Ctrl/Cmd+B 切换侧边栏、删除确认条在编辑器区顶部）、
 /// docs/app/ui-editor.md（FocusMode：沉浸隐藏侧边栏与状态栏；Esc 收起工具栏）、
-/// docs/app/style.md（§3 tokens、§5 尺寸、§9 组件样式）。
+/// design.md（Notion token、侧边栏和组件样式）。
 library;
 
 import 'package:flutter/material.dart';
@@ -15,8 +15,10 @@ import '../core/crash_journal.dart';
 import '../core/update.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
+import '../util/platform.dart';
 import 'editor.dart';
 import 'glass.dart';
+import 'settings_view.dart';
 import 'sidebar.dart';
 
 const double _desktopSidebarWidth = 260;
@@ -111,6 +113,33 @@ class _ShellState extends State<Shell> {
     return false;
   }
 
+  /// 设置的唯一打开出口：侧边栏底部、状态栏的定向入口共用。
+  void _openSettings({bool focusDailyGoal = false, bool focusBackup = false}) {
+    final view = SettingsView(
+      settings: widget.settings,
+      library: widget.library,
+      backup: widget.backup,
+      updateChecker: widget.updateChecker,
+      dbSchemaVersion: widget.updateChecker?.dbSchemaVersion,
+      autoFocusDailyGoal: focusDailyGoal,
+      autoFocusBackup: focusBackup,
+    );
+    if (isAndroidPlatform) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => Scaffold(body: view),
+        ),
+      );
+    } else {
+      showDialog<void>(
+        context: context,
+        builder: (_) =>
+            Dialog(child: SizedBox(width: 840, height: 620, child: view)),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -120,17 +149,23 @@ class _ShellState extends State<Shell> {
           builder: (context, constraints) {
             final desktop = constraints.maxWidth >= _desktopBreakpoint;
             final editor = EditorView(
+              key: ValueKey(
+                widget.library.currentDocument?.id ?? 'no-document',
+              ),
               library: widget.library,
               settings: widget.settings,
               focusMode: _focusMode,
               onToggleFocusMode: () => setState(() => _focusMode = !_focusMode),
+              onOpenSettings: _openSettings,
               backup: widget.backup,
-              updateChecker: widget.updateChecker,
               toolbarDismissTick: _toolbarDismissTick,
               saveTick: _saveTick,
               journal: widget.journal,
             );
-            final sidebar = Sidebar(library: widget.library);
+            final sidebar = Sidebar(
+              library: widget.library,
+              onOpenSettings: _openSettings,
+            );
             if (desktop) {
               // 桌面形态无 Scaffold，需显式 Material 祖先；Notion 风格为固定
               // 低对比侧栏 + 干净纸张编辑区，不使用渐变/毛玻璃。

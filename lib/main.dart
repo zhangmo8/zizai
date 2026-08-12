@@ -24,7 +24,7 @@ import 'state/settings_controller.dart';
 import 'util/platform.dart';
 
 /// 构建时注入的默认更新地址（CI 传 --dart-define=UPDATE_URL=…）。
-/// 为空 → 不自动检查；用户仍可在设置页覆盖。
+/// 为空 → 不自动检查；地址不在普通 UI 中展示。
 const _defaultUpdateUrl =
     String.fromEnvironment('UPDATE_URL', defaultValue: '');
 
@@ -55,7 +55,7 @@ Future<void> main() async {
   );
   await backup.reloadConfig();
 
-  // 更新检查（upd-001）：App 版本来自 package_info，更新 URL 可配置
+  // 更新检查：App 版本来自 package_info；URL 由构建注入。
   var appVersion = '0.1.0';
   try {
     appVersion = (await PackageInfo.fromPlatform()).version;
@@ -65,6 +65,7 @@ Future<void> main() async {
   await updatesDir.create(recursive: true);
   final updateChecker = UpdateChecker(
     httpClient: http.Client(),
+    // 保留旧版 update.url 兼容，但不再在 UI 中暴露或编辑。
     updateUrl: await db.getSetting('update.url') ?? _defaultUpdateUrl,
     appVersion: appVersion,
     dbSchemaVersion: dbSchema,

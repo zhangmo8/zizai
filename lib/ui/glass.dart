@@ -36,7 +36,6 @@ class GlassSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return Container(
       padding: padding,
       decoration: BoxDecoration(
@@ -46,14 +45,9 @@ class GlassSurface extends StatelessWidget {
         boxShadow: shadow
             ? [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.08),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
-                ),
-                BoxShadow(
-                  color: colors.outline.withValues(alpha: 0.35),
-                  blurRadius: 0,
-                  spreadRadius: 0.5,
+                  color: Colors.black.withValues(alpha: 0.10),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
                 ),
               ]
             : null,

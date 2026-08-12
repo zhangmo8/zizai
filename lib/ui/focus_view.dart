@@ -19,6 +19,7 @@ class FocusView extends StatelessWidget {
     required this.fallbackWords,
     required this.todayDelta,
     required this.dailyGoal,
+    required this.goalEnabled,
     required this.child,
   });
 
@@ -32,6 +33,7 @@ class FocusView extends StatelessWidget {
   final int fallbackWords;
   final int todayDelta;
   final int dailyGoal;
+  final bool goalEnabled;
   final Widget child;
 
   @override
@@ -57,6 +59,7 @@ class FocusView extends StatelessWidget {
                 fallbackWords: fallbackWords,
                 todayDelta: todayDelta,
                 dailyGoal: dailyGoal,
+                goalEnabled: goalEnabled,
               ),
             )
           else
@@ -80,6 +83,7 @@ class _AndroidHotZone extends StatefulWidget {
     required this.fallbackWords,
     required this.todayDelta,
     required this.dailyGoal,
+    required this.goalEnabled,
   });
 
   final VoidCallback onExit;
@@ -87,6 +91,7 @@ class _AndroidHotZone extends StatefulWidget {
   final int fallbackWords;
   final int todayDelta;
   final int dailyGoal;
+  final bool goalEnabled;
 
   @override
   State<_AndroidHotZone> createState() => _AndroidHotZoneState();
@@ -104,7 +109,8 @@ class _AndroidHotZoneState extends State<_AndroidHotZone> {
           behavior: HitTestBehavior.translucent,
           onTap: () => setState(() => _showBar = !_showBar),
           onVerticalDragEnd: (details) {
-            if (details.primaryVelocity != null && details.primaryVelocity! > 0) {
+            if (details.primaryVelocity != null &&
+                details.primaryVelocity! > 0) {
               widget.onExit();
             }
           },
@@ -125,8 +131,8 @@ class _AndroidHotZoneState extends State<_AndroidHotZone> {
                 ValueListenableBuilder<int?>(
                   valueListenable: widget.liveWords,
                   builder: (context, live, _) => Text(
-                    '本文 ${live ?? widget.fallbackWords} 字 · '
-                    '今日 ${widget.todayDelta}/${widget.dailyGoal}',
+                    '本文 ${live ?? widget.fallbackWords} 字'
+                    '${widget.goalEnabled ? ' · 今日 ${widget.todayDelta}/${widget.dailyGoal}' : ''}',
                     style: TextStyle(fontSize: 13, color: colors.onSurface),
                   ),
                 ),
@@ -165,7 +171,10 @@ class _DesktopExitStripState extends State<_DesktopExitStrip> {
         alignment: Alignment.center,
         child: _hover
             ? Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: colors.surface,
                   borderRadius: BorderRadius.circular(8),
@@ -174,9 +183,15 @@ class _DesktopExitStripState extends State<_DesktopExitStrip> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('退出沉浸 (Esc)', style: TextStyle(fontSize: 12, color: colors.onSurface)),
+                    Text(
+                      '退出沉浸 (Esc)',
+                      style: TextStyle(fontSize: 12, color: colors.onSurface),
+                    ),
                     const SizedBox(width: 8),
-                    TextButton(onPressed: widget.onExit, child: const Text('退出')),
+                    TextButton(
+                      onPressed: widget.onExit,
+                      child: const Text('退出'),
+                    ),
                   ],
                 ),
               )

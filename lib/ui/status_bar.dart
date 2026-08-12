@@ -101,9 +101,10 @@ class _StatusBarState extends State<StatusBar> {
       );
     }
 
-    final goal = widget.settings.settings.dailyGoal;
+    final notebookId = widget.library.currentDocument?.notebookId;
+    final goal = widget.settings.goalForNotebook(notebookId);
     final delta = widget.library.todayDelta;
-    final progress = goal <= 0 ? 0.0 : (delta / goal).clamp(0.0, 1.0);
+    final progress = (delta / goal.words).clamp(0.0, 1.0);
 
     return GlassSurface(
       color: Theme.of(context).scaffoldBackgroundColor,
@@ -113,23 +114,25 @@ class _StatusBarState extends State<StatusBar> {
         height: 34,
         child: Row(
           children: [
-            _StatusChip(
-              onTap: () => widget.onOpenSettings?.call(focusDailyGoal: true),
-              child: Text('今日 $delta/$goal'),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 104,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(99),
-                child: LinearProgressIndicator(
-                  value: progress,
-                  minHeight: 3,
-                  color: colors.primary,
-                  backgroundColor: colors.outline.withValues(alpha: 0.55),
+            if (goal.enabled && notebookId != null) ...[
+              _StatusChip(
+                onTap: () => widget.onOpenSettings?.call(focusDailyGoal: true),
+                child: Text('今日 $delta/${goal.words}'),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 104,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 3,
+                    color: colors.primary,
+                    backgroundColor: colors.outline.withValues(alpha: 0.55),
+                  ),
                 ),
               ),
-            ),
+            ],
             const Spacer(),
             if (widget.backup != null)
               _BackupIndicator(
@@ -190,14 +193,14 @@ class _StatusChipState extends State<_StatusChip> {
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: InkWell(
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: BorderRadius.circular(4),
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 90),
           padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
           decoration: BoxDecoration(
             color: _hover ? appColors.surfaceHover : Colors.transparent,
-            borderRadius: BorderRadius.circular(5),
+            borderRadius: BorderRadius.circular(4),
           ),
           child: DefaultTextStyle.merge(
             style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
@@ -224,18 +227,33 @@ class _BackupIndicator extends StatelessWidget {
       builder: (context, _) {
         if (!backup.configured) return const SizedBox.shrink();
         final (icon, text, color) = switch (backup.state.value) {
-          BackupState.uploading => ('⟳', '备份中', colors.onSurfaceVariant),
-          BackupState.downloading => ('⟳', '恢复中', colors.onSurfaceVariant),
+          BackupState.uploading => (
+            Icons.cloud_upload_outlined,
+            '备份中',
+            colors.onSurfaceVariant,
+          ),
+          BackupState.downloading => (
+            Icons.cloud_download_outlined,
+            '恢复中',
+            colors.onSurfaceVariant,
+          ),
           BackupState.error => (
-            '⚠',
+            Icons.sync_problem_outlined,
             '失败 ${backup.failureCount.value} 次',
             colors.error,
           ),
-          BackupState.idle => ('●', '已备份', appColors.success),
+          BackupState.idle => (
+            Icons.cloud_done_outlined,
+            '已备份',
+            appColors.success,
+          ),
         };
-        return _StatusChip(
-          onTap: onTap,
-          child: Text('$icon $text', style: TextStyle(color: color)),
+        return Tooltip(
+          message: text,
+          child: _StatusChip(
+            onTap: onTap,
+            child: Icon(icon, size: 15, color: color),
+          ),
         );
       },
     );

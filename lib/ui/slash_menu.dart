@@ -137,7 +137,7 @@ class SlashMenuPanel extends StatelessWidget {
         constraints: const BoxConstraints(maxHeight: maxHeight),
         decoration: BoxDecoration(
           color: appColors.surfaceRaised,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(6),
           border: Border.all(color: colors.outline),
           boxShadow: [
             BoxShadow(
@@ -148,7 +148,7 @@ class SlashMenuPanel extends StatelessWidget {
           ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(6),
           child: ListView.builder(
             shrinkWrap: true,
             padding: const EdgeInsets.symmetric(vertical: 5),
@@ -213,7 +213,7 @@ class _SlashMenuItem extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
             color: selected ? appColors.surfaceHover : Colors.transparent,
-            borderRadius: BorderRadius.circular(5),
+            borderRadius: BorderRadius.circular(4),
           ),
           child: Row(
             children: [

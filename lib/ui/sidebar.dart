@@ -1,12 +1,11 @@
 /// 侧边栏：文档树（笔记本 ▸ 章节），CRUD 与排序交互。
 ///
 /// 设计依据：docs/app/ui-sidebar.md（Overall Structure / Interactions /
-/// State Variants / Component Tree）、docs/app/style.md（§9 侧边栏选中项、
+/// State Variants / Component Tree）、design.md（§5.1 侧边栏、
 /// 行操作 hover 浮现、空态引导）、docs/plan/analysis/modules.md（side-002 出口：
 /// CRUD 与上移/下移）。
 library;
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -14,6 +13,7 @@ import '../app.dart' show appColorsOf;
 import '../core/models.dart';
 import '../state/library_controller.dart';
 import '../util/platform.dart';
+import 'zz.dart';
 
 enum _EditTarget { notebook, document }
 
@@ -35,9 +35,10 @@ class _EditSession {
 }
 
 class Sidebar extends StatefulWidget {
-  const Sidebar({super.key, required this.library});
+  const Sidebar({super.key, required this.library, this.onOpenSettings});
 
   final LibraryController library;
+  final VoidCallback? onOpenSettings;
 
   @override
   State<Sidebar> createState() => _SidebarState();
@@ -166,6 +167,8 @@ class _SidebarState extends State<Sidebar> {
                     )
                   : _buildTree(),
             ),
+            if (widget.onOpenSettings != null)
+              _SidebarFooter(onOpenSettings: widget.onOpenSettings!),
           ],
         ),
       ),
@@ -285,6 +288,103 @@ class _SidebarState extends State<Sidebar> {
   }
 }
 
+/// 固定在侧边栏底部的设置入口，与文档树分层。
+class _SidebarFooter extends StatefulWidget {
+  const _SidebarFooter({required this.onOpenSettings});
+
+  final VoidCallback onOpenSettings;
+
+  @override
+  State<_SidebarFooter> createState() => _SidebarFooterState();
+}
+
+class _SidebarFooterState extends State<_SidebarFooter> {
+  bool _hovered = false;
+  bool _pressed = false;
+
+  void _open() {
+    final scaffold = Scaffold.maybeOf(context);
+    if (scaffold?.isDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.onOpenSettings();
+      });
+      return;
+    }
+    widget.onOpenSettings();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: colors.outline)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Tooltip(
+          message: '设置',
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() {
+              _hovered = false;
+              _pressed = false;
+            }),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (_) => setState(() => _pressed = true),
+              onTapCancel: () => setState(() => _pressed = false),
+              onTapUp: (_) => setState(() => _pressed = false),
+              onTap: _open,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 100),
+                curve: Curves.easeOut,
+                height: 32,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: _pressed
+                      ? appColors.rowSelected
+                      : _hovered
+                      ? appColors.surfaceHover
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.settings_outlined,
+                      size: 17,
+                      color: colors.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        '设置',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right,
+                      size: 14,
+                      color: appColors.textTertiary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// 顶栏：workspace 入口 + 新建笔记本按钮。
 class _HeaderBar extends StatelessWidget {
   const _HeaderBar({required this.onNewNotebook});
@@ -305,7 +405,7 @@ class _HeaderBar extends StatelessWidget {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: appColors.rowSelected,
-              borderRadius: BorderRadius.circular(5),
+              borderRadius: BorderRadius.circular(4),
               border: Border.all(color: colors.outline),
             ),
             child: Text(
@@ -577,10 +677,10 @@ class _SidebarRow extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 1),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: BorderRadius.circular(4),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: BorderRadius.circular(4),
         onTap: onTap,
         child: Padding(
           padding: EdgeInsets.only(left: 6 + depth * 22, right: 2),
@@ -656,7 +756,6 @@ class _InlineEditFieldState extends State<_InlineEditField> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
     return Focus(
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent &&
@@ -673,25 +772,15 @@ class _InlineEditFieldState extends State<_InlineEditField> {
           Row(
             children: [
               Expanded(
-                child: CupertinoTextField(
+                child: ZzTextField(
                   controller: _controller,
+                  hint: '',
                   autofocus: true,
                   enabled: !_submitting,
-                  style: TextStyle(fontSize: 13, color: colors.onSurface),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: _error == null
-                          ? colors.primary.withValues(alpha: 0.55)
-                          : colors.error,
-                    ),
-                    borderRadius: BorderRadius.circular(5),
-                    color: appColors.surfaceRaised,
-                  ),
-                  cursorColor: colors.primary,
+                  error: _error != null,
+                  onChanged: (_) {
+                    if (_error != null) setState(() => _error = null);
+                  },
                   onSubmitted: (_) => _submit(),
                 ),
               ),
@@ -835,10 +924,10 @@ class _NewDocumentButtonState extends State<_NewDocumentButton> {
         margin: const EdgeInsets.symmetric(vertical: 1),
         decoration: BoxDecoration(
           color: _hover ? appColors.surfaceHover : Colors.transparent,
-          borderRadius: BorderRadius.circular(5),
+          borderRadius: BorderRadius.circular(4),
         ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(5),
+          borderRadius: BorderRadius.circular(4),
           onTap: widget.onPressed,
           child: Padding(
             padding: const EdgeInsets.only(left: 34, right: 8),
@@ -882,7 +971,7 @@ class _LoadingSkeleton extends StatelessWidget {
                 width: 96 + i * 28.0,
                 decoration: BoxDecoration(
                   color: colors.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(99),
+                  borderRadius: BorderRadius.circular(4),
                 ),
               ),
             ),
@@ -981,7 +1070,7 @@ class _NotionButton extends StatelessWidget {
         backgroundColor: appColors.surfaceRaised,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(5),
+          borderRadius: BorderRadius.circular(4),
           side: BorderSide(color: colors.outline),
         ),
       ),
