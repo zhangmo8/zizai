@@ -347,6 +347,7 @@ class ZzTextField extends StatelessWidget {
     this.enabled = true,
     this.autofocus = false,
     this.error = false,
+    this.compact = false,
     this.onSubmitted,
     this.onChanged,
   });
@@ -358,6 +359,7 @@ class ZzTextField extends StatelessWidget {
   final FocusNode? focusNode;
   final bool enabled;
   final bool autofocus;
+  final bool compact;
 
   /// 错误态：描边转 danger（行内命名冲突等即时校验用）。
   final bool error;
@@ -369,7 +371,7 @@ class ZzTextField extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final appColors = appColorsOf(context);
     final radius = BorderRadius.circular(4);
-    return TextField(
+    final field = TextField(
       controller: controller,
       focusNode: focusNode,
       keyboardType: keyboardType,
@@ -386,7 +388,10 @@ class ZzTextField extends StatelessWidget {
         fillColor: appColors.callout,
         hintText: hint,
         hintStyle: TextStyle(fontSize: 13, color: appColors.textTertiary),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: compact ? 5 : 8,
+        ),
         enabledBorder: OutlineInputBorder(
           borderRadius: radius,
           borderSide: error ? BorderSide(color: colors.error) : BorderSide.none,
@@ -403,6 +408,7 @@ class ZzTextField extends StatelessWidget {
       onSubmitted: onSubmitted,
       onChanged: onChanged,
     );
+    return compact ? SizedBox(height: 28, child: field) : field;
   }
 }
 
@@ -484,6 +490,7 @@ void showZzToast(BuildContext context, String message, {bool error = false}) {
                 ),
               ),
               child: Container(
+                constraints: const BoxConstraints(maxWidth: 560),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 8,

@@ -134,12 +134,40 @@ void main() {
     ))!;
     await pumpSidebar(tester, library);
 
+    expect(find.byType(Image), findsOneWidget);
+    expect(find.text('写作空间'), findsNothing);
+
     await tester.tap(find.byTooltip('新建笔记本'));
     await tester.pump();
     expect(find.byType(TextField), findsOneWidget);
     await tester.testTextInput.receiveAction(TextInputAction.done); // 默认名「新笔记本」
     await settle(tester);
     expect(find.text('新笔记本'), findsOneWidget);
+  });
+
+  testWidgets('笔记本和章节进入行内编辑时保持后续行位置稳定', (tester) async {
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
+          ('小说', ['第一章', '第二章']),
+          ('随笔', []),
+        ],
+      ),
+    ))!;
+    await pumpSidebar(tester, library);
+
+    final secondChapterTop = tester.getTopLeft(find.text('第二章')).dy;
+    await openRowMenu(tester, 1);
+    await tester.tap(find.text('重命名'));
+    await tester.pump();
+    expect(tester.getTopLeft(find.text('第二章')).dy, secondChapterTop);
+    await tester.tap(find.byTooltip('取消编辑'));
+    await tester.pump();
+
+    final secondNotebookTop = tester.getTopLeft(find.text('随笔')).dy;
+    await tester.tap(find.text('新建章节').first);
+    await tester.pump();
+    expect(tester.getTopLeft(find.text('随笔')).dy, secondNotebookTop);
   });
 
   testWidgets('新建章节：默认名行内重命名', (tester) async {

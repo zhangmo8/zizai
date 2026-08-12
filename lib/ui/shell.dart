@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 
 import '../app.dart' show appColorsOf;
 import '../core/backup/backup.dart';
+import '../core/app_logger.dart';
 import '../core/crash_journal.dart';
 import '../core/update.dart';
 import '../state/library_controller.dart';
@@ -31,6 +32,7 @@ class Shell extends StatefulWidget {
     required this.library,
     required this.settings,
     this.journal,
+    this.logger,
     this.backup,
     this.updateChecker,
   });
@@ -40,6 +42,9 @@ class Shell extends StatefulWidget {
 
   /// 崩溃日志（null = 未接线，如测试）。
   final CrashJournal? journal;
+
+  /// 本地诊断日志（null = 未接线，如测试）。
+  final AppLogger? logger;
 
   /// 同步引擎（null = 未接线，如测试）。
   final BackupManager? backup;
@@ -119,6 +124,7 @@ class _ShellState extends State<Shell> {
       settings: widget.settings,
       library: widget.library,
       backup: widget.backup,
+      logger: widget.logger,
       updateChecker: widget.updateChecker,
       dbSchemaVersion: widget.updateChecker?.dbSchemaVersion,
       autoFocusDailyGoal: focusDailyGoal,
@@ -161,6 +167,7 @@ class _ShellState extends State<Shell> {
               toolbarDismissTick: _toolbarDismissTick,
               saveTick: _saveTick,
               journal: widget.journal,
+              logger: widget.logger,
             );
             final sidebar = Sidebar(
               library: widget.library,

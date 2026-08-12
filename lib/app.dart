@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 
 import 'core/backup/backup.dart';
+import 'core/app_logger.dart';
 import 'core/crash_journal.dart';
 import 'core/update.dart';
 import 'state/library_controller.dart';
@@ -285,6 +286,7 @@ class ZiZaiApp extends StatelessWidget {
     required this.library,
     required this.settings,
     this.journal,
+    this.logger,
     this.backup,
     this.updateChecker,
   });
@@ -294,6 +296,9 @@ class ZiZaiApp extends StatelessWidget {
 
   /// 崩溃日志（null = 未接线，如测试）。
   final CrashJournal? journal;
+
+  /// 本地诊断日志（null = 未接线，如测试）。
+  final AppLogger? logger;
 
   /// 全量备份引擎（null = 未接线，如测试）。
   final BackupManager? backup;
@@ -316,6 +321,7 @@ class ZiZaiApp extends StatelessWidget {
             library: library,
             settings: settings,
             journal: journal,
+            logger: logger,
             backup: backup,
             updateChecker: updateChecker,
           ),

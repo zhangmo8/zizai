@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:zi_zai/app.dart';
+import 'package:zi_zai/core/app_logger.dart';
 import 'package:zi_zai/core/db.dart';
 import 'package:zi_zai/core/models.dart';
 import 'package:zi_zai/state/library_controller.dart';
@@ -213,6 +214,37 @@ void main() {
 
     expect(find.text('先打开一个文档'), findsOneWidget);
     expect(find.widgetWithText(ZzButton, '导出'), findsNothing);
+  });
+
+  testWidgets('数据区展示诊断日志路径与打开入口', (tester) async {
+    final (library, settings) = (await tester.runAsync(() => makeApp()))!;
+    final dir = (await tester.runAsync(
+      () => Directory.systemTemp.createTemp('zizai_settings_logger'),
+    ))!;
+    addTearDown(() async {
+      if (dir.existsSync()) await dir.delete(recursive: true);
+    });
+    final logger = (await tester.runAsync(() => AppLogger.create(dir)))!;
+    await tester.runAsync(() => logger.info('test.ready'));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: SettingsView(
+            settings: settings,
+            library: library,
+            logger: logger,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await openCategory(tester, '数据');
+
+    expect(find.text('诊断日志'), findsOneWidget);
+    expect(find.text(logger.path), findsOneWidget);
+    expect(find.widgetWithText(ZzButton, '打开目录'), findsNWidgets(2));
   });
 
   testWidgets('恢复默认：设置回默认值，不删文档', (tester) async {

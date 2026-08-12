@@ -15,6 +15,7 @@ import 'package:flutter/services.dart' show MethodChannel;
 import 'package:share_plus/share_plus.dart';
 
 import '../app.dart' show appColorsOf;
+import '../core/app_logger.dart';
 import '../core/backup/backup.dart';
 import '../core/export.dart' show exportPlainText;
 import '../core/models.dart';
@@ -48,6 +49,7 @@ class SettingsView extends StatefulWidget {
     required this.settings,
     required this.library,
     this.backup,
+    this.logger,
     this.updateChecker,
     this.dbSchemaVersion,
     this.exporter,
@@ -60,6 +62,9 @@ class SettingsView extends StatefulWidget {
 
   /// 备份引擎（null = 未接线，如单测；备份区隐藏）。
   final BackupManager? backup;
+
+  /// 本地诊断日志（null = 未接线，如测试）。
+  final AppLogger? logger;
 
   /// 更新检查（null = 未接线，如单测；关于区隐藏更新按钮）。
   final UpdateChecker? updateChecker;
@@ -166,12 +171,52 @@ class _SettingsViewState extends State<SettingsView> {
 
   Future<void> _openDbDir() async {
     final dir = File(widget.settings.dbPath).parent.path;
+    await _openDirectory(dir);
+  }
+
+  Future<void> _openLogDir() async {
+    final logger = widget.logger;
+    if (logger == null) return;
+    try {
+      await _openDirectory(logger.directory.path);
+      if (mounted) showZzToast(context, '已打开日志目录');
+    } catch (error, stackTrace) {
+      await logger.error('diagnostics.open.failed', error, stackTrace);
+      if (mounted) showZzToast(context, '无法打开日志目录：$error', error: true);
+    }
+  }
+
+  Future<void> _shareLogs() async {
+    final logger = widget.logger;
+    if (logger == null) return;
+    final files = await logger.files();
+    if (files.isEmpty) {
+      if (mounted) showZzToast(context, '暂无诊断日志');
+      return;
+    }
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [for (final file in files) XFile(file.path)],
+          subject: '字在诊断日志',
+        ),
+      );
+    } catch (error, stackTrace) {
+      await logger.error('diagnostics.share.failed', error, stackTrace);
+      if (mounted) showZzToast(context, '日志分享失败：$error', error: true);
+    }
+  }
+
+  Future<void> _openDirectory(String dir) async {
     if (Platform.isMacOS) {
-      await Process.run('open', [dir]);
+      const channel = MethodChannel('dev.zizai/open_path');
+      await channel.invokeMethod('openPath', {'path': dir});
     } else if (Platform.isWindows) {
-      await Process.run('explorer', [dir]);
+      final result = await Process.run('explorer', [dir]);
+      if (result.exitCode != 0) throw StateError('文件管理器启动失败');
     } else if (Platform.isLinux) {
-      await Process.run('xdg-open', [dir]);
+      final result = await Process.run('xdg-open', [dir]);
+      if (result.exitCode != 0) throw StateError('文件管理器启动失败');
     }
   }
 
@@ -373,7 +418,14 @@ class _SettingsViewState extends State<SettingsView> {
 
   Widget _dataPage() => Column(
     children: [
-      _SettingsGroup(label: '本地数据', children: [_row('数据库路径', _dbPathRow())]),
+      _SettingsGroup(
+        label: '本地数据',
+        children: [
+          _row('数据库路径', _dbPathRow()),
+          if (widget.logger != null)
+            _row('诊断日志', _logPathRow(), description: '记录启动、升级、更新和未处理异常'),
+        ],
+      ),
       _SettingsGroup(
         label: '导出',
         children: [_row('当前文档', _exportRow(), description: '导出为纯文本文件')],
@@ -790,15 +842,14 @@ class _SettingsViewState extends State<SettingsView> {
         case UpdateStatus.downloading:
           break;
       }
-    } catch (_) {
+    } catch (e, stackTrace) {
+      await widget.logger?.error('update.action.failed', e, stackTrace);
       if (mounted) {
-        showZzToast(
-          context,
-          status == UpdateStatus.none || status == UpdateStatus.error
-              ? '检查失败，请稍后重试'
-              : '更新失败，请稍后重试',
-          error: true,
-        );
+        final checkerMessage = checker.error.value;
+        final message = e is UpdateException
+            ? e.message
+            : checkerMessage ?? '更新失败，请稍后重试';
+        showZzToast(context, message, error: true);
       }
     } finally {
       if (mounted && _checkingUpdate) setState(() => _checkingUpdate = false);
@@ -825,7 +876,8 @@ class _SettingsViewState extends State<SettingsView> {
     await target.create(recursive: true);
     await extractFileToDisk(zipPath, target.path);
     if (Platform.isMacOS) {
-      await Process.run('open', [target.path]);
+      const channel = MethodChannel('dev.zizai/open_path');
+      await channel.invokeMethod('openPath', {'path': target.path});
     } else if (Platform.isWindows) {
       await Process.run('explorer', [target.path]);
     } else if (Platform.isLinux) {
@@ -848,6 +900,27 @@ class _SettingsViewState extends State<SettingsView> {
         ),
         if (!isAndroidPlatform)
           ZzButton.link(label: '打开目录', onPressed: _openDbDir),
+      ],
+    );
+  }
+
+  Widget _logPathRow() {
+    final logger = widget.logger!;
+    final colors = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            logger.path,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+          ),
+        ),
+        if (isAndroidPlatform)
+          ZzButton.link(label: '分享日志', onPressed: _shareLogs)
+        else
+          ZzButton.link(label: '打开目录', onPressed: _openLogDir),
       ],
     );
   }

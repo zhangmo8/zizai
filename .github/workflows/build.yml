@@ -62,6 +62,19 @@ jobs:
               }
               throw error;
             }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+      - name: Verify pubspec version matches tag
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          app_version=$(sed -n 's/^version: *\([^+ ]*\).*/\1/p' pubspec.yaml)
+          tag_version="${TAG#v}"
+          if [[ "${app_version}" != "${tag_version}" ]]; then
+            echo "pubspec version ${app_version} does not match tag ${TAG}" >&2
+            exit 1
+          fi
 
   # ────────────────────────────────────────────
   #  以下 R2 上传步骤统一使用 env 传递密钥：
@@ -270,6 +283,33 @@ jobs:
             --content-type "application/json" \
             --cache-control "no-cache" \
             --no-progress
+      - name: Verify public update endpoints
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+          R2_PUBLIC_BASE: ${{ secrets.R2_PUBLIC_BASE }}
+          ANDROID_FILE: ${{ needs.android.outputs.file }}
+          MACOS_FILE: ${{ needs.macos.outputs.file }}
+          WINDOWS_FILE: ${{ needs.windows.outputs.file }}
+        run: |
+          base="${R2_PUBLIC_BASE%/}"
+          curl --fail --silent --show-error \
+            --retry 5 --retry-delay 2 --retry-all-errors \
+            "${base}/update.json?release=${TAG}" -o public-update.json
+          python3 - <<'EOF'
+          import json, os
+          manifest = json.load(open('public-update.json'))
+          expected = os.environ['TAG'].removeprefix('v')
+          if manifest.get('latest') != expected:
+              raise SystemExit(
+                  f"public update.json latest={manifest.get('latest')!r}, expected={expected!r}"
+              )
+          EOF
+          for file in "${ANDROID_FILE}" "${MACOS_FILE}" "${WINDOWS_FILE}"; do
+            curl --fail --silent --show-error \
+              --retry 5 --retry-delay 2 --retry-all-errors \
+              --range 0-0 \
+              "${base}/releases/${TAG}/${file}" -o /dev/null
+          done
       - name: 发布 Release（仅 release notes，二进制在 R2）
         uses: softprops/action-gh-release@v2
         with:

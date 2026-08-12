@@ -90,6 +90,7 @@ GitHub Actions 工作流 [build.yml](../../.github/workflows/build.yml) 负责�
 
 - 触发方式：推送符合 `v<major>.<minor>.<patch>` 格式的 tag，或在 Actions 中手动输入**已推送到远程的同格式 tag**。
 - 前置校验：工作流会在启动三端构建前验证 tag 格式及其远程存在性；不存在时立即失败，不启动构建 runner。
+- 版本校验：tag 的语义版本必须与 `pubspec.yaml` 的 App 版本一致（构建号 `+N` 除外），避免安装后仍重复提示同一更新。
 - 正常发布流程：先将 `pubspec.yaml` 的 App 版本更新为对应版本，验证 CI 后执行 `git tag v<version>` 与 `git push origin v<version>`。tag push 会自动触发发布。
 - 构建产物上传至 R2（不在 GitHub 产生 artifact 缓存）：
   - 三端包 → `s3://<bucket>/releases/<tag>/`
@@ -97,6 +98,8 @@ GitHub Actions 工作流 [build.yml](../../.github/workflows/build.yml) 负责�
 - `update.json` 中的下载 URL 指向 R2 公开域名（`R2_PUBLIC_BASE` secret）。
 - 构建时通过 `--dart-define=UPDATE_URL=<R2_PUBLIC_BASE>/update.json` 将默认更新地址注入二进制。
 - GitHub Release 仅保留自动生成的 release notes，不再上传二进制资产。
+- 上传后必须从 R2 公开域名回读根清单，并对三端安装包执行公开 GET 探针；任一对象不可访问时发布失败。
+- macOS Release 的 App Sandbox 必须包含 `com.apple.security.network.client`；Android 正式清单必须包含 `INTERNET` 和 `REQUEST_INSTALL_PACKAGES`。
 
 ### 所需 GitHub Secrets
 

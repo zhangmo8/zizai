@@ -48,6 +48,7 @@ Status: Draft（v3：双栏分类导航）
 | 备份 | Account ID / Bucket / Access Key / Secret Key | Cloudflare R2 备份凭据；Secret Key 掩码显示，仅保存在本机 settings 表 |
 | 备份 | 上次备份 / 立即备份 | 只读最近状态；按钮手动触发备份，进行中显示进度态 |
 | 数据 / 本地数据 | 数据库路径 | 只读展示；「打开目录」在文件管理器中定位（Android 隐藏） |
+| 数据 / 本地数据 | 诊断日志 | 本地滚动记录启动、版本升级、更新与未处理异常；桌面展示路径并可打开日志目录，Android 可直接分享日志文件 |
 | 数据 / 导出 | 当前文档 | 桌面：系统保存对话框（`.txt`）；Android：系统分享纯文本 |
 | 关于 / 版本信息 | App 版本 / 数据库版本 | 只读（pubspec version / `PRAGMA user_version`） |
 | 关于 / 软件更新 | 更新地址 / 检查更新 | 拉取 R2 `update.json`；有新版 → 提示 + 下载、校验、安装 |

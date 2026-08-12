@@ -106,14 +106,19 @@ class _SidebarState extends State<Sidebar> {
     if (session == null) return;
     if (_validateName(session, rawValue) != null) return; // 错误态由输入框持有
     final name = rawValue.trim();
-    setState(() => _editing = null);
     if (session.target == _EditTarget.notebook) {
       if (session.id == null) {
         final nb = await widget.library.createNotebook(name);
-        // 写库为真实异步：期间用户可能已关窗/切页（mounted 守卫）。
-        if (mounted) setState(() => _expanded.add(nb.id));
+        // 保留编辑行直到写库完成，避免列表先塌缩再插入新行造成高度闪烁。
+        if (mounted) {
+          setState(() {
+            _expanded.add(nb.id);
+            _editing = null;
+          });
+        }
       } else {
         await widget.library.renameNotebook(session.id!, name);
+        if (mounted) setState(() => _editing = null);
       }
     } else {
       final notebookId = session.notebookId;
@@ -123,6 +128,7 @@ class _SidebarState extends State<Sidebar> {
       } else {
         await widget.library.renameDocument(session.id!, name);
       }
+      if (mounted) setState(() => _editing = null);
     }
   }
 
@@ -180,85 +186,83 @@ class _SidebarState extends State<Sidebar> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(8, 6, 8, 18),
       children: [
-        if (_editingNewNotebook)
-          _editField(_editing!, null)
-        else
-          for (final nb in library.notebooks) ...[
-            if (_isEditingNotebook(nb.id))
-              _editField(_editing!, nb.id)
-            else
-              _NotebookTile(
-                notebook: nb,
-                expanded: _expanded.contains(nb.id),
-                onToggle: () => setState(() {
-                  if (!_expanded.add(nb.id)) _expanded.remove(nb.id);
-                }),
-                onNewDocument: () {
-                  // Notion 式行内 +：展开该笔记本并进入新章节命名。
-                  setState(() => _expanded.add(nb.id));
-                  _startEdit(
-                    _EditSession(
-                      target: _EditTarget.document,
-                      initial: '新章节.md',
-                      notebookId: nb.id,
-                    ),
-                  );
-                },
-                onEdit: () => _startEdit(
+        for (final nb in library.notebooks) ...[
+          if (_isEditingNotebook(nb.id))
+            _editField(_editing!, nb.id)
+          else
+            _NotebookTile(
+              notebook: nb,
+              expanded: _expanded.contains(nb.id),
+              onToggle: () => setState(() {
+                if (!_expanded.add(nb.id)) _expanded.remove(nb.id);
+              }),
+              onNewDocument: () {
+                // Notion 式行内 +：展开该笔记本并进入新章节命名。
+                setState(() => _expanded.add(nb.id));
+                _startEdit(
                   _EditSession(
-                    id: nb.id,
-                    target: _EditTarget.notebook,
-                    initial: nb.name,
+                    target: _EditTarget.document,
+                    initial: '新章节.md',
+                    notebookId: nb.id,
                   ),
-                ),
-                onDelete: () => library.requestDelete(
-                  kind: DeletionKind.notebook,
+                );
+              },
+              onEdit: () => _startEdit(
+                _EditSession(
                   id: nb.id,
-                  name: nb.name,
+                  target: _EditTarget.notebook,
+                  initial: nb.name,
                 ),
-                onMoveUp: () => library.moveNotebook(nb.id, up: true),
-                onMoveDown: () => library.moveNotebook(nb.id, up: false),
               ),
-            if (_expanded.contains(nb.id)) ...[
-              for (final doc in library.documentsOf(nb.id)) ...[
-                if (_isEditingDocument(doc.id))
-                  _editField(_editing!, doc.id, notebookId: nb.id)
-                else
-                  _DocumentTile(
-                    document: doc,
-                    selected: library.currentDocument?.id == doc.id,
-                    onTap: () => library.switchDocument(doc.id),
-                    onEdit: () => _startEdit(
-                      _EditSession(
-                        id: doc.id,
-                        target: _EditTarget.document,
-                        initial: doc.title,
-                        notebookId: nb.id,
-                      ),
-                    ),
-                    onDelete: () => library.requestDelete(
-                      kind: DeletionKind.document,
-                      id: doc.id,
-                      name: doc.title,
-                    ),
-                    onMoveUp: () => library.moveDocument(doc.id, up: true),
-                    onMoveDown: () => library.moveDocument(doc.id, up: false),
-                  ),
-              ],
-              if (_editingNewDocument && _editing!.notebookId == nb.id)
-                _editField(_editing!, null, notebookId: nb.id)
+              onDelete: () => library.requestDelete(
+                kind: DeletionKind.notebook,
+                id: nb.id,
+                name: nb.name,
+              ),
+              onMoveUp: () => library.moveNotebook(nb.id, up: true),
+              onMoveDown: () => library.moveNotebook(nb.id, up: false),
+            ),
+          if (_expanded.contains(nb.id)) ...[
+            for (final doc in library.documentsOf(nb.id)) ...[
+              if (_isEditingDocument(doc.id))
+                _editField(_editing!, doc.id, notebookId: nb.id)
               else
-                _NewDocumentButton(
-                  onPressed: () => _startEdit(
+                _DocumentTile(
+                  document: doc,
+                  selected: library.currentDocument?.id == doc.id,
+                  onTap: () => library.switchDocument(doc.id),
+                  onEdit: () => _startEdit(
                     _EditSession(
+                      id: doc.id,
                       target: _EditTarget.document,
-                      initial: '新章节.md',
+                      initial: doc.title,
                       notebookId: nb.id,
                     ),
                   ),
+                  onDelete: () => library.requestDelete(
+                    kind: DeletionKind.document,
+                    id: doc.id,
+                    name: doc.title,
+                  ),
+                  onMoveUp: () => library.moveDocument(doc.id, up: true),
+                  onMoveDown: () => library.moveDocument(doc.id, up: false),
                 ),
             ],
+            if (_editingNewDocument && _editing!.notebookId == nb.id)
+              _editField(_editing!, null, notebookId: nb.id)
+            else
+              _NewDocumentButton(
+                onPressed: () => _startEdit(
+                  _EditSession(
+                    target: _EditTarget.document,
+                    initial: '新章节.md',
+                    notebookId: nb.id,
+                  ),
+                ),
+              ),
           ],
+        ],
+        if (_editingNewNotebook) _editField(_editing!, null),
       ],
     );
   }
@@ -273,9 +277,9 @@ class _SidebarState extends State<Sidebar> {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         resolved.target == _EditTarget.notebook ? 10 : 34,
-        3,
+        2,
         4,
-        3,
+        2,
       ),
       child: _InlineEditField(
         key: ValueKey('edit-${resolved.target}-${resolved.id ?? 'new'}'),
@@ -385,7 +389,7 @@ class _SidebarFooterState extends State<_SidebarFooter> {
   }
 }
 
-/// 顶栏：workspace 入口 + 新建笔记本按钮。
+/// 顶栏：品牌 Logo + 新建笔记本按钮。
 class _HeaderBar extends StatelessWidget {
   const _HeaderBar({required this.onNewNotebook});
 
@@ -393,56 +397,21 @@ class _HeaderBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 8, 10),
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
       child: Row(
         children: [
-          Container(
-            width: 24,
-            height: 24,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: appColors.rowSelected,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: colors.outline),
-            ),
-            child: Text(
-              '字',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: colors.onSurface,
-              ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: Image.asset(
+              'assets/logo.png',
+              width: 32,
+              height: 32,
+              fit: BoxFit.cover,
+              semanticLabel: '字在',
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '字在',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: colors.onSurface,
-                    letterSpacing: -0.1,
-                  ),
-                ),
-                Text(
-                  '写作空间',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 11, color: appColors.textTertiary),
-                ),
-              ],
-            ),
-          ),
+          const Spacer(),
           _TinyIconButton(
             tooltip: '新建笔记本',
             icon: Icons.add,
@@ -776,6 +745,7 @@ class _InlineEditFieldState extends State<_InlineEditField> {
                   controller: _controller,
                   hint: '',
                   autofocus: true,
+                  compact: true,
                   enabled: !_submitting,
                   error: _error != null,
                   onChanged: (_) {
@@ -832,6 +802,8 @@ class _InlineEditAction extends StatelessWidget {
     return IconButton(
       tooltip: tooltip,
       visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+      padding: EdgeInsets.zero,
       onPressed: onPressed,
       icon: Icon(icon, size: 16),
       color: color,

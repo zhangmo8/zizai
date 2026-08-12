@@ -1,4 +1,4 @@
-/// 所见即所得编辑器：Quill 编辑器 + 页面大标题 + 斜杠命令菜单 +
+/// 所见即所得编辑器：可编辑顶栏标题 + 斜杠命令菜单 +
 /// Markdown 快捷语法 + 常驻格式工具栏 + 选区浮动工具栏 + 自动保存 + 字数。
 ///
 /// 设计依据：docs/app/ui-editor.md（Region Layout / Interactions /
@@ -20,11 +20,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' as q;
 
 import '../app.dart' show appColorsOf;
+import '../core/app_logger.dart';
+import '../core/backup/backup.dart';
 import '../core/crash_journal.dart';
 import '../core/export.dart' show emptyDeltaJson, parseDeltaOps;
 import '../core/models.dart' as m;
 import '../core/word_count.dart';
-import '../core/backup/backup.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/debounce.dart';
@@ -33,6 +34,7 @@ import 'focus_view.dart';
 import 'glass.dart';
 import 'slash_menu.dart';
 import 'status_bar.dart';
+import 'zz.dart';
 
 const int _autoSaveDebounceMs = 1000;
 const int _journalThrottleMs = 500;
@@ -50,6 +52,7 @@ class EditorView extends StatefulWidget {
     this.toolbarDismissTick,
     this.saveTick,
     this.journal,
+    this.logger,
   });
 
   final LibraryController library;
@@ -69,6 +72,9 @@ class EditorView extends StatefulWidget {
 
   /// 崩溃日志（null = 未接线，如测试）。
   final CrashJournal? journal;
+
+  /// 本地诊断日志（null = 未接线，如测试）。
+  final AppLogger? logger;
 
   @override
   State<EditorView> createState() => _EditorViewState();
@@ -293,7 +299,8 @@ class _EditorViewState extends State<EditorView> {
       widget.library.savedAt.value = DateTime.now();
       widget.library.clearSaveError();
       await widget.journal?.clear();
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await widget.logger?.error('document.save.failed', error, stackTrace);
       widget.library.reportSaveError('保存失败，请重试');
     }
   }
@@ -728,6 +735,40 @@ class _EditorViewState extends State<EditorView> {
               _EditorHeader(
                 title: doc?.title ?? '',
                 notebookName: notebookName,
+                onRename: doc == null
+                    ? null
+                    : (name) async {
+                        try {
+                          await widget.library.renameDocument(doc.id, name);
+                          await widget.logger?.info(
+                            'document.renamed',
+                            data: {'documentId': doc.id},
+                          );
+                        } catch (error, stackTrace) {
+                          await widget.logger?.error(
+                            'document.rename.failed',
+                            error,
+                            stackTrace,
+                            data: {'documentId': doc.id},
+                          );
+                          rethrow;
+                        }
+                      },
+                validateTitle: doc == null
+                    ? null
+                    : (name) {
+                        if (name.contains('/') || name.contains('\\')) {
+                          return '标题不能包含 / 或 \\';
+                        }
+                        final duplicate = widget.library
+                            .documentsOf(doc.notebookId)
+                            .any(
+                              (candidate) =>
+                                  candidate.id != doc.id &&
+                                  candidate.title == name,
+                            );
+                        return duplicate ? '同名章节已存在' : null;
+                      },
                 onToggleFocusMode: widget.onToggleFocusMode,
               ),
               // 常驻格式工具栏：字体样式始终可见，不随选区隐藏。
@@ -828,34 +869,6 @@ class _EditorViewState extends State<EditorView> {
     );
     return Column(
       children: [
-        // Notion 式页面大标题：编辑即重命名，Enter 落入正文。
-        if (hasDoc && !focusMode)
-          Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: _maxContentWidth),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 34, 24, 0),
-                child: _PageTitle(
-                  docId: doc.id,
-                  title: doc.title,
-                  onRename: (name) async {
-                    try {
-                      await widget.library.renameDocument(doc.id, name);
-                    } catch (_) {
-                      // 改名失败不打断书写；标题下次同步回库内值。
-                    }
-                  },
-                  onNext: () {
-                    _quill.updateSelection(
-                      const TextSelection.collapsed(offset: 0),
-                      q.ChangeSource.local,
-                    );
-                    _focusNode.requestFocus();
-                  },
-                ),
-              ),
-            ),
-          ),
         Expanded(
           child: Stack(
             children: [
@@ -978,111 +991,6 @@ class _SaveIntent extends Intent {
   const _SaveIntent();
 }
 
-/// Notion 式页面大标题：TextField 即改名入口，600ms 防抖入库。
-class _PageTitle extends StatefulWidget {
-  const _PageTitle({
-    required this.docId,
-    required this.title,
-    required this.onRename,
-    required this.onNext,
-  });
-
-  final String docId;
-  final String title;
-  final Future<void> Function(String name) onRename;
-
-  /// Enter → 聚焦正文首行。
-  final VoidCallback onNext;
-
-  @override
-  State<_PageTitle> createState() => _PageTitleState();
-}
-
-class _PageTitleState extends State<_PageTitle> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.title,
-  );
-  final FocusNode _focus = FocusNode();
-  final Debouncer _renameDebounce = Debouncer(
-    const Duration(milliseconds: 600),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _focus.addListener(() {
-      if (!_focus.hasFocus) _renameDebounce.flush(_commit);
-    });
-  }
-
-  @override
-  void didUpdateWidget(covariant _PageTitle oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.docId != widget.docId) {
-      _renameDebounce.cancel();
-      _controller.text = widget.title;
-    } else if (oldWidget.title != widget.title &&
-        !_focus.hasFocus &&
-        _controller.text != widget.title) {
-      // 侧栏重命名等外部变更；输入中（有焦点）不回写，避免打断。
-      _controller.text = widget.title;
-    }
-  }
-
-  @override
-  void dispose() {
-    _renameDebounce.cancel();
-    _controller.dispose();
-    _focus.dispose();
-    super.dispose();
-  }
-
-  void _commit() {
-    final name = _controller.text.trim();
-    if (name.isEmpty || name == widget.title) return;
-    widget.onRename(name);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
-    return TextField(
-      controller: _controller,
-      focusNode: _focus,
-      maxLines: 1,
-      style: TextStyle(
-        fontSize: 32,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.6,
-        height: 1.25,
-        color: colors.onSurface,
-      ),
-      cursorColor: colors.primary,
-      cursorWidth: 2,
-      cursorRadius: const Radius.circular(1),
-      decoration: InputDecoration(
-        isDense: true,
-        border: InputBorder.none,
-        contentPadding: EdgeInsets.zero,
-        hintText: '无标题',
-        hintStyle: TextStyle(
-          fontSize: 32,
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.6,
-          color: appColors.textTertiary,
-        ),
-      ),
-      textInputAction: TextInputAction.done,
-      onChanged: (_) => _renameDebounce.schedule(_commit),
-      onSubmitted: (_) {
-        _renameDebounce.flush(_commit);
-        widget.onNext();
-      },
-    );
-  }
-}
-
 /// 未选择文档的引导空态（编辑器区中央）。
 class _NoDocumentHint extends StatelessWidget {
   const _NoDocumentHint({required this.colors});
@@ -1113,22 +1021,21 @@ class _EditorHeader extends StatelessWidget {
   const _EditorHeader({
     required this.title,
     required this.notebookName,
+    required this.onRename,
+    required this.validateTitle,
     required this.onToggleFocusMode,
   });
 
   final String title;
   final String? notebookName;
+  final Future<void> Function(String name)? onRename;
+  final String? Function(String name)? validateTitle;
   final VoidCallback onToggleFocusMode;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final appColors = appColorsOf(context);
-    final crumb = title.isEmpty
-        ? '未选择文档'
-        : notebookName == null
-        ? title
-        : '$notebookName / $title';
     return GlassSurface(
       color: Theme.of(context).scaffoldBackgroundColor,
       border: Border(bottom: BorderSide(color: colors.outline)),
@@ -1144,18 +1051,42 @@ class _EditorHeader extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                crumb,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: title.isEmpty
-                      ? appColors.textTertiary
-                      : colors.onSurfaceVariant,
-                ),
-              ),
+              child: title.isEmpty
+                  ? Text(
+                      '未选择文档',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: appColors.textTertiary,
+                      ),
+                    )
+                  : Row(
+                      children: [
+                        if (notebookName != null) ...[
+                          Flexible(
+                            child: Text(
+                              notebookName!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            ' / ',
+                            style: TextStyle(color: appColors.textTertiary),
+                          ),
+                        ],
+                        Flexible(
+                          child: _EditableHeaderTitle(
+                            title: title,
+                            onRename: onRename!,
+                            validate: validateTitle!,
+                          ),
+                        ),
+                      ],
+                    ),
             ),
             _HeaderAction(
               onPressed: onToggleFocusMode,
@@ -1164,6 +1095,178 @@ class _EditorHeader extends StatelessWidget {
             ),
             const SizedBox(width: 12),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 顶栏标题：静态展示，点击后原地编辑；Enter/失焦提交，Esc 取消。
+class _EditableHeaderTitle extends StatefulWidget {
+  const _EditableHeaderTitle({
+    required this.title,
+    required this.onRename,
+    required this.validate,
+  });
+
+  final String title;
+  final Future<void> Function(String name) onRename;
+  final String? Function(String name) validate;
+
+  @override
+  State<_EditableHeaderTitle> createState() => _EditableHeaderTitleState();
+}
+
+class _EditableHeaderTitleState extends State<_EditableHeaderTitle> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.title,
+  );
+  final FocusNode _focusNode = FocusNode();
+  bool _editing = false;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(_onFocusChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _EditableHeaderTitle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_editing && oldWidget.title != widget.title) {
+      _controller.text = widget.title;
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusNode
+      ..removeListener(_onFocusChanged)
+      ..dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChanged() {
+    if (_editing && !_focusNode.hasFocus) _finish();
+  }
+
+  void _begin() {
+    _controller
+      ..text = widget.title
+      ..selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: widget.title.length,
+      );
+    setState(() => _editing = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  void _cancel() {
+    _controller.text = widget.title;
+    setState(() => _editing = false);
+  }
+
+  Future<void> _finish() async {
+    if (!_editing || _saving) return;
+    final name = _controller.text.trim();
+    if (name.isEmpty) {
+      _controller.text = widget.title;
+      showZzToast(context, '标题不能为空', error: true);
+      setState(() => _editing = false);
+      return;
+    }
+    final validationError = widget.validate(name);
+    if (validationError != null) {
+      showZzToast(context, validationError, error: true);
+      return;
+    }
+    if (name == widget.title) {
+      setState(() => _editing = false);
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await widget.onRename(name);
+      if (mounted) setState(() => _editing = false);
+    } catch (error) {
+      _controller.text = widget.title;
+      if (mounted) {
+        showZzToast(context, '标题保存失败：$error', error: true);
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    if (!_editing) {
+      return Tooltip(
+        message: '编辑标题',
+        child: InkWell(
+          borderRadius: BorderRadius.circular(4),
+          onTap: _begin,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: Text(
+              widget.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: colors.onSurface,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return Focus(
+      onKeyEvent: (_, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          _cancel();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: SizedBox(
+        height: 28,
+        child: TextField(
+          controller: _controller,
+          focusNode: _focusNode,
+          enabled: !_saving,
+          maxLines: 1,
+          style: TextStyle(fontSize: 13, color: colors.onSurface),
+          cursorColor: colors.primary,
+          cursorWidth: 2,
+          cursorRadius: const Radius.circular(1),
+          decoration: InputDecoration(
+            isDense: true,
+            filled: true,
+            fillColor: appColors.callout,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 5,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(4),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(4),
+              borderSide: BorderSide(color: colors.primary),
+            ),
+          ),
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _finish(),
         ),
       ),
     );

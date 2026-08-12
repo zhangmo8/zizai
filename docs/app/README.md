@@ -102,6 +102,8 @@ lib/
 │  ├─ db.dart                # SQLite 打开、schema、CRUD、迁移链（user_version）
 │  ├─ word_count.dart        # 字数算法（纯函数，输入纯文本）
 │  ├─ export.dart            # 文档 → 纯文本导出
+│  ├─ app_logger.dart        # 本地诊断日志：启动/升级/更新/异常 + 滚动保留
+│  ├─ crash_journal.dart     # 未保存编辑缓冲的崩溃恢复日志
 │  ├─ backup/                # 云备份（见 docs/app/sync.md）
 │  │  ├─ snapshot.dart       # 全量快照导出/恢复导入
 │  │  ├─ s3_store.dart       # R2 直连（SigV4 签名 PUT/GET）

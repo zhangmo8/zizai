@@ -12,7 +12,6 @@ Status: Draft（v4：常驻格式工具栏 + 选区浮动工具栏）
 ├────────────────────────────────────────────────┤
 │                                                │
 │              内容区（最大行宽 720px，居中）       │
-│    标题行直接渲染为标题效果                       │
 │    ▍光标所在行                                  │
 │    加粗/斜体/列表/引用 所见即所得                │
 │                                                │
@@ -35,8 +34,7 @@ Status: Draft（v4：常驻格式工具栏 + 选区浮动工具栏）
 
 | 区域 | 内容 |
 |---|---|
-| 顶栏 | 面包屑「笔记本 / 文档名」（长名省略）、沉浸按钮、设置按钮 |
-| 页面标题 | Notion 式可编辑大标题（32px/W700）：编辑即重命名（600ms 防抖入库，与侧栏双向同步）；`Enter` 聚焦正文首行；沉浸模式隐藏 |
+| 顶栏 | 面包屑「笔记本 / 文档名」（长名省略）；点击文档名后原地编辑，`Enter`/失焦保存、`Esc` 取消；右侧为沉浸按钮 |
 | 内容区 | flutter_quill 编辑器（`QuillEditor`），行宽约束 760px，居中 |
 | 常驻格式工具栏 | 顶栏下方始终可见：撤销/重做、标题 H1–H3、加粗/斜体/下划线/删除线、链接、无序/有序列表、待办清单、引用、行内代码、代码块、清除格式；监听控制器实时高亮光标处格式；沉浸模式隐藏 |
 | 上下文工具栏 | 选中文本时在实际选区上方浮现同款格式按钮（就近操作）；由 `QuillEditorConfig.contextMenuBuilder` 交给 Flutter/Quill 选区锚点定位 |
@@ -99,9 +97,8 @@ Status: Draft（v4：常驻格式工具栏 + 选区浮动工具栏）
 
 ```text
 EditorView
-├─ EditorHeader（breadcrumb / FocusButton / SettingsButton）
+├─ EditorHeader（breadcrumb / EditableTitle / FocusButton）
 ├─ FormatToolbar（常驻格式工具栏：ListenableBuilder ← QuillController）
-├─ PageTitle（可编辑大标题 → renameDocument）
 ├─ ContentArea
 │  └─ QuillEditor
 │     ├─ SelectionOverlay（contextMenuBuilder → FloatingFormatToolbar）
