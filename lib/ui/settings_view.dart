@@ -767,7 +767,8 @@ class _SettingsViewState extends State<SettingsView> {
     }
   }
 
-  /// 检查更新：accent 徽标 + 确认下载 + 进度 + 安装（ui-settings.md 关于区）。
+  /// 检查更新：平时次级按钮；发现新版转 accent 主按钮（徽标语义）；
+  /// 下载中按钮 spinner + 旁侧 4px 细进度条（design.md §5.2/§5.4）。
   Widget _checkUpdateRow() {
     final checker = widget.updateChecker!;
     return ListenableBuilder(
@@ -777,6 +778,7 @@ class _SettingsViewState extends State<SettingsView> {
         checker.progress,
       ]),
       builder: (context, _) {
+        final colors = Theme.of(context).colorScheme;
         final status = checker.status.value;
         final downloading = status == UpdateStatus.downloading;
         final version = checker.availableVersion.value ?? '';
@@ -785,28 +787,48 @@ class _SettingsViewState extends State<SettingsView> {
           UpdateStatus.ready => '安装 v$version',
           _ => '检查更新',
         };
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        // 有待处理的新版本时按钮升为主按钮（accent 高亮），平时保持次级。
+        final highlight = status == UpdateStatus.available ||
+            status == UpdateStatus.ready ||
+            downloading;
+        final busy = downloading || _checkingUpdate;
+        final button = highlight
+            ? ZzButton.primary(
+                label: label,
+                busy: busy,
+                onPressed: busy ? null : _runUpdateCheck,
+              )
+            : ZzButton.secondary(
+                label: label,
+                busy: busy,
+                onPressed: busy ? null : _runUpdateCheck,
+              );
+        return Row(
           children: [
-            Row(
-              children: [
-                ZzButton.primary(
-                  label: label,
-                  busy: downloading || _checkingUpdate,
-                  onPressed: downloading || _checkingUpdate
-                      ? null
-                      : _runUpdateCheck,
+            button,
+            if (downloading) ...[
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 120,
+                child: LinearProgressIndicator(
+                  value: checker.progress.value,
+                  minHeight: 4,
+                  borderRadius: BorderRadius.circular(2),
+                  color: colors.primary,
+                  backgroundColor: colors.onSurface.withValues(alpha: 0.12),
                 ),
-                if (downloading && checker.progress.value != null)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: Text(
-                      '下载中 ${(checker.progress.value! * 100).round()}%',
-                      style: const TextStyle(fontSize: 12),
-                    ),
+              ),
+              if (checker.progress.value != null) ...[
+                const SizedBox(width: 8),
+                Text(
+                  '${(checker.progress.value! * 100).round()}%',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.onSurfaceVariant,
                   ),
+                ),
               ],
-            ),
+            ],
           ],
         );
       },
@@ -873,15 +895,28 @@ class _SettingsViewState extends State<SettingsView> {
     final target = Directory(
       '${widget.updateChecker!.installDir.path}/unpacked',
     );
+    // 先清空旧残留：新旧版本文件混在同一 .app 内会破坏 bundle 结构与签名。
+    if (await target.exists()) {
+      await target.delete(recursive: true);
+    }
     await target.create(recursive: true);
-    await extractFileToDisk(zipPath, target.path);
     if (Platform.isMacOS) {
+      // .app 内含符号链接与可执行位，Dart 侧 extractFileToDisk 解压会全部
+      // 丢失并使签名失效（替换后系统报「已损坏，无法打开」），
+      // 必须用系统 ditto 解压（与 CI 打包 ditto -c -k 对称）。
+      final res = await Process.run('ditto', ['-x', '-k', zipPath, target.path]);
+      if (res.exitCode != 0) {
+        throw UpdateException('解压更新包失败：${res.stderr}');
+      }
       const channel = MethodChannel('dev.zizai/open_path');
       await channel.invokeMethod('openPath', {'path': target.path});
-    } else if (Platform.isWindows) {
-      await Process.run('explorer', [target.path]);
-    } else if (Platform.isLinux) {
-      await Process.run('xdg-open', [target.path]);
+    } else {
+      await extractFileToDisk(zipPath, target.path);
+      if (Platform.isWindows) {
+        await Process.run('explorer', [target.path]);
+      } else if (Platform.isLinux) {
+        await Process.run('xdg-open', [target.path]);
+      }
     }
   }
 
