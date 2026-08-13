@@ -1,10 +1,14 @@
 # Task sync-engine-002 — Dart 同步引擎
 
+> **已被 v2 备份模型取代**：Worker 网关（原 sync-worker-001，任务已移除）与本任务交付的
+> `lib/core/sync/` 增量同步引擎均已删除，现行实现为 R2 直连全量备份
+> （`lib/core/backup/`，设计见 docs/app/sync.md v2）。以下为历史记录。
+
 ```yaml
 id: sync-engine-002
 scope: lib/core/sync
 status: done
-depends-on: [store-001, sync-worker-001]
+depends-on: [store-001]
 ```
 
 ## Objective

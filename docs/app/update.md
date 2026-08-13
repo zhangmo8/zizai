@@ -72,7 +72,7 @@ App 首次启动即可自动检查更新，无需手动配置。
    - Android：下载 APK → FileProvider 触发系统安装（未知来源提示，自用可接受）。
    - 桌面：下载 zip → 解压替换 app 目录（macOS 同时校验 codesign 状态；未签名 app 需「右键打开」首次运行，文档说明）。
 5. 更新后首次启动：若本地 DB schema < `minDbSchema` → 自动执行 §2 迁移链；新功能随迁移解锁。
-6. 安装包由 pkg-006 构建并上传 R2（wrangler/rclone 均可，部署说明见 sync-worker 部署文档）。
+6. 安装包由 pkg-006 构建并上传 R2（wrangler/rclone 均可，R2 凭据与桶配置见 docs/app/sync.md）。
 
 ## 4. 版本一致性约束
 

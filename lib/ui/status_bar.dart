@@ -223,7 +223,12 @@ class _BackupIndicator extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final appColors = appColorsOf(context);
     return ListenableBuilder(
-      listenable: backup,
+      listenable: Listenable.merge([
+        backup,
+        backup.state,
+        backup.lastBackupAt,
+        backup.failureCount,
+      ]),
       builder: (context, _) {
         if (!backup.configured) return const SizedBox.shrink();
         final (icon, text, color) = switch (backup.state.value) {
@@ -241,6 +246,11 @@ class _BackupIndicator extends StatelessWidget {
             Icons.sync_problem_outlined,
             '失败 ${backup.failureCount.value} 次',
             colors.error,
+          ),
+          BackupState.idle when backup.lastBackupAt.value == null => (
+            Icons.cloud_outlined,
+            '未备份',
+            colors.onSurfaceVariant,
           ),
           BackupState.idle => (
             Icons.cloud_done_outlined,

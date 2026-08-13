@@ -12,7 +12,7 @@
 | [ui-editor.md](app/ui-editor.md) | 编辑器布局、自动保存、字数统计、沉浸模式 |
 | [ui-settings.md](app/ui-settings.md) | 设置页布局与设置项 |
 | [style.md](app/style.md) | 视觉风格规范：极简留白、设计 token、字体、动效 |
-| [sync.md](app/sync.md) | 云同步设计：R2 基准、Worker 网关、协议、冲突与安全 |
+| [sync.md](app/sync.md) | 云备份设计：R2 直连（S3 API + SigV4）、全量快照、恢复与安全 |
 | [update.md](app/update.md) | 更新机制与版本体系：App 版本 / DB schema 版本 / 迁移 |
 
 ## 交付计划（docs/plan/）

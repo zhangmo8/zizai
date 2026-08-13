@@ -68,7 +68,7 @@ Drawer（左滑入，覆盖，宽 360px，含遮罩 0.3 黑）
 | 同步状态点 | 全局 | 点击进入设置页同步区；同步失败时悬停显示最近错误 |
 | 启动 | 全局 | 恢复上次文档；无记录则显示空态（ui-sidebar.md） |
 
-同步状态显示规则：`● 已同步`（accent）/ `⟳ 同步中`（text-secondary）/ `⚠ 失败 n 次`（danger）；云同步关闭时不显示该区块。
+同步状态显示规则：`● 已同步`（accent）/ `⟳ 同步中`（text-secondary）/ `⚠ 失败 n 次`（danger）；已配置但本次会话尚未备份 → `☁ 未备份`（text-secondary）；云同步关闭时不显示该区块。
 
 ## State Variants
 
