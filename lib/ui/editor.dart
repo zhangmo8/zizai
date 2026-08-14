@@ -59,6 +59,7 @@ class EditorView extends StatefulWidget {
     this.backup,
     this.toolbarDismissTick,
     this.saveTick,
+    this.findTick,
     this.journal,
     this.logger,
   });
@@ -74,6 +75,9 @@ class EditorView extends StatefulWidget {
 
   /// Ctrl/Cmd+S 立即保存通知（Shell 全局处理）。
   final ValueNotifier<int>? saveTick;
+
+  /// Ctrl/Cmd+F 打开查找通知（Shell 全局拦截，避免落入 Quill 内置搜索框）。
+  final ValueNotifier<int>? findTick;
 
   /// 同步引擎（null = 未接线，如单测）。
   final BackupManager? backup;
@@ -161,6 +165,7 @@ class _EditorViewState extends State<EditorView> {
     widget.library.addListener(_onLibraryChanged);
     widget.toolbarDismissTick?.addListener(_onDismissToolbar);
     widget.saveTick?.addListener(_onSaveTick);
+    widget.findTick?.addListener(_onFindTick);
     // 切换/退出前先保存（防丢）。
     widget.library.beforeSwitchSave = _saveNow;
     _checkRecovery();
@@ -203,6 +208,7 @@ class _EditorViewState extends State<EditorView> {
     _outlineDebounce.cancel();
     widget.toolbarDismissTick?.removeListener(_onDismissToolbar);
     widget.saveTick?.removeListener(_onSaveTick);
+    widget.findTick?.removeListener(_onFindTick);
     if (widget.library.beforeSwitchSave == _saveNow) {
       widget.library.beforeSwitchSave = null;
     }
@@ -739,6 +745,10 @@ class _EditorViewState extends State<EditorView> {
 
   // ── 查找/替换（当前文档范围）──────────────────────────────
 
+  void _onFindTick() {
+    if (widget.library.currentDocument != null) _openFind();
+  }
+
   void _openFind() {
     // 有选中文本时带入作为初始查询（惯例行为）。
     final sel = _quill.selection;
@@ -888,10 +898,10 @@ class _EditorViewState extends State<EditorView> {
         title: const Text('链接'),
         content: SizedBox(
           width: 380,
-          child: TextField(
+          child: ZzTextField(
             controller: input,
+            hint: 'https://…',
             autofocus: true,
-            decoration: const InputDecoration(hintText: 'https://…'),
             onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
           ),
         ),

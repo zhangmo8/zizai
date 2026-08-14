@@ -44,6 +44,7 @@ Future<void> main() async {
   AppLogger? logger;
   try {
     dir = await getApplicationSupportDirectory();
+    await _migrateLegacySandboxData(dir);
     try {
       logger = await AppLogger.create(dir);
       _installGlobalErrorHandlers(logger);
@@ -132,6 +133,29 @@ Future<void> main() async {
       updateChecker: updateChecker,
     ),
   );
+}
+
+/// macOS 去沙盒后的一次性数据迁移：旧版沙盒容器内的库文件搬到标准
+/// Application Support 路径（新路径无 db 且旧容器有 db 才执行）。
+Future<void> _migrateLegacySandboxData(Directory dir) async {
+  if (!Platform.isMacOS) return;
+  final newDb = File('${dir.path}/zi-zai.db');
+  if (await newDb.exists()) return;
+  final home = Platform.environment['HOME'];
+  if (home == null || home.isEmpty) return;
+  final legacyDir = Directory(
+    '$home/Library/Containers/dev.zizai.ziZai/Data'
+    '/Library/Application Support/dev.zizai.ziZai',
+  );
+  if (!await legacyDir.exists()) return;
+  await dir.create(recursive: true);
+  await for (final entity in legacyDir.list()) {
+    final name = entity.uri.pathSegments.lastWhere((s) => s.isNotEmpty);
+    // 只迁库文件及其滚动备份；updates/logs 属可再生数据，不搬。
+    if (entity is File && name.startsWith('zi-zai.db')) {
+      await entity.copy('${dir.path}/$name');
+    }
+  }
 }
 
 void _installGlobalErrorHandlers(AppLogger logger) {

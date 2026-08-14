@@ -908,6 +908,10 @@ class _SettingsViewState extends State<SettingsView> {
       if (res.exitCode != 0) {
         throw UpdateException('解压更新包失败：${res.stderr}');
       }
+      // 下载/解压链路可能给产物打上 com.apple.quarantine（历史沙盒版本必打），
+      // 带隔离属性的 ad-hoc 签名 .app 会被 Gatekeeper 判「已损坏」拒开，
+      // 这里统一剥除；失败不阻塞（非沙盒场景本就无隔离属性）。
+      await Process.run('xattr', ['-dr', 'com.apple.quarantine', target.path]);
       const channel = MethodChannel('dev.zizai/open_path');
       await channel.invokeMethod('openPath', {'path': target.path});
     } else {

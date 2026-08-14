@@ -379,6 +379,7 @@ class ZzTextField extends StatelessWidget {
       enabled: enabled,
       autofocus: autofocus,
       style: TextStyle(fontSize: 13, color: colors.onSurface),
+      textAlignVertical: TextAlignVertical.center,
       cursorColor: colors.primary,
       cursorWidth: 2,
       cursorRadius: const Radius.circular(1),
@@ -388,10 +389,7 @@ class ZzTextField extends StatelessWidget {
         fillColor: appColors.callout,
         hintText: hint,
         hintStyle: TextStyle(fontSize: 13, color: appColors.textTertiary),
-        contentPadding: EdgeInsets.symmetric(
-          horizontal: 8,
-          vertical: compact ? 5 : 8,
-        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
         enabledBorder: OutlineInputBorder(
           borderRadius: radius,
           borderSide: error ? BorderSide(color: colors.error) : BorderSide.none,
@@ -408,7 +406,16 @@ class ZzTextField extends StatelessWidget {
       onSubmitted: onSubmitted,
       onChanged: onChanged,
     );
-    return compact ? SizedBox(height: 28, child: field) : field;
+    // 高度规则（design.md §4：控件 28–32px）：父给有界高度则继承，
+    // 与同行按钮等元素天然对齐；否则回退 compact 28 / 常规 32 定高。
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final height = constraints.hasBoundedHeight
+            ? constraints.maxHeight
+            : (compact ? 28.0 : 32.0);
+        return SizedBox(height: height, child: field);
+      },
+    );
   }
 }
 

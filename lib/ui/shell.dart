@@ -66,6 +66,7 @@ class _ShellState extends State<Shell> {
   /// 通知编辑器立即保存（Ctrl/Cmd+S 全局处理：Windows 下 flutter_quill
   /// 内置 Ctrl+S=codeBlock 会遮蔽编辑器层快捷键，全局 handler 先于其分发）。
   final ValueNotifier<int> _saveTick = ValueNotifier(0);
+  final ValueNotifier<int> _findTick = ValueNotifier(0);
   WidgetsBindingObserver? _lifecycleObserver;
 
   @override
@@ -83,6 +84,7 @@ class _ShellState extends State<Shell> {
     HardwareKeyboard.instance.removeHandler(_onGlobalKey);
     _toolbarDismissTick.dispose();
     _saveTick.dispose();
+    _findTick.dispose();
     if (_lifecycleObserver != null) {
       WidgetsBinding.instance.removeObserver(_lifecycleObserver!);
     }
@@ -104,6 +106,12 @@ class _ShellState extends State<Shell> {
     }
     if (key == LogicalKeyboardKey.keyF && mod && kb.isShiftPressed) {
       setState(() => _focusMode = !_focusMode);
+      return true;
+    }
+    if (key == LogicalKeyboardKey.keyF && mod) {
+      // 必须在此层拦截：焦点在 Quill 编辑器内时，flutter_quill 内置的
+      // Ctrl/Cmd+F 会抢先弹出其自带搜索对话框（未接本地化 → 空白遮罩）。
+      _findTick.value++;
       return true;
     }
     if (key == LogicalKeyboardKey.escape) {
@@ -166,6 +174,7 @@ class _ShellState extends State<Shell> {
               backup: widget.backup,
               toolbarDismissTick: _toolbarDismissTick,
               saveTick: _saveTick,
+              findTick: _findTick,
               journal: widget.journal,
               logger: widget.logger,
             );
