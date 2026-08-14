@@ -3,7 +3,7 @@
 ```yaml
 id: outline-001
 scope: lib/ui + lib/core
-status: pending
+status: done
 depends-on: [integ-005]
 ```
 

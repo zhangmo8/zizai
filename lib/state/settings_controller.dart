@@ -35,6 +35,17 @@ class SettingsController extends ChangeNotifier {
   bool _loaded = false;
   bool get loaded => _loaded;
 
+  /// 大纲面板展开状态（ui-editor.md §大纲面板：状态记忆）。
+  bool _outlineOpen = false;
+  bool get outlineOpen => _outlineOpen;
+
+  Future<void> setOutlineOpen(bool open) async {
+    if (_outlineOpen == open) return;
+    _outlineOpen = open;
+    notifyListeners();
+    await _db.setSetting('outline.open', open.toString());
+  }
+
   /// 库文件路径（设置页「数据」区展示 / 打开目录）。
   String get dbPath => _db.path;
 
@@ -65,6 +76,7 @@ class SettingsController extends ChangeNotifier {
       }
     }
     _notebookGoals = goals;
+    _outlineOpen = values['outline.open'] == 'true';
     _loaded = true;
     notifyListeners();
   }

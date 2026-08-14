@@ -67,6 +67,7 @@ Status: Draft（v2：SQLite + Quill）
 | [snap-001](tasks/snap-001.md) | 本地版本快照（自动留底 + 回滚） | integ-005 | 单测：阈值/滚动上限/回滚往返 |
 | [md-001](tasks/md-001.md) | Markdown 导入（md → Delta + 侧边栏入口） | integ-005 | 单测基准 + widget test 导入链 |
 | [outline-001](tasks/outline-001.md) | 单文档大纲面板（右侧可折叠 + 右缘悬浮） | integ-005 | 单测提取 + widget test 切换/跳转 |
+| [find-001](tasks/find-001.md) | 单章节查找/替换（编辑区浮层 + Ctrl/Cmd+F） | edit-003 | 单测匹配/回绕 + widget test 查找条 |
 
 ## 5. 串行约束
 

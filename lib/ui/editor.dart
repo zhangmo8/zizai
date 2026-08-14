@@ -24,21 +24,29 @@ import '../core/app_logger.dart';
 import '../core/backup/backup.dart';
 import '../core/crash_journal.dart';
 import '../core/export.dart' show emptyDeltaJson, parseDeltaOps;
+import '../core/find.dart';
 import '../core/models.dart' as m;
+import '../core/outline.dart';
 import '../core/word_count.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/debounce.dart';
 import '../util/platform.dart';
+import 'find_bar.dart';
 import 'focus_view.dart';
 import 'glass.dart';
+import 'outline_panel.dart';
 import 'slash_menu.dart';
 import 'status_bar.dart';
 import 'zz.dart';
 
 const int _autoSaveDebounceMs = 1000;
 const int _journalThrottleMs = 500;
+const int _outlineDebounceMs = 300;
 const double _maxContentWidth = 760;
+
+/// 窄窗强制收起大纲常驻面板的窗口宽度阈值（ui-editor.md §大纲面板）。
+const double _outlineMinWindowWidth = 960;
 
 class EditorView extends StatefulWidget {
   const EditorView({
@@ -119,6 +127,23 @@ class _EditorViewState extends State<EditorView> {
   /// 前后是同一个 controller 实例，currentDocument 永远相等）。
   String? _loadedDocumentId;
 
+  // ── 大纲面板状态 ──────────────────────────────────────────
+  final Debouncer _outlineDebounce = Debouncer(
+    const Duration(milliseconds: _outlineDebounceMs),
+  );
+  List<OutlineEntry> _outlineEntries = const [];
+  int _outlineActive = -1;
+
+  /// 收起态右缘热区 hover 唤出的浮层是否可见（仅桌面）。
+  bool _outlineHoverVisible = false;
+
+  // ── 查找/替换状态（当前文档范围）──────────────────────────
+  final GlobalKey<FindBarState> _findBarKey = GlobalKey<FindBarState>();
+  bool _findOpen = false;
+  String _findQuery = '';
+  List<FindMatch> _findMatches = const [];
+  int _findIndex = -1;
+
   @override
   void initState() {
     super.initState();
@@ -139,6 +164,7 @@ class _EditorViewState extends State<EditorView> {
     // 切换/退出前先保存（防丢）。
     widget.library.beforeSwitchSave = _saveNow;
     _checkRecovery();
+    _refreshOutline();
   }
 
   /// 库状态变化 → 当前文档 id 与已装载不一致时重载编辑器内容。
@@ -158,6 +184,8 @@ class _EditorViewState extends State<EditorView> {
       _lastSavedContent = '';
       _pendingWrittenWords = 0;
       _lastObservedWords = 0;
+      _closeFind(refocusEditor: false);
+      _refreshOutline();
     }
   }
 
@@ -172,6 +200,7 @@ class _EditorViewState extends State<EditorView> {
     widget.library.removeListener(_onLibraryChanged);
     _saveDebounce.cancel();
     _journalDebounce.cancel();
+    _outlineDebounce.cancel();
     widget.toolbarDismissTick?.removeListener(_onDismissToolbar);
     widget.saveTick?.removeListener(_onSaveTick);
     if (widget.library.beforeSwitchSave == _saveNow) {
@@ -231,6 +260,8 @@ class _EditorViewState extends State<EditorView> {
     _pendingWrittenWords = 0;
     _lastObservedWords = wordCount(_quill.document.toPlainText());
     widget.library.reportLiveWords(doc.words);
+    _closeFind(refocusEditor: false);
+    _refreshOutline();
   }
 
   // ── 变更 → 字数 / 自动保存 / 崩溃日志 / 斜杠菜单 ────────────
@@ -244,6 +275,8 @@ class _EditorViewState extends State<EditorView> {
     widget.library.reportLiveWords(words);
     _saveDebounce.schedule(_saveNow);
     _journalDebounce.schedule(_writeJournal);
+    _outlineDebounce.schedule(_refreshOutline);
+    if (_findOpen) _recomputeMatches(select: false);
     _handleSlashTrigger(change);
   }
 
@@ -443,6 +476,7 @@ class _EditorViewState extends State<EditorView> {
 
   void _onEditorScrolled() {
     if (_slashOverlay != null) _positionSlash();
+    _updateOutlineActive();
   }
 
   void _refreshSlash() {
@@ -625,6 +659,202 @@ class _EditorViewState extends State<EditorView> {
     }
   }
 
+  // ── 大纲面板 ──────────────────────────────────────────────
+
+  void _refreshOutline() {
+    if (!mounted) return;
+    final entries = extractOutline(_quill.document.toDelta().toJson());
+    if (entries.toString() == _outlineEntries.toString()) {
+      _updateOutlineActive();
+      return;
+    }
+    setState(() {
+      _outlineEntries = entries;
+      _outlineActive = _outlineActive.clamp(-1, entries.length - 1).toInt();
+    });
+    _updateOutlineActive();
+  }
+
+  /// 跟随高亮：视口上 1/3 线以上最近的标题（滚动/光标移动触发）。
+  void _updateOutlineActive() {
+    if (_outlineEntries.isEmpty) {
+      if (_outlineActive != -1) setState(() => _outlineActive = -1);
+      return;
+    }
+    if (!_scroll.hasClients) return;
+    final render = _editorKey.currentState?.renderEditor;
+    if (render == null || !render.attached) return;
+    final threshold =
+        _scroll.offset + _scroll.position.viewportDimension / 3;
+    var active = 0;
+    for (var i = 0; i < _outlineEntries.length; i++) {
+      final rect = render.getLocalRectForCaret(
+        TextPosition(offset: _outlineEntries[i].offset),
+      );
+      if (rect.top <= threshold) {
+        active = i;
+      } else {
+        break;
+      }
+    }
+    if (active != _outlineActive) setState(() => _outlineActive = active);
+  }
+
+  /// 点击跳转：光标至标题行首，标题滚动到视口上 1/3 处。
+  void _jumpToOutline(OutlineEntry entry) {
+    final length = _quill.document.length;
+    final offset = entry.offset.clamp(0, math.max(0, length - 1)).toInt();
+    _quill.updateSelection(
+      TextSelection.collapsed(offset: offset),
+      q.ChangeSource.local,
+    );
+    _revealOffset(offset);
+    _focusNode.requestFocus();
+    setState(() => _outlineHoverVisible = false);
+  }
+
+  /// 把 [offset] 所在行滚动到视口上 1/3 处。
+  void _revealOffset(int offset) {
+    if (!_scroll.hasClients) return;
+    final render = _editorKey.currentState?.renderEditor;
+    if (render == null || !render.attached) return;
+    final rect = render.getLocalRectForCaret(TextPosition(offset: offset));
+    final target = (rect.top - _scroll.position.viewportDimension / 3).clamp(
+      0.0,
+      _scroll.position.maxScrollExtent,
+    );
+    _scroll.animateTo(
+      target,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Future<void> _toggleOutline() async {
+    final next = !widget.settings.outlineOpen;
+    setState(() => _outlineHoverVisible = false);
+    await widget.settings.setOutlineOpen(next);
+    if (mounted) setState(() {});
+  }
+
+  // ── 查找/替换（当前文档范围）──────────────────────────────
+
+  void _openFind() {
+    // 有选中文本时带入作为初始查询（惯例行为）。
+    final sel = _quill.selection;
+    String initial = _findQuery;
+    if (sel.isValid && !sel.isCollapsed) {
+      final selected = _quill.document
+          .toPlainText()
+          .substring(sel.start, math.min(sel.end, sel.start + 64));
+      if (!selected.contains('\n') && selected.trim().isNotEmpty) {
+        initial = selected;
+      }
+    }
+    if (_findOpen) {
+      _findBarKey.currentState?.focusQuery();
+      return;
+    }
+    setState(() {
+      _findOpen = true;
+      _findQuery = initial;
+    });
+    if (initial.isNotEmpty) _recomputeMatches(select: true);
+  }
+
+  void _closeFind({bool refocusEditor = true}) {
+    if (!_findOpen) return;
+    setState(() {
+      _findOpen = false;
+      _findMatches = const [];
+      _findIndex = -1;
+    });
+    if (refocusEditor) _focusNode.requestFocus();
+  }
+
+  void _onFindQueryChanged(String query) {
+    _findQuery = query;
+    _recomputeMatches(select: true);
+  }
+
+  /// 重算匹配。[select] 时选中当前匹配并滚动定位；
+  /// 文档编辑触发的重算只刷新计数，不打断输入。
+  void _recomputeMatches({required bool select}) {
+    final plain = _quill.document.toPlainText();
+    final matches = findMatches(plain, _findQuery);
+    // 尽量停留在原激活匹配附近。
+    final anchor = _findIndex >= 0 && _findIndex < _findMatches.length
+        ? _findMatches[_findIndex].offset
+        : (_quill.selection.isValid ? _quill.selection.start : 0);
+    final index = nextMatchIndex(matches, anchor);
+    setState(() {
+      _findMatches = matches;
+      _findIndex = index;
+    });
+    if (select && index >= 0) _selectMatch(index);
+  }
+
+  void _selectMatch(int index) {
+    if (index < 0 || index >= _findMatches.length) return;
+    final match = _findMatches[index];
+    setState(() => _findIndex = index);
+    _quill.updateSelection(
+      TextSelection(baseOffset: match.offset, extentOffset: match.end),
+      q.ChangeSource.local,
+    );
+    _revealOffset(match.offset);
+  }
+
+  void _findNext() {
+    if (_findMatches.isEmpty) return;
+    _selectMatch((_findIndex + 1) % _findMatches.length);
+  }
+
+  void _findPrev() {
+    if (_findMatches.isEmpty) return;
+    _selectMatch(
+      (_findIndex - 1 + _findMatches.length) % _findMatches.length,
+    );
+  }
+
+  void _replaceCurrent(String replacement) {
+    if (_findIndex < 0 || _findIndex >= _findMatches.length) return;
+    final match = _findMatches[_findIndex];
+    _quill.replaceText(
+      match.offset,
+      match.length,
+      replacement,
+      TextSelection.collapsed(offset: match.offset + replacement.length),
+    );
+    // 文档变更监听已刷新匹配；定位到下一个（偏移承接替换后文本）。
+    final matches = findMatches(_quill.document.toPlainText(), _findQuery);
+    final index = nextMatchIndex(matches, match.offset + replacement.length);
+    setState(() {
+      _findMatches = matches;
+      _findIndex = index;
+    });
+    if (index >= 0) _selectMatch(index);
+  }
+
+  void _replaceAll(String replacement) {
+    final matches = List.of(_findMatches);
+    if (matches.isEmpty) return;
+    // 从后往前替换，前面的偏移不受影响。
+    for (final match in matches.reversed) {
+      _quill.replaceText(
+        match.offset,
+        match.length,
+        replacement,
+        TextSelection.collapsed(offset: match.offset + replacement.length),
+      );
+    }
+    setState(() {
+      _findMatches = const [];
+      _findIndex = -1;
+    });
+    showZzToast(context, '已替换 ${matches.length} 处');
+  }
+
   // ── 链接 ──────────────────────────────────────────────────
 
   static String _normalizeUrl(String url) =>
@@ -713,12 +943,21 @@ class _EditorViewState extends State<EditorView> {
         // Ctrl/Cmd+S 立即保存（ui-editor.md Interactions）。
         SingleActivator(LogicalKeyboardKey.keyS, meta: meta, control: !meta):
             _SaveIntent(),
+        // Ctrl/Cmd+F 查找/替换（当前文档）。
+        SingleActivator(LogicalKeyboardKey.keyF, meta: meta, control: !meta):
+            _FindIntent(),
       },
       child: Actions(
         actions: {
           _SaveIntent: CallbackAction(
             onInvoke: (_) {
               _saveNow();
+              return true;
+            },
+          ),
+          _FindIntent: CallbackAction(
+            onInvoke: (_) {
+              if (doc != null) _openFind();
               return true;
             },
           ),
@@ -770,6 +1009,9 @@ class _EditorViewState extends State<EditorView> {
                         return duplicate ? '同名章节已存在' : null;
                       },
                 onToggleFocusMode: widget.onToggleFocusMode,
+                onOpenFind: doc == null ? null : _openFind,
+                outlineOpen: widget.settings.outlineOpen,
+                onToggleOutline: doc == null ? null : _toggleOutline,
               ),
               // 常驻格式工具栏：字体样式始终可见，不随选区隐藏。
               _FormatToolbar(
@@ -867,34 +1109,113 @@ class _EditorViewState extends State<EditorView> {
         ),
       ),
     );
-    return Column(
+    final windowWidth = MediaQuery.sizeOf(context).width;
+    // 常驻面板：展开 + 非沉浸 + 窗口足够宽；否则（桌面）右缘热区悬浮。
+    final showDockedOutline =
+        hasDoc &&
+        !focusMode &&
+        widget.settings.outlineOpen &&
+        windowWidth >= _outlineMinWindowWidth;
+    final hoverOutlineAvailable =
+        hasDoc && isDesktopPlatform && !showDockedOutline;
+    final appColors = appColorsOf(context);
+    final editorStack = Stack(
       children: [
-        Expanded(
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      maxWidth: _maxContentWidth,
-                    ),
-                    child: editor,
-                  ),
-                ),
-              ),
-              // 未选择文档：编辑器保持挂载（占位空态），上面盖引导提示。
-              if (!hasDoc)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: ColoredBox(
-                      color: Theme.of(context).scaffoldBackgroundColor,
-                      child: _NoDocumentHint(colors: colors),
-                    ),
-                  ),
-                ),
-            ],
+        Positioned.fill(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: _maxContentWidth),
+              child: editor,
+            ),
           ),
         ),
+        // 未选择文档：编辑器保持挂载（占位空态），上面盖引导提示。
+        if (!hasDoc)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ColoredBox(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                child: _NoDocumentHint(colors: colors),
+              ),
+            ),
+          ),
+        // 查找/替换条：编辑区右上角浮层。
+        if (_findOpen && hasDoc && !focusMode)
+          Positioned(
+            top: 10,
+            right: 14,
+            child: Focus(
+              onKeyEvent: (_, event) {
+                if (event is KeyDownEvent &&
+                    event.logicalKey == LogicalKeyboardKey.escape) {
+                  _closeFind();
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: FindBar(
+                key: _findBarKey,
+                initialQuery: _findQuery,
+                matchCount: _findMatches.length,
+                currentIndex: _findIndex,
+                onQueryChanged: _onFindQueryChanged,
+                onNext: _findNext,
+                onPrev: _findPrev,
+                onReplace: _replaceCurrent,
+                onReplaceAll: _replaceAll,
+                onClose: _closeFind,
+              ),
+            ),
+          ),
+        // 收起态右缘 8px 热区：hover 唤出大纲浮层（不拦截编辑区滚动）。
+        if (hoverOutlineAvailable && !_outlineHoverVisible)
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: 8,
+            child: MouseRegion(
+              opaque: false,
+              onEnter: (_) => setState(() => _outlineHoverVisible = true),
+            ),
+          ),
+        if (hoverOutlineAvailable && _outlineHoverVisible)
+          Positioned(
+            right: 0,
+            top: 8,
+            bottom: 8,
+            child: MouseRegion(
+              onExit: (_) => setState(() => _outlineHoverVisible = false),
+              child: GlassSurface(
+                radius: 8,
+                shadow: true,
+                color: appColors.surfaceRaised,
+                border: Border.all(color: colors.outline),
+                child: OutlinePanel(
+                  entries: _outlineEntries,
+                  activeIndex: _outlineActive,
+                  onJump: _jumpToOutline,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(child: editorStack),
+        if (showDockedOutline)
+          DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(left: BorderSide(color: colors.outline)),
+            ),
+            child: OutlinePanel(
+              entries: _outlineEntries,
+              activeIndex: _outlineActive,
+              onJump: _jumpToOutline,
+            ),
+          ),
       ],
     );
   }
@@ -991,6 +1312,11 @@ class _SaveIntent extends Intent {
   const _SaveIntent();
 }
 
+/// 查找意图（Ctrl/Cmd+F）。
+class _FindIntent extends Intent {
+  const _FindIntent();
+}
+
 /// 未选择文档的引导空态（编辑器区中央）。
 class _NoDocumentHint extends StatelessWidget {
   const _NoDocumentHint({required this.colors});
@@ -1024,6 +1350,9 @@ class _EditorHeader extends StatelessWidget {
     required this.onRename,
     required this.validateTitle,
     required this.onToggleFocusMode,
+    this.onOpenFind,
+    this.outlineOpen = false,
+    this.onToggleOutline,
   });
 
   final String title;
@@ -1031,6 +1360,9 @@ class _EditorHeader extends StatelessWidget {
   final Future<void> Function(String name)? onRename;
   final String? Function(String name)? validateTitle;
   final VoidCallback onToggleFocusMode;
+  final VoidCallback? onOpenFind;
+  final bool outlineOpen;
+  final VoidCallback? onToggleOutline;
 
   @override
   Widget build(BuildContext context) {
@@ -1088,6 +1420,22 @@ class _EditorHeader extends StatelessWidget {
                       ],
                     ),
             ),
+            if (onOpenFind != null)
+              _HeaderAction(
+                onPressed: onOpenFind!,
+                tooltip: '查找/替换 (${isMacOS ? '⌘' : 'Ctrl'}+F)',
+                icon: Icons.search,
+              ),
+            if (onToggleOutline != null) ...[
+              const SizedBox(width: 2),
+              _HeaderAction(
+                onPressed: onToggleOutline!,
+                tooltip: outlineOpen ? '收起大纲' : '展开大纲',
+                icon: Icons.toc,
+                active: outlineOpen,
+              ),
+            ],
+            const SizedBox(width: 2),
             _HeaderAction(
               onPressed: onToggleFocusMode,
               tooltip: '沉浸模式 (${isMacOS ? '⌘' : 'Ctrl'}+Shift+F)',
@@ -1278,11 +1626,15 @@ class _HeaderAction extends StatefulWidget {
     required this.onPressed,
     required this.tooltip,
     required this.icon,
+    this.active = false,
   });
 
   final VoidCallback onPressed;
   final String tooltip;
   final IconData icon;
+
+  /// 常亮态（如大纲面板展开时的入口 icon）。
+  final bool active;
 
   @override
   State<_HeaderAction> createState() => _HeaderActionState();
@@ -1309,10 +1661,18 @@ class _HeaderActionState extends State<_HeaderAction> {
             height: 28,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: _hover ? appColors.surfaceHover : Colors.transparent,
+              color: _hover
+                  ? appColors.surfaceHover
+                  : widget.active
+                  ? appColors.rowSelected
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(4),
             ),
-            child: Icon(widget.icon, size: 16, color: colors.onSurfaceVariant),
+            child: Icon(
+              widget.icon,
+              size: 16,
+              color: widget.active ? colors.onSurface : colors.onSurfaceVariant,
+            ),
           ),
         ),
       ),
