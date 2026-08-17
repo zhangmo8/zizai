@@ -101,7 +101,9 @@ lib/
 │  ├─ models.dart            # Notebook / Document / Settings 数据类
 │  ├─ db.dart                # SQLite 打开、schema、CRUD、迁移链（user_version）
 │  ├─ word_count.dart        # 字数算法（纯函数，输入纯文本）
-│  ├─ export.dart            # 文档 → 纯文本导出
+│  ├─ export.dart            # 文档/整书 → 纯文本、Markdown 导出（含章节编号/排版选项）
+│  ├─ snapshot_history.dart  # 单文档版本历史：本地 JSON 留底 + 自动留底策略
+│  ├─ book_search.dart       # 全书搜索：跨章节纯文本匹配，按章节分组
 │  ├─ app_logger.dart        # 本地诊断日志：启动/升级/更新/异常 + 滚动保留
 │  ├─ crash_journal.dart     # 未保存编辑缓冲的崩溃恢复日志
 │  ├─ backup/                # 云备份（见 docs/app/sync.md）
@@ -118,6 +120,9 @@ lib/
 │  ├─ editor.dart            # Quill 编辑器 + 上下文工具栏 + 自动保存
 │  ├─ status_bar.dart        # 字数/目标/备份状态
 │  ├─ focus_view.dart        # 沉浸模式包装
+│  ├─ snapshot_panel.dart    # 版本历史对话框（列表 + 预览 + 回滚）
+│  ├─ book_search_dialog.dart# 全书搜索对话框（分组结果 + 跳转）
+│  ├─ export_dialog.dart     # 整书导出选项对话框
 │  └─ settings_view.dart     # 设置页/对话框（含备份区、关于区）
 └─ util/
    ├─ debounce.dart          # 防抖

@@ -12,11 +12,14 @@ import 'package:flutter/services.dart';
 import '../app.dart' show appColorsOf;
 import '../core/backup/backup.dart';
 import '../core/app_logger.dart';
+import '../core/book_search.dart';
 import '../core/crash_journal.dart';
+import '../core/snapshot_history.dart';
 import '../core/update.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/platform.dart';
+import 'book_search_dialog.dart';
 import 'editor.dart';
 import 'glass.dart';
 import 'settings_view.dart';
@@ -35,6 +38,7 @@ class Shell extends StatefulWidget {
     this.logger,
     this.backup,
     this.updateChecker,
+    this.snapshots,
   });
 
   final LibraryController library;
@@ -52,6 +56,9 @@ class Shell extends StatefulWidget {
   /// 更新检查（null = 未接线，如测试）。
   final UpdateChecker? updateChecker;
 
+  /// 单文档版本历史（null = 未接线，如测试）。
+  final SnapshotHistory? snapshots;
+
   @override
   State<Shell> createState() => _ShellState();
 }
@@ -67,6 +74,10 @@ class _ShellState extends State<Shell> {
   /// 内置 Ctrl+S=codeBlock 会遮蔽编辑器层快捷键，全局 handler 先于其分发）。
   final ValueNotifier<int> _saveTick = ValueNotifier(0);
   final ValueNotifier<int> _findTick = ValueNotifier(0);
+
+  /// 全书搜索命中 → 编辑器定位请求（editor 消费后清空）。
+  final ValueNotifier<EditorJumpRequest?> _jumpRequest = ValueNotifier(null);
+  bool _bookSearchOpen = false;
   WidgetsBindingObserver? _lifecycleObserver;
 
   @override
@@ -85,6 +96,7 @@ class _ShellState extends State<Shell> {
     _toolbarDismissTick.dispose();
     _saveTick.dispose();
     _findTick.dispose();
+    _jumpRequest.dispose();
     if (_lifecycleObserver != null) {
       WidgetsBinding.instance.removeObserver(_lifecycleObserver!);
     }
@@ -114,6 +126,11 @@ class _ShellState extends State<Shell> {
       _findTick.value++;
       return true;
     }
+    if (key == LogicalKeyboardKey.keyP && mod) {
+      // 沉浸模式保持无打扰：吞掉但不弹（Cmd+P 无系统默认行为）。
+      if (!_focusMode) _openBookSearch();
+      return true;
+    }
     if (key == LogicalKeyboardKey.escape) {
       if (_focusMode) {
         setState(() => _focusMode = false);
@@ -124,6 +141,33 @@ class _ShellState extends State<Shell> {
       return false;
     }
     return false;
+  }
+
+  /// 全书搜索：命中点击 → 下发跳转请求，必要时切换文档。
+  ///
+  /// 切换文档会因 EditorView 的 key 换新编辑器实例，请求须在切换前就位，
+  /// 由新实例 initState 消费；同文档跳转则由现编辑器的 listener 消费。
+  Future<void> _openBookSearch() async {
+    if (_bookSearchOpen) return;
+    _bookSearchOpen = true;
+    try {
+      await showBookSearchDialog(
+        context,
+        library: widget.library,
+        onOpen: (BookSearchHit hit) async {
+          _jumpRequest.value = EditorJumpRequest(
+            documentId: hit.documentId,
+            offset: hit.offset,
+            length: hit.length,
+          );
+          if (widget.library.currentDocument?.id != hit.documentId) {
+            await widget.library.switchDocument(hit.documentId);
+          }
+        },
+      );
+    } finally {
+      _bookSearchOpen = false;
+    }
   }
 
   /// 设置的唯一打开出口：侧边栏底部、状态栏的定向入口共用。
@@ -177,10 +221,13 @@ class _ShellState extends State<Shell> {
               findTick: _findTick,
               journal: widget.journal,
               logger: widget.logger,
+              snapshots: widget.snapshots,
+              jumpRequest: _jumpRequest,
             );
             final sidebar = Sidebar(
               library: widget.library,
               onOpenSettings: _openSettings,
+              onOpenBookSearch: _openBookSearch,
             );
             if (desktop) {
               // 桌面形态无 Scaffold，需显式 Material 祖先；Notion 风格为固定

@@ -61,3 +61,176 @@ String deltaToPlainText(String deltaJson) {
 
 /// 文档 → 纯文本（导出 .txt / 分享用）。
 String exportPlainText(Document document) => deltaToPlainText(document.content);
+
+// ── 整书导出（docs/app/ui-settings.md §导出）─────────────────
+
+/// 整书导出格式选项。
+class BookExportOptions {
+  const BookExportOptions({
+    this.numberChapters = true,
+    this.indentParagraphs = false,
+    this.blankLineBetweenParagraphs = true,
+  });
+
+  /// 章节标题加「第 X 章」前缀（全书连续编号；标题已带编号则不重复加）。
+  final bool numberChapters;
+
+  /// 每段段首加两个全角空格（投稿纯文本惯例；Markdown 导出不适用）。
+  final bool indentParagraphs;
+
+  /// 段落之间空一行。
+  final bool blankLineBetweenParagraphs;
+}
+
+/// 每章一文件导出的单个产物。
+class BookExportFile {
+  const BookExportFile({required this.fileName, required this.content});
+
+  final String fileName;
+  final String content;
+}
+
+/// 标题是否已带「第 X 章/回/节/卷」式编号。
+final RegExp _numberedTitle = RegExp(
+  r'^\s*第\s*[0-9０-９一二三四五六七八九十百千万零两]+\s*[章回节卷]',
+);
+
+/// 章节标题（去掉旧版遗留的 .md 扩展名）；[number] 为全书连续序号，
+/// null 或标题已带编号时原样返回。
+String chapterHeading(String title, {int? number}) {
+  var text = title.trim();
+  if (text.endsWith('.md')) {
+    text = text.substring(0, text.length - 3).trimRight();
+  }
+  if (text.isEmpty) text = '未命名';
+  if (number == null || _numberedTitle.hasMatch(text)) return text;
+  return '第 $number 章 $text';
+}
+
+/// 正文按段落重排：过滤空行，按选项加段首缩进/段间空行。
+String _formatBody(String plain, BookExportOptions options) {
+  final paragraphs = plain
+      .split('\n')
+      .map((line) => line.trimRight())
+      .where((line) => line.trim().isNotEmpty)
+      .map(
+        (line) => options.indentParagraphs && !line.startsWith('　')
+            ? '　　${line.trimLeft()}'
+            : line,
+      )
+      .toList();
+  return paragraphs.join(options.blankLineBetweenParagraphs ? '\n\n' : '\n');
+}
+
+List<Document> _inNotebookOrder(List<Document> documents, String notebookId) =>
+    [for (final doc in documents) if (doc.notebookId == notebookId) doc];
+
+/// 整书 → 单个纯文本（投稿/归档）。章节顺序严格沿用侧边栏顺序；
+/// 多笔记本（卷）时输出卷名分隔，单笔记本时直接从章节开始。
+String exportBookPlainText(
+  List<Notebook> notebooks,
+  List<Document> documents, {
+  BookExportOptions options = const BookExportOptions(),
+}) {
+  final out = StringBuffer();
+  var chapter = 0;
+  for (final notebook in notebooks) {
+    if (notebooks.length > 1) {
+      if (out.isNotEmpty) out.writeln();
+      out.writeln(notebook.name.trim());
+      out.writeln();
+    }
+    for (final doc in _inNotebookOrder(documents, notebook.id)) {
+      chapter += 1;
+      if (out.isNotEmpty) out.writeln();
+      out.writeln(
+        chapterHeading(doc.title, number: options.numberChapters ? chapter : null),
+      );
+      out.writeln();
+      final body = _formatBody(exportPlainText(doc), options);
+      if (body.isNotEmpty) out.writeln(body);
+    }
+  }
+  final text = out.toString().trimRight();
+  return text.isEmpty ? '' : '$text\n';
+}
+
+/// 整书 → 单个 Markdown（卷 = `#`，章 = `##`；单卷时章为 `#`）。
+String exportBookMarkdown(
+  List<Notebook> notebooks,
+  List<Document> documents, {
+  BookExportOptions options = const BookExportOptions(),
+}) {
+  final markdownOptions = BookExportOptions(
+    numberChapters: options.numberChapters,
+    // Markdown 段首缩进无意义（渲染器折叠行首空白），恒关。
+    indentParagraphs: false,
+    blankLineBetweenParagraphs: true,
+  );
+  final out = StringBuffer();
+  final multiVolume = notebooks.length > 1;
+  var chapter = 0;
+  for (final notebook in notebooks) {
+    if (multiVolume) {
+      if (out.isNotEmpty) out.writeln();
+      out.writeln('# ${notebook.name.trim()}');
+      out.writeln();
+    }
+    for (final doc in _inNotebookOrder(documents, notebook.id)) {
+      chapter += 1;
+      if (out.isNotEmpty) out.writeln();
+      final heading = chapterHeading(
+        doc.title,
+        number: options.numberChapters ? chapter : null,
+      );
+      out.writeln('${multiVolume ? '##' : '#'} $heading');
+      out.writeln();
+      final body = _formatBody(exportPlainText(doc), markdownOptions);
+      if (body.isNotEmpty) out.writeln(body);
+    }
+  }
+  final text = out.toString().trimRight();
+  return text.isEmpty ? '' : '$text\n';
+}
+
+/// 整书 → 每章一个 Markdown 文件。文件名 `001 第 1 章 标题.md` 式，
+/// 保证目录内按章节顺序排列；非法文件名字符替换为空格。
+List<BookExportFile> exportBookMarkdownFiles(
+  List<Notebook> notebooks,
+  List<Document> documents, {
+  BookExportOptions options = const BookExportOptions(),
+}) {
+  final files = <BookExportFile>[];
+  var chapter = 0;
+  for (final notebook in notebooks) {
+    for (final doc in _inNotebookOrder(documents, notebook.id)) {
+      chapter += 1;
+      final heading = chapterHeading(
+        doc.title,
+        number: options.numberChapters ? chapter : null,
+      );
+      final out = StringBuffer()
+        ..writeln('# $heading')
+        ..writeln();
+      final body = _formatBody(exportPlainText(doc), options);
+      if (body.isNotEmpty) out.writeln(body);
+      final order = chapter.toString().padLeft(3, '0');
+      files.add(
+        BookExportFile(
+          fileName: '$order ${safeFileName(heading)}.md',
+          content: '${out.toString().trimRight()}\n',
+        ),
+      );
+    }
+  }
+  return files;
+}
+
+/// 文件名安全化：替换路径分隔与平台保留字符，压缩连续空白。
+String safeFileName(String name) {
+  final cleaned = name
+      .replaceAll(RegExp(r'[\\/:*?"<>|]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  return cleaned.isEmpty ? '未命名' : cleaned;
+}

@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'core/backup/backup.dart';
 import 'core/app_logger.dart';
 import 'core/crash_journal.dart';
+import 'core/snapshot_history.dart';
 import 'core/update.dart';
 import 'state/library_controller.dart';
 import 'state/settings_controller.dart';
@@ -289,6 +290,7 @@ class ZiZaiApp extends StatelessWidget {
     this.logger,
     this.backup,
     this.updateChecker,
+    this.snapshots,
   });
 
   final LibraryController library;
@@ -305,6 +307,9 @@ class ZiZaiApp extends StatelessWidget {
 
   /// 更新检查（null = 未接线，如测试）。
   final UpdateChecker? updateChecker;
+
+  /// 单文档版本历史（null = 未接线，如测试）。
+  final SnapshotHistory? snapshots;
 
   @override
   Widget build(BuildContext context) {
@@ -324,6 +329,7 @@ class ZiZaiApp extends StatelessWidget {
             logger: logger,
             backup: backup,
             updateChecker: updateChecker,
+            snapshots: snapshots,
           ),
         );
       },

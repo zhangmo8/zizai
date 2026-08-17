@@ -23,6 +23,7 @@ import '../core/update.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/platform.dart';
+import 'export_dialog.dart';
 import 'zz.dart';
 
 /// 常见中文字体候选（「系统默认」= 空串）。跨端一致的字体枚举无官方 API，
@@ -428,7 +429,14 @@ class _SettingsViewState extends State<SettingsView> {
       ),
       _SettingsGroup(
         label: '导出',
-        children: [_row('当前文档', _exportRow(), description: '导出为纯文本文件')],
+        children: [
+          _row('当前文档', _exportRow(), description: '导出为纯文本文件'),
+          _row(
+            '整本书',
+            _bookExportRow(),
+            description: '合并 TXT / Markdown / 每章一个文件，可选章节编号与排版',
+          ),
+        ],
       ),
     ],
   );
@@ -982,6 +990,26 @@ class _SettingsViewState extends State<SettingsView> {
           onPressed: _exporting ? null : _export,
         ),
       ],
+    );
+  }
+
+  Widget _bookExportRow() {
+    final hasChapters = widget.library.notebooks.any(
+      (nb) => widget.library.documentsOf(nb.id).isNotEmpty,
+    );
+    if (!hasChapters) {
+      return Text(
+        '还没有章节',
+        style: TextStyle(
+          fontSize: 13,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      );
+    }
+    return ZzButton.primary(
+      label: '导出全书…',
+      onPressed: () =>
+          showBookExportDialog(context, library: widget.library),
     );
   }
 }

@@ -27,6 +27,7 @@ import '../core/export.dart' show emptyDeltaJson, parseDeltaOps;
 import '../core/find.dart';
 import '../core/models.dart' as m;
 import '../core/outline.dart';
+import '../core/snapshot_history.dart';
 import '../core/word_count.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
@@ -37,6 +38,7 @@ import 'focus_view.dart';
 import 'glass.dart';
 import 'outline_panel.dart';
 import 'slash_menu.dart';
+import 'snapshot_panel.dart';
 import 'status_bar.dart';
 import 'zz.dart';
 
@@ -47,6 +49,19 @@ const double _maxContentWidth = 760;
 
 /// 窄窗强制收起大纲常驻面板的窗口宽度阈值（ui-editor.md §大纲面板）。
 const double _outlineMinWindowWidth = 960;
+
+/// 全书搜索点击命中后的跳转请求（Shell 下发；编辑器装载目标文档后消费）。
+class EditorJumpRequest {
+  const EditorJumpRequest({
+    required this.documentId,
+    required this.offset,
+    required this.length,
+  });
+
+  final String documentId;
+  final int offset;
+  final int length;
+}
 
 class EditorView extends StatefulWidget {
   const EditorView({
@@ -62,6 +77,8 @@ class EditorView extends StatefulWidget {
     this.findTick,
     this.journal,
     this.logger,
+    this.snapshots,
+    this.jumpRequest,
   });
 
   final LibraryController library;
@@ -87,6 +104,12 @@ class EditorView extends StatefulWidget {
 
   /// 本地诊断日志（null = 未接线，如测试）。
   final AppLogger? logger;
+
+  /// 单文档版本历史（null = 未接线，如测试；顶栏隐藏入口且不自动留底）。
+  final SnapshotHistory? snapshots;
+
+  /// 全书搜索跳转请求（null = 未接线）。编辑器消费后置回 null。
+  final ValueNotifier<EditorJumpRequest?>? jumpRequest;
 
   @override
   State<EditorView> createState() => _EditorViewState();
@@ -166,10 +189,15 @@ class _EditorViewState extends State<EditorView> {
     widget.toolbarDismissTick?.addListener(_onDismissToolbar);
     widget.saveTick?.addListener(_onSaveTick);
     widget.findTick?.addListener(_onFindTick);
+    widget.jumpRequest?.addListener(_onJumpRequest);
     // 切换/退出前先保存（防丢）。
     widget.library.beforeSwitchSave = _saveNow;
     _checkRecovery();
     _refreshOutline();
+    // 全书搜索切换文档后：新编辑器实例装载完成，消费待跳转（需等首帧布局）。
+    if (widget.jumpRequest?.value != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _consumeJump());
+    }
   }
 
   /// 库状态变化 → 当前文档 id 与已装载不一致时重载编辑器内容。
@@ -195,6 +223,17 @@ class _EditorViewState extends State<EditorView> {
   }
 
   @override
+  void didUpdateWidget(covariant EditorView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 从沉浸退出（Esc / 悬浮工具栏 / Android 返回）后把焦点交还编辑器。
+    if (oldWidget.focusMode && !widget.focusMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focusNode.requestFocus();
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _closeSlash();
     _changesSub?.cancel();
@@ -209,6 +248,7 @@ class _EditorViewState extends State<EditorView> {
     widget.toolbarDismissTick?.removeListener(_onDismissToolbar);
     widget.saveTick?.removeListener(_onSaveTick);
     widget.findTick?.removeListener(_onFindTick);
+    widget.jumpRequest?.removeListener(_onJumpRequest);
     if (widget.library.beforeSwitchSave == _saveNow) {
       widget.library.beforeSwitchSave = null;
     }
@@ -293,6 +333,9 @@ class _EditorViewState extends State<EditorView> {
   }
 
   /// 保存当前缓冲：成功清崩溃日志 + 闪「已保存」；失败保留缓冲 + 错误条。
+  ///
+  /// 入口到 `_saveInFlight` 赋值之间不得有 await：Cmd+S 会经全局 handler
+  /// 与编辑器 Shortcuts 两条路径各触发一次，靠该同步窗口串行化去重。
   Future<void> _saveNow() async {
     final activeSave = _saveInFlight;
     if (activeSave != null) await activeSave;
@@ -305,10 +348,10 @@ class _EditorViewState extends State<EditorView> {
     if (content == _lastSavedContent && writtenWords == 0) return;
 
     final operation = _performSave(
-      documentId: documentId,
-      title: cur.title,
+      previous: cur,
       content: content,
       writtenWords: writtenWords,
+      nextWords: _lastObservedWords,
     );
     _saveInFlight = operation;
     try {
@@ -319,15 +362,30 @@ class _EditorViewState extends State<EditorView> {
   }
 
   Future<void> _performSave({
-    required String documentId,
-    required String title,
+    required m.Document previous,
     required String content,
     required int writtenWords,
+    required int nextWords,
   }) async {
+    final documentId = previous.id;
+    // 写库前自动留底（基线/大删除/超时间隔，见 SnapshotPolicy）：快照的是
+    // 库中旧内容，大段误删后可从版本历史找回。失败只记日志，不阻塞保存。
+    final snapshots = widget.snapshots;
+    if (snapshots != null && content != previous.content) {
+      try {
+        await snapshots.maybeAutoSnapshot(previous, nextWords: nextWords);
+      } catch (error, stackTrace) {
+        await widget.logger?.warning(
+          'snapshot.auto.failed',
+          message: error.toString(),
+          data: {'stackTrace': stackTrace.toString()},
+        );
+      }
+    }
     try {
       await widget.library.saveDocument(
         documentId: documentId,
-        title: title,
+        title: previous.title,
         content: content,
         writtenWords: writtenWords,
       );
@@ -389,6 +447,84 @@ class _EditorViewState extends State<EditorView> {
   void _dismissRecovery() {
     setState(() => _pendingRecover = null);
     widget.journal?.clear();
+  }
+
+  // ── 版本历史（ui-editor.md §版本历史）─────────────────────
+
+  /// 顶栏入口：先 flush 缓冲，保证历史列表与预览基于屏幕所见内容。
+  Future<void> _showHistory() async {
+    final snapshots = widget.snapshots;
+    if (snapshots == null) return;
+    await _saveNow();
+    final doc = widget.library.currentDocument;
+    if (doc == null || doc.id != _loadedDocumentId || !mounted) return;
+    await showSnapshotHistory(
+      context,
+      history: snapshots,
+      document: doc,
+      onRestore: _restoreSnapshot,
+    );
+  }
+
+  /// 回滚：当前内容先留底，再写库并就地重载编辑器。
+  ///
+  /// 必须显式重载：文档 id 未变，`_onLibraryChanged` 不会触发装载，
+  /// 否则编辑器旧缓冲会在下次自动保存时把回滚结果覆盖回去。
+  Future<bool> _restoreSnapshot(DocumentSnapshot snapshot) async {
+    final snapshots = widget.snapshots;
+    final documentId = _loadedDocumentId;
+    final cur = widget.library.currentDocument;
+    if (snapshots == null ||
+        cur == null ||
+        documentId == null ||
+        cur.id != documentId ||
+        snapshot.documentId != documentId) {
+      return false;
+    }
+    try {
+      await snapshots.create(cur);
+      await widget.library.saveDocument(
+        documentId: documentId,
+        title: cur.title,
+        content: snapshot.content,
+        writtenWords: 0,
+      );
+      final restored = widget.library.currentDocument;
+      if (!mounted || restored == null || restored.id != documentId) {
+        return true;
+      }
+      _loadDocument(restored);
+      showZzToast(context, '已回滚，之前的内容仍在版本历史里');
+      return true;
+    } catch (error, stackTrace) {
+      await widget.logger?.error('snapshot.restore.failed', error, stackTrace);
+      if (mounted) showZzToast(context, '回滚失败，请重试', error: true);
+      return false;
+    }
+  }
+
+  // ── 全书搜索跳转（ui-sidebar.md §全书搜索）────────────────
+
+  void _onJumpRequest() => _consumeJump();
+
+  /// 目标文档已装载时选中命中词并滚动定位；消费后清空请求。
+  void _consumeJump() {
+    final notifier = widget.jumpRequest;
+    final request = notifier?.value;
+    if (notifier == null || request == null || !mounted) return;
+    if (request.documentId != _loadedDocumentId) return;
+    notifier.value = null;
+    final length = _quill.document.length;
+    final start = request.offset.clamp(0, math.max(0, length - 1)).toInt();
+    final end = (request.offset + request.length)
+        .clamp(start, math.max(start, length - 1))
+        .toInt();
+    _quill.updateSelection(
+      TextSelection(baseOffset: start, extentOffset: end),
+      q.ChangeSource.local,
+    );
+    _revealOffset(start);
+    _focusNode.requestFocus();
   }
 
   // ── Markdown 快捷语法（行首触发词 + 空格 → 块格式）──────────
@@ -1020,6 +1156,9 @@ class _EditorViewState extends State<EditorView> {
                       },
                 onToggleFocusMode: widget.onToggleFocusMode,
                 onOpenFind: doc == null ? null : _openFind,
+                onShowHistory: doc == null || widget.snapshots == null
+                    ? null
+                    : _showHistory,
                 outlineOpen: widget.settings.outlineOpen,
                 onToggleOutline: doc == null ? null : _toggleOutline,
               ),
@@ -1175,6 +1314,19 @@ class _EditorViewState extends State<EditorView> {
                 onReplaceAll: _replaceAll,
                 onClose: _closeFind,
               ),
+            ),
+          ),
+        // 沉浸模式（桌面）：顶部浮出精简悬浮工具栏（前置退出按钮 + 核心格式）。
+        // Android 走 FocusView 的顶部热区 + 系统返回，不叠加此条。
+        if (focusMode && hasDoc && !isAndroidPlatform)
+          Positioned(
+            top: 16,
+            left: 0,
+            right: 0,
+            child: _FocusToolbar(
+              quill: _quill,
+              onLink: _promptLink,
+              onExit: widget.onToggleFocusMode,
             ),
           ),
         // 收起态右缘 8px 热区：hover 唤出大纲浮层（不拦截编辑区滚动）。
@@ -1361,6 +1513,7 @@ class _EditorHeader extends StatelessWidget {
     required this.validateTitle,
     required this.onToggleFocusMode,
     this.onOpenFind,
+    this.onShowHistory,
     this.outlineOpen = false,
     this.onToggleOutline,
   });
@@ -1371,6 +1524,7 @@ class _EditorHeader extends StatelessWidget {
   final String? Function(String name)? validateTitle;
   final VoidCallback onToggleFocusMode;
   final VoidCallback? onOpenFind;
+  final VoidCallback? onShowHistory;
   final bool outlineOpen;
   final VoidCallback? onToggleOutline;
 
@@ -1436,6 +1590,14 @@ class _EditorHeader extends StatelessWidget {
                 tooltip: '查找/替换 (${isMacOS ? '⌘' : 'Ctrl'}+F)',
                 icon: Icons.search,
               ),
+            if (onShowHistory != null) ...[
+              const SizedBox(width: 2),
+              _HeaderAction(
+                onPressed: onShowHistory!,
+                tooltip: '版本历史',
+                icon: Icons.history,
+              ),
+            ],
             if (onToggleOutline != null) ...[
               const SizedBox(width: 2),
               _HeaderAction(
@@ -1744,12 +1906,16 @@ class _FormatButtons extends StatelessWidget {
     required this.onLink,
     this.showHistory = false,
     this.onClear,
+    this.compact = false,
   });
 
   final q.QuillController quill;
   final VoidCallback onLink;
   final bool showHistory;
   final VoidCallback? onClear;
+
+  /// 精简模式（沉浸悬浮工具栏）：只保留核心写作格式，去掉撤销/重做、链接、引用、代码与清除。
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -1831,63 +1997,62 @@ class _FormatButtons extends StatelessWidget {
       );
     }
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (showHistory) ...[
-          btn(
-            icon: const Icon(Icons.undo),
-            tooltip: '撤销',
-            isActive: false,
-            enabled: quill.hasUndo,
-            onTap: quill.undo,
-          ),
-          btn(
-            icon: const Icon(Icons.redo),
-            tooltip: '重做',
-            isActive: false,
-            enabled: quill.hasRedo,
-            onTap: quill.redo,
-          ),
-          _sep(colors),
-        ],
-        textBtn(
-          'H1',
-          '标题 1',
-          isActive('header', 1),
-          () => quill.formatSelection(q.Attribute.h1),
+    final children = <Widget>[
+      if (showHistory) ...[
+        btn(
+          icon: const Icon(Icons.undo),
+          tooltip: '撤销',
+          isActive: false,
+          enabled: quill.hasUndo,
+          onTap: quill.undo,
         ),
-        textBtn(
-          'H2',
-          '标题 2',
-          isActive('header', 2),
-          () => quill.formatSelection(q.Attribute.h2),
-        ),
-        textBtn(
-          'H3',
-          '标题 3',
-          isActive('header', 3),
-          () => quill.formatSelection(q.Attribute.h3),
+        btn(
+          icon: const Icon(Icons.redo),
+          tooltip: '重做',
+          isActive: false,
+          enabled: quill.hasRedo,
+          onTap: quill.redo,
         ),
         _sep(colors),
-        btn(
-          icon: const Icon(Icons.format_bold),
-          tooltip: '加粗',
-          isActive: isActive('bold'),
-          onTap: () => quill.formatSelection(q.Attribute.bold),
-        ),
-        btn(
-          icon: const Icon(Icons.format_italic),
-          tooltip: '斜体',
-          isActive: isActive('italic'),
-          onTap: () => quill.formatSelection(q.Attribute.italic),
-        ),
-        btn(
-          icon: const Icon(Icons.format_underline),
-          tooltip: '下划线',
-          isActive: isActive('underline'),
-          onTap: () => quill.formatSelection(q.Attribute.underline),
-        ),
+      ],
+      textBtn(
+        'H1',
+        '标题 1',
+        isActive('header', 1),
+        () => quill.formatSelection(q.Attribute.h1),
+      ),
+      textBtn(
+        'H2',
+        '标题 2',
+        isActive('header', 2),
+        () => quill.formatSelection(q.Attribute.h2),
+      ),
+      textBtn(
+        'H3',
+        '标题 3',
+        isActive('header', 3),
+        () => quill.formatSelection(q.Attribute.h3),
+      ),
+      _sep(colors),
+      btn(
+        icon: const Icon(Icons.format_bold),
+        tooltip: '加粗',
+        isActive: isActive('bold'),
+        onTap: () => quill.formatSelection(q.Attribute.bold),
+      ),
+      btn(
+        icon: const Icon(Icons.format_italic),
+        tooltip: '斜体',
+        isActive: isActive('italic'),
+        onTap: () => quill.formatSelection(q.Attribute.italic),
+      ),
+      btn(
+        icon: const Icon(Icons.format_underline),
+        tooltip: '下划线',
+        isActive: isActive('underline'),
+        onTap: () => quill.formatSelection(q.Attribute.underline),
+      ),
+      if (!compact) ...[
         btn(
           icon: const Icon(Icons.format_strikethrough),
           tooltip: '删除线',
@@ -1900,26 +2065,28 @@ class _FormatButtons extends StatelessWidget {
           isActive: isActive('link'),
           onTap: onLink,
         ),
-        _sep(colors),
-        btn(
-          icon: const Icon(Icons.format_list_bulleted),
-          tooltip: '无序列表',
-          isActive: isActive('list', 'bullet'),
-          onTap: () => quill.formatSelection(q.Attribute.ul),
-        ),
-        btn(
-          icon: const Icon(Icons.format_list_numbered),
-          tooltip: '有序列表',
-          isActive: isActive('list', 'ordered'),
-          onTap: () => quill.formatSelection(q.Attribute.ol),
-        ),
-        btn(
-          icon: const Icon(Icons.check_box_outlined),
-          tooltip: '待办清单',
-          isActive:
-              isActive('list', 'unchecked') || isActive('list', 'checked'),
-          onTap: () => quill.formatSelection(q.Attribute.unchecked),
-        ),
+      ],
+      _sep(colors),
+      btn(
+        icon: const Icon(Icons.format_list_bulleted),
+        tooltip: '无序列表',
+        isActive: isActive('list', 'bullet'),
+        onTap: () => quill.formatSelection(q.Attribute.ul),
+      ),
+      btn(
+        icon: const Icon(Icons.format_list_numbered),
+        tooltip: '有序列表',
+        isActive: isActive('list', 'ordered'),
+        onTap: () => quill.formatSelection(q.Attribute.ol),
+      ),
+      btn(
+        icon: const Icon(Icons.check_box_outlined),
+        tooltip: '待办清单',
+        isActive:
+            isActive('list', 'unchecked') || isActive('list', 'checked'),
+        onTap: () => quill.formatSelection(q.Attribute.unchecked),
+      ),
+      if (!compact) ...[
         _sep(colors),
         btn(
           icon: const Icon(Icons.format_quote),
@@ -1949,6 +2116,10 @@ class _FormatButtons extends StatelessWidget {
           ),
         ],
       ],
+    ];
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: children,
     );
   }
 
@@ -2020,6 +2191,158 @@ class _FloatingToolbar extends StatelessWidget {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: _FormatButtons(quill: quill, onLink: onLink),
+      ),
+    );
+  }
+}
+
+/// 沉浸模式精简悬浮工具栏：前置「退出沉浸」按钮 + 核心格式 + 进入时短暂提示。
+///
+/// 沉浸态不再隐藏全部 chrome：保留一个轻量悬浮条（核心写作格式），把退出入口
+/// 提到最前并单独用 accent 色标注，进入时顶部短暂浮现「按 Esc 退出」提示后自动淡出。
+class _FocusToolbar extends StatefulWidget {
+  const _FocusToolbar({
+    required this.quill,
+    required this.onLink,
+    required this.onExit,
+  });
+
+  final q.QuillController quill;
+  final VoidCallback onLink;
+  final VoidCallback onExit;
+
+  @override
+  State<_FocusToolbar> createState() => _FocusToolbarState();
+}
+
+class _FocusToolbarState extends State<_FocusToolbar> {
+  bool _showHint = true;
+  Timer? _hintTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // 进入沉浸后短暂提示 exit，随后淡出（不打扰长期书写）。
+    _hintTimer = Timer(const Duration(milliseconds: 2600), () {
+      if (mounted) setState(() => _showHint = false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _hintTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // 进入提示：短暂浮现后淡出，不拦截交互。
+        IgnorePointer(
+          child: AnimatedOpacity(
+            opacity: _showHint ? 1 : 0,
+            duration: const Duration(milliseconds: 300),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: appColors.surfaceRaised,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: colors.outline),
+              ),
+              child: Text(
+                '沉浸模式 · 按 Esc 退出',
+                style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+              ),
+            ),
+          ),
+        ),
+        Center(
+          child: GlassSurface(
+            radius: 6,
+            shadow: true,
+            color: appColors.surfaceRaised,
+            border: Border.all(color: colors.outline),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ExitButton(onExit: widget.onExit),
+                Container(
+                  width: 1,
+                  height: 18,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  color: colors.outline,
+                ),
+                _FormatButtons(
+                  quill: widget.quill,
+                  onLink: widget.onLink,
+                  compact: true,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 悬浮工具栏最前端的「退出沉浸」入口：accent 色做独立高亮。
+class _ExitButton extends StatefulWidget {
+  const _ExitButton({required this.onExit});
+
+  final VoidCallback onExit;
+
+  @override
+  State<_ExitButton> createState() => _ExitButtonState();
+}
+
+class _ExitButtonState extends State<_ExitButton> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: '退出沉浸 (Esc)',
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(4),
+          onTap: widget.onExit,
+          child: Container(
+            height: 28,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: _hover
+                  ? colors.primary.withValues(alpha: 0.14)
+                  : colors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.fullscreen_exit, size: 15, color: colors.primary),
+                const SizedBox(width: 5),
+                Text(
+                  '退出沉浸',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: colors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

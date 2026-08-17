@@ -55,6 +55,11 @@ class BackupManager extends ChangeNotifier {
             secretKey: secretKey,
           )
         : null;
+    final last = await db.getSetting('backup.lastSuccessAt');
+    final lastMs = int.tryParse(last ?? '');
+    lastBackupAt.value = lastMs == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(lastMs);
     notifyListeners();
   }
 
@@ -109,6 +114,12 @@ class BackupManager extends ChangeNotifier {
     lastError.value = null;
     failureCount.value = 0;
     lastBackupAt.value = DateTime.now();
+    // 持久化成功时间，重启后仍能判断备份是否新鲜。
+    db.setSetting(
+      'backup.lastSuccessAt',
+      lastBackupAt.value!.millisecondsSinceEpoch.toString(),
+      syncDirty: false,
+    );
     notifyListeners();
   }
 

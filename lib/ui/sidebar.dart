@@ -35,10 +35,18 @@ class _EditSession {
 }
 
 class Sidebar extends StatefulWidget {
-  const Sidebar({super.key, required this.library, this.onOpenSettings});
+  const Sidebar({
+    super.key,
+    required this.library,
+    this.onOpenSettings,
+    this.onOpenBookSearch,
+  });
 
   final LibraryController library;
   final VoidCallback? onOpenSettings;
+
+  /// 全书搜索入口（null = 未接线，如测试；顶栏隐藏搜索按钮）。
+  final VoidCallback? onOpenBookSearch;
 
   @override
   State<Sidebar> createState() => _SidebarState();
@@ -152,6 +160,7 @@ class _SidebarState extends State<Sidebar> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _HeaderBar(
+              onOpenBookSearch: widget.onOpenBookSearch,
               onNewNotebook: () => _startEdit(
                 const _EditSession(
                   target: _EditTarget.notebook,
@@ -389,11 +398,12 @@ class _SidebarFooterState extends State<_SidebarFooter> {
   }
 }
 
-/// 顶栏：品牌 Logo + 新建笔记本按钮。
+/// 顶栏：品牌 Logo + 全书搜索 + 新建笔记本按钮。
 class _HeaderBar extends StatelessWidget {
-  const _HeaderBar({required this.onNewNotebook});
+  const _HeaderBar({required this.onNewNotebook, this.onOpenBookSearch});
 
   final VoidCallback onNewNotebook;
+  final VoidCallback? onOpenBookSearch;
 
   @override
   Widget build(BuildContext context) {
@@ -412,6 +422,12 @@ class _HeaderBar extends StatelessWidget {
             ),
           ),
           const Spacer(),
+          if (onOpenBookSearch != null)
+            _TinyIconButton(
+              tooltip: '全书搜索 (${isMacOS ? '⌘' : 'Ctrl'}+P)',
+              icon: Icons.search,
+              onPressed: onOpenBookSearch!,
+            ),
           _TinyIconButton(
             tooltip: '新建笔记本',
             icon: Icons.add,

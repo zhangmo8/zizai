@@ -9,6 +9,7 @@ import 'package:zi_zai/app.dart';
 import 'package:zi_zai/core/crash_journal.dart';
 import 'package:zi_zai/core/db.dart';
 import 'package:zi_zai/core/export.dart' show deltaToPlainText;
+import 'package:zi_zai/core/snapshot_history.dart';
 import 'package:zi_zai/state/library_controller.dart';
 import 'package:zi_zai/state/settings_controller.dart';
 
@@ -20,8 +21,8 @@ void main() {
 
   /// 让真实异步（DB/文件 I/O）完成，然后刷新 UI。
   /// 多轮推进：FFI 每次往返的 continuation 在 fake zone 需一次 pump 才继续。
-  Future<void> settle(WidgetTester tester, [int ms = 40]) async {
-    for (var i = 0; i < 5; i++) {
+  Future<void> settle(WidgetTester tester, [int ms = 40, int rounds = 5]) async {
+    for (var i = 0; i < rounds; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(Duration(milliseconds: ms)),
       );
@@ -247,14 +248,17 @@ void main() {
     expect(find.textContaining('今日'), findsNothing);
     expect(find.text('第一章'), findsNothing);
     expect(find.text('新建章节'), findsNothing);
-    // 常驻格式工具栏也随 chrome 隐藏
-    expect(find.byTooltip('加粗'), findsNothing);
+    // 沉浸态精简悬浮工具栏可见：前置退出按钮 + 核心格式（加粗）
+    expect(find.byTooltip('退出沉浸 (Esc)'), findsOneWidget);
+    expect(find.text('退出沉浸'), findsOneWidget);
+    expect(find.byTooltip('加粗'), findsOneWidget);
     // 沉浸态：编辑器仍在
     expect(find.byType(q.QuillEditor), findsOneWidget);
 
-    // Esc 退出
+    // Esc 退出 → chrome 恢复，悬浮工具栏消失
     await press(tester, [LogicalKeyboardKey.escape]);
     expect(find.textContaining('今日'), findsOneWidget);
+    expect(find.byTooltip('退出沉浸 (Esc)'), findsNothing);
   });
 
   testWidgets('崩溃恢复：启动出现确认条 → 恢复 → 内容入库', (tester) async {
@@ -337,5 +341,109 @@ void main() {
     expect(library.currentDocument?.id, second.id);
     final savedFirst = await tester.runAsync(() => db.getDocument(firstId));
     expect(deltaToPlainText(savedFirst!.content), '第一章新内容');
+  });
+
+  testWidgets('版本历史：自动基线快照 → 预览 → 回滚生效且不被旧缓冲覆盖', (tester) async {
+    final (library, settings, db, _, docId) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    final snapshots = SnapshotHistory(rootPath: '${tempDir.path}/snapshots');
+    await tester.pumpWidget(
+      ZiZaiApp(library: library, settings: settings, snapshots: snapshots),
+    );
+    await tester.pump();
+
+    // 第一次保存：旧内容为空 → 不留底
+    await typeText(tester, '初稿的内容');
+    await press(tester, [modifierKey(), LogicalKeyboardKey.keyS]);
+    await settle(tester);
+    expect((await tester.runAsync(() => snapshots.list(docId)))!, isEmpty);
+
+    // 第二次保存：写库前自动留基线快照（= 初稿）。
+    // 快照 + 写库是长真实 IO 链，加大 settle 轮次推完。
+    await typeText(tester, '第二稿的内容');
+    await press(tester, [modifierKey(), LogicalKeyboardKey.keyS]);
+    await settle(tester, 40, 15);
+    final baseline = await tester.runAsync(() => snapshots.list(docId));
+    expect(baseline!.length, 1);
+    expect(deltaToPlainText(baseline.single.content), '初稿的内容');
+
+    // 顶栏入口 → 对话框：列表 + 右侧预览
+    await tester.tap(find.byTooltip('版本历史'));
+    await settle(tester, 40, 15);
+    expect(find.text('第一章 · 版本历史'), findsOneWidget);
+    expect(find.textContaining('初稿的内容'), findsOneWidget);
+
+    // 回滚 → 确认
+    await tester.tap(find.text('回滚到此版本'));
+    await settle(tester);
+    await tester.tap(find.text('回滚'));
+    await settle(tester, 40, 20);
+
+    // 对话框关闭；编辑器就地重载为初稿（同文档 id，必须显式重载）
+    expect(find.text('回滚到此版本'), findsNothing);
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    expect(editor.controller.document.toPlainText().trim(), '初稿的内容');
+    // 回滚前的第二稿也自动留底
+    final after = await tester.runAsync(() => snapshots.list(docId));
+    expect(after!.length, 2);
+
+    // 关键回归：旧缓冲不得经 Cmd+S / 防抖保存覆盖回滚结果
+    await press(tester, [modifierKey(), LogicalKeyboardKey.keyS]);
+    await tester.pump(const Duration(milliseconds: 1500));
+    await settle(tester, 40, 10);
+    final saved = await tester.runAsync(() => db.getDocument(docId));
+    expect(deltaToPlainText(saved!.content), '初稿的内容');
+    // 走完回滚成功 toast 的自动消失定时器
+    await tester.pump(const Duration(seconds: 3));
+  });
+
+  testWidgets('全书搜索：Ctrl/Cmd+P 打开 → 命中分组 → 跨章跳转定位', (tester) async {
+    final (library, settings, _, _, _) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    final second = (await tester.runAsync(
+      () => library.createDocument(
+        library.notebooks.single.id,
+        title: '第二章',
+      ),
+    ))!;
+    await tester.runAsync(
+      () => library.saveDocument(
+        documentId: second.id,
+        title: '第二章',
+        content: '[{"insert":"李四再次出现\\n"}]',
+        writtenWords: 0,
+      ),
+    );
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    // 当前章写入并保存（树缓存须同步，才能被全书搜索命中）
+    await typeText(tester, '主角李四出场');
+    await press(tester, [modifierKey(), LogicalKeyboardKey.keyS]);
+    await settle(tester);
+
+    // Ctrl/Cmd+P 打开搜索
+    await press(tester, [modifierKey(), LogicalKeyboardKey.keyP]);
+    await tester.pump();
+    expect(find.byType(TextField), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '李四');
+    await tester.pump(const Duration(milliseconds: 300)); // 防抖
+    await settle(tester);
+
+    // 两章命中，按章节分组
+    expect(find.textContaining('2 处匹配'), findsOneWidget);
+    expect(find.textContaining('小说 / 第一章'), findsOneWidget);
+    expect(find.textContaining('小说 / 第二章'), findsOneWidget);
+
+    // 点第二章命中 → 切换文档 + 选中命中词
+    await tester.tap(find.textContaining('再次出现', findRichText: true));
+    await settle(tester);
+    expect(library.currentDocument?.id, second.id);
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    expect(editor.controller.document.toPlainText().trim(), '李四再次出现');
+    expect(editor.controller.selection.baseOffset, 0);
+    expect(editor.controller.selection.extentOffset, 2);
   });
 }

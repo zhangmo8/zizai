@@ -37,6 +37,11 @@ class LibraryController extends ChangeNotifier {
   List<Document> documentsOf(String notebookId) =>
       _documentsByNotebook[notebookId] ?? const [];
 
+  /// 当前库内全部文档，按笔记本和章节顺序展平，供整书导出使用。
+  List<Document> get allDocuments => [
+    for (final notebook in _notebooks) ...documentsOf(notebook.id),
+  ];
+
   Document? _currentDocument;
   Document? get currentDocument => _currentDocument;
 
@@ -119,14 +124,14 @@ class LibraryController extends ChangeNotifier {
       content: content,
       writtenWords: writtenWords,
     );
+    final refreshed = await _db.getDocument(documentId);
+    // 树缓存同步最新内容（全书搜索/整书导出直接读缓存，不能落后于库）。
+    if (refreshed != null) _replaceInTree(refreshed);
     // 旧文档的异步保存可能在切换后才完成；禁止它覆盖当前文档。
     if (_currentDocument?.id == documentId) {
-      final refreshed = await _db.getDocument(documentId);
-      if (_currentDocument?.id == documentId) {
-        _currentDocument = refreshed;
-        await _refreshTodayDelta();
-        notifyListeners();
-      }
+      _currentDocument = refreshed;
+      await _refreshTodayDelta();
+      notifyListeners();
     }
     return delta;
   }
@@ -255,6 +260,14 @@ class LibraryController extends ChangeNotifier {
     }
     _documentsByNotebook = map;
     notifyListeners();
+  }
+
+  /// 保存后就地更新树缓存里的对应文档（不触发整树重载与通知）。
+  void _replaceInTree(Document doc) {
+    final docs = _documentsByNotebook[doc.notebookId];
+    if (docs == null) return;
+    final index = docs.indexWhere((d) => d.id == doc.id);
+    if (index >= 0) docs[index] = doc;
   }
 
   Future<void> _refreshTodayDelta() async {

@@ -375,4 +375,39 @@ void main() {
     final nbId = library.notebooks.first.id;
     expect(library.documentsOf(nbId), hasLength(1));
   });
+
+  testWidgets('全书搜索入口：接线时顶栏出现按钮，点击触发回调', (tester) async {
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
+          ('小说', ['第一章']),
+        ],
+      ),
+    ))!;
+    // 未接线：无搜索按钮（既有 pumpSidebar 路径）
+    await pumpSidebar(tester, library);
+    expect(find.byIcon(Icons.search), findsNothing);
+
+    var opened = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: SizedBox(
+            width: 240,
+            height: 800,
+            child: Sidebar(
+              library: library,
+              onOpenBookSearch: () => opened++,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    final button = find.byIcon(Icons.search);
+    expect(button, findsOneWidget);
+    await tester.tap(button);
+    expect(opened, 1);
+  });
 }

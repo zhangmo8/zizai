@@ -20,6 +20,7 @@ import 'core/app_logger.dart';
 import 'core/crash_journal.dart';
 import 'core/db.dart';
 import 'core/models.dart';
+import 'core/snapshot_history.dart';
 import 'core/update.dart';
 import 'state/library_controller.dart';
 import 'state/settings_controller.dart';
@@ -73,6 +74,10 @@ Future<void> main() async {
     dbPath: '${dir.path}${Platform.pathSeparator}zi-zai.db',
   );
   await backup.reloadConfig();
+  // 单文档版本历史：库目录旁的 snapshots/，纯本地文件，不参与备份/同步。
+  final snapshots = SnapshotHistory(
+    rootPath: '${dir.path}${Platform.pathSeparator}snapshots',
+  );
 
   // 更新检查：App 版本来自 package_info；URL 由构建注入。
   var appVersion = '0.1.0';
@@ -131,6 +136,7 @@ Future<void> main() async {
       logger: logger,
       backup: backup,
       updateChecker: updateChecker,
+      snapshots: snapshots,
     ),
   );
 }
