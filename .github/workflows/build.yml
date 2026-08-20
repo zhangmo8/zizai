@@ -256,9 +256,10 @@ jobs:
         run: |
           $exe = (Get-ChildItem 'build/installer/zizai-*-windows-setup.exe').FullName
           $hash = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower()
-          $name = (Get-Item $exe).Name
+          # 与上传步骤的 R2_KEY 保持一致（版本无关命名），否则 update.json /
+          # 公开校验 URL 会 404。
           echo "sha256=$hash" >> $env:GITHUB_OUTPUT
-          echo "file=$name" >> $env:GITHUB_OUTPUT
+          echo "file=zizai-windows-setup.exe" >> $env:GITHUB_OUTPUT
       - name: Upload to R2
         shell: pwsh
         env:
