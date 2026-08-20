@@ -1868,6 +1868,7 @@ class _EditableHeaderTitleState extends State<_EditableHeaderTitle> {
           focusNode: _focusNode,
           enabled: !_saving,
           maxLines: 1,
+          textAlignVertical: TextAlignVertical.center,
           style: TextStyle(fontSize: 13, color: colors.onSurface),
           cursorColor: colors.primary,
           cursorWidth: 2,

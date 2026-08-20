@@ -93,8 +93,8 @@ class FindBarState extends State<FindBar> {
         borderRadius: BorderRadius.circular(4),
         onTap: onTap,
         child: Container(
-          width: 26,
-          height: 26,
+          width: 28,
+          height: 28,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: active ? appColors.rowSelected : Colors.transparent,
@@ -143,6 +143,7 @@ class FindBarState extends State<FindBar> {
           onChanged: onChanged,
           onSubmitted: onSubmit == null ? null : (_) => onSubmit(),
           maxLines: 1,
+          textAlignVertical: TextAlignVertical.center,
           style: TextStyle(fontSize: 12.5, color: colors.onSurface),
           cursorColor: colors.primary,
           cursorWidth: 2,
@@ -218,15 +219,18 @@ class FindBarState extends State<FindBar> {
               const SizedBox(width: 6),
               SizedBox(
                 width: 52,
-                child: Text(
-                  counter,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: hasMatch
-                        ? colors.onSurfaceVariant
-                        : appColors.textTertiary,
+                height: 28,
+                child: Center(
+                  child: Text(
+                    counter,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: hasMatch
+                          ? colors.onSurfaceVariant
+                          : appColors.textTertiary,
+                    ),
                   ),
                 ),
               ),
@@ -264,11 +268,8 @@ class FindBarState extends State<FindBar> {
                       ? () => widget.onReplace(_replacement.text)
                       : null,
                   style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    minimumSize: Size.zero,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 28),
                   ),
                   child: const Text('替换', style: TextStyle(fontSize: 12)),
                 ),
@@ -277,11 +278,8 @@ class FindBarState extends State<FindBar> {
                       ? () => widget.onReplaceAll(_replacement.text)
                       : null,
                   style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    minimumSize: Size.zero,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 28),
                   ),
                   child: const Text('全部替换', style: TextStyle(fontSize: 12)),
                 ),

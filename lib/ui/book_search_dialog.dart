@@ -187,6 +187,7 @@ class _BookSearchPanelState extends State<_BookSearchPanel> {
                         controller: _query,
                         hint: '全书搜索：人名、地名、称呼、设定…',
                         autofocus: true,
+                        compact: true,
                         onChanged: _onQueryChanged,
                         onSubmitted: (_) => _runPreview(),
                       ),
@@ -202,6 +203,7 @@ class _BookSearchPanelState extends State<_BookSearchPanel> {
                         child: ZzTextField(
                           controller: _replacement,
                           hint: '替换为',
+                          compact: true,
                           onSubmitted: (_) => _runPreview(),
                         ),
                       ),
@@ -210,6 +212,10 @@ class _BookSearchPanelState extends State<_BookSearchPanel> {
                         onPressed: _query.text.trim().isEmpty || _previewing
                             ? null
                             : _runPreview,
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(0, 28),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
                         child: Text(
                           _previewing ? '预览中…' : '预览',
                           style: const TextStyle(fontSize: 12),
@@ -290,8 +296,8 @@ class _BookSearchPanelState extends State<_BookSearchPanel> {
         borderRadius: BorderRadius.circular(4),
         onTap: onTap,
         child: Container(
-          width: 26,
-          height: 26,
+          width: 28,
+          height: 28,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(4),
