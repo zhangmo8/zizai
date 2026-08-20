@@ -211,11 +211,20 @@ jobs:
           powershell Compress-Archive -Path * -DestinationPath zizai-windows.zip
       - name: 安装 NSIS
         shell: pwsh
-        run: choco install nsis -y --no-progress
+        run: |
+          choco install nsis -y --no-progress
+          # NSIS 装到 C:\Program Files (x86)\NSIS，但不会自动进入后续步骤的
+          # PATH；写入 GITHUB_PATH 让下一步 bash 能直接调用 makensis。
+          $nsis = Get-ChildItem 'C:\Program Files*\NSIS\makensis.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $nsis) { throw 'makensis.exe not found after choco install nsis' }
+          Add-Content -Path $env:GITHUB_PATH -Value (Split-Path $nsis.FullName -Parent)
       - name: 打包安装向导 setup.exe
         shell: bash
         env:
           TAG: ${{ needs.validate.outputs.tag }}
+          # Git Bash 会把 /DXXX= 这类参数当路径改写；禁用 MSYS2 参数转换，
+          # 确保 makensis 收到原样的 /DAPP_VERSION=/DSOURCE=/DICON_SRC。
+          MSYS2_ARG_CONV_EXCL: "*"
         run: |
           app_version="${TAG#v}"
           makensis \
