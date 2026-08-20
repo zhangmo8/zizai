@@ -102,8 +102,8 @@ void main() {
   group('Db.reorderDocument', () {
     test('同笔记本内拖拽重排', () async {
       final nb = await db.createNotebook('书');
-      final d1 = await db.createDocument(nb.id, title: '一');
-      final d2 = await db.createDocument(nb.id, title: '二');
+      await db.createDocument(nb.id, title: '一');
+      await db.createDocument(nb.id, title: '二');
       final d3 = await db.createDocument(nb.id, title: '三');
       // 把 d3 移到 position 0
       await db.reorderDocument(d3.id, notebookId: nb.id, newPosition: 0);
@@ -125,8 +125,8 @@ void main() {
     test('position 连续无空洞', () async {
       final nb = await db.createNotebook('书');
       final d1 = await db.createDocument(nb.id, title: '一');
-      final d2 = await db.createDocument(nb.id, title: '二');
-      final d3 = await db.createDocument(nb.id, title: '三');
+      await db.createDocument(nb.id, title: '二');
+      await db.createDocument(nb.id, title: '三');
       await db.reorderDocument(d1.id, notebookId: nb.id, newPosition: 2);
       final docs = await db.listDocuments(nb.id);
       for (var i = 0; i < docs.length; i++) {
