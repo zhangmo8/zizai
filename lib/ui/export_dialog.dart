@@ -9,6 +9,7 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../app.dart' show appColorsOf;
@@ -152,6 +153,21 @@ class _BookExportPanelState extends State<_BookExportPanel> {
     }
   }
 
+  /// 复制当前章投稿格式到剪贴板：标题 + 空行 + 段首缩进正文。
+  Future<void> _copySubmission() async {
+    final doc = widget.library.currentDocument;
+    if (doc == null) {
+      showZzToast(context, '请先打开一个章节', error: true);
+      return;
+    }
+    await Clipboard.setData(
+      ClipboardData(text: exportSubmissionFormat(doc)),
+    );
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    showZzToast(context, '已复制投稿格式');
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -212,6 +228,14 @@ class _BookExportPanelState extends State<_BookExportPanel> {
                         ),
                     ],
                     onChanged: (v) => setState(() => _format = v),
+                  ),
+                ),
+                // 投稿格式快捷复制（次级动作）：复制当前章到剪贴板
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: ZzButton.link(
+                    label: '复制当前章投稿格式',
+                    onPressed: _exporting ? null : _copySubmission,
                   ),
                 ),
                 _row(

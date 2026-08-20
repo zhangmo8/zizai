@@ -174,4 +174,63 @@ void main() {
       expect(safeFileName('  '), '未命名');
     });
   });
+
+  group('cleanPlainText', () {
+    test('统一换行：\\r\\n / \\r → \\n', () {
+      expect(cleanPlainText('a\r\nb\rc'), 'a\nb\nc');
+    });
+
+    test('剥离零宽字符 U+200B / U+FEFF', () {
+      expect(cleanPlainText('a\u200Bb\uFEFFc'), 'abc');
+    });
+
+    test('折叠 3+ 连续换行为单个空行，保留正常段间空行', () {
+      expect(cleanPlainText('a\n\n\n\nb'), 'a\n\nb'); // 3 空行 → 1
+      expect(cleanPlainText('a\n\n\nb'), 'a\n\nb'); // 2 空行 → 1
+      expect(cleanPlainText('a\n\nb'), 'a\n\nb'); // 正常段间空行保留
+    });
+
+    test('无脏字符原样返回', () {
+      expect(cleanPlainText(''), '');
+      expect(cleanPlainText('正文\n第二行'), '正文\n第二行');
+    });
+  });
+
+  group('exportSubmissionFormat', () {
+    test('标题 + 空行 + 段首缩进正文', () {
+      final d = doc('d1', 'n1', '开端', '第一段\\n第二段');
+      expect(exportSubmissionFormat(d), '开端\n\n　　第一段\n\n　　第二段\n');
+    });
+
+    test('标题去首尾空白；空标题回退未命名', () {
+      expect(
+        exportSubmissionFormat(doc('d1', 'n1', '  相遇 ', '正文')),
+        '相遇\n\n　　正文\n',
+      );
+      expect(
+        exportSubmissionFormat(doc('d1', 'n1', '', '正文')),
+        '未命名\n\n　　正文\n',
+      );
+    });
+
+    test('空正文只输出标题', () {
+      const d = Document(
+        id: 'd1',
+        notebookId: 'n1',
+        title: '空章',
+        content: '{}',
+        words: 0,
+        position: 0,
+        createdAt: 0,
+        updatedAt: 0,
+      );
+      expect(exportSubmissionFormat(d), '空章\n');
+    });
+
+    test('清理复制粘贴脏字符（零宽/多余空行）后输出', () {
+      // \\u200B / \\n 在 JSON 中为转义序列，解析后为实际零宽字符/换行。
+      final d = doc('d1', 'n1', '章', '一段\\u200B\\n\\n\\n\\n二段');
+      expect(exportSubmissionFormat(d), '章\n\n　　一段\n\n　　二段\n');
+    });
+  });
 }

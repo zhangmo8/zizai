@@ -58,7 +58,9 @@ CREATE TABLE documents (
   words       INTEGER NOT NULL DEFAULT 0,  -- 上次保存时纯文本字数快照
   position    INTEGER NOT NULL DEFAULT 0,
   created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL
+  updated_at  INTEGER NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'draft',  -- v3: draft/done/todo 章节状态标记
+  notes       TEXT NOT NULL DEFAULT ''         -- v4: 章节备注（不进正文导出）
 );
 
 CREATE TABLE settings (
@@ -79,8 +81,9 @@ CREATE TABLE last_open (
 );
 ```
 
-- settings 键：`theme` / `fontFamily` / `fontSize` / `lineHeight`；笔记本目标使用
+- settings 键：`theme` / `fontFamily` / `fontSize` / `lineHeight` / `countPunctuation`；笔记本目标使用
   `notebookGoal.<notebookId>.enabled/words`。旧 `dailyGoal` 仅作未迁移笔记本的默认值。
+  UI 状态键：`outline.open` / `notes.open`。
 - 升级路径：sqflite `onUpgrade` 版本化迁移（`PRAGMA user_version`）；**DB schema 版本号是长期演进基础**——任何加字段/改表必须走迁移链（见 docs/app/update.md §2）；升级前自动备份 db 文件为 `zi-zai.db.bak`（滚动保留 3 份）。
 - 云备份数据模型与快照结构见 docs/app/sync.md。
 - db 位置：`path_provider` 应用支持目录，桌面与 Android 一致；设置页展示路径。
@@ -103,7 +106,9 @@ lib/
 │  ├─ word_count.dart        # 字数算法（纯函数，输入纯文本）
 │  ├─ export.dart            # 文档/整书 → 纯文本、Markdown 导出（含章节编号/排版选项）
 │  ├─ snapshot_history.dart  # 单文档版本历史：本地 JSON 留底 + 自动留底策略
-│  ├─ book_search.dart       # 全书搜索：跨章节纯文本匹配，按章节分组
+│  ├─ book_search.dart       # 全书搜索与替换：跨章节匹配 + 全书替换预览
+│  ├─ chapter_ops.dart      # 章节操作：拆分/合并（Delta 纯函数）
+│  ├─ writing_session.dart  # 写作会话追踪：本次字数/时长/速度
 │  ├─ app_logger.dart        # 本地诊断日志：启动/升级/更新/异常 + 滚动保留
 │  ├─ crash_journal.dart     # 未保存编辑缓冲的崩溃恢复日志
 │  ├─ backup/                # 云备份（见 docs/app/sync.md）
@@ -116,16 +121,18 @@ lib/
 │  └─ settings_controller.dart # 设置状态与持久化（含备份凭据）
 ├─ ui/
 │  ├─ shell.dart             # 主界面壳 + 自适应
-│  ├─ sidebar.dart           # 文档树
-│  ├─ editor.dart            # Quill 编辑器 + 上下文工具栏 + 自动保存
-│  ├─ status_bar.dart        # 字数/目标/备份状态
+│  ├─ sidebar.dart           # 文档树（含章节自动编号、状态标记、复制）
+│  ├─ editor.dart            # Quill 编辑器 + 上下文工具栏 + 自动保存 + IME 防护
+│  ├─ status_bar.dart        # 字数/目标/备份状态/写作会话
 │  ├─ focus_view.dart        # 沉浸模式包装
 │  ├─ snapshot_panel.dart    # 版本历史对话框（列表 + 预览 + 回滚）
-│  ├─ book_search_dialog.dart# 全书搜索对话框（分组结果 + 跳转）
-│  ├─ export_dialog.dart     # 整书导出选项对话框
+│  ├─ book_search_dialog.dart# 全书搜索与替换对话框（分组结果 + 跳转 + 替换预览）
+│  ├─ notes_panel.dart       # 章节备注面板（不进正文导出）
+│  ├─ export_dialog.dart     # 整书导出选项对话框（含投稿格式复制）
 │  └─ settings_view.dart     # 设置页/对话框（含备份区、关于区）
 └─ util/
    ├─ debounce.dart          # 防抖
+   ├─ ime_state.dart         # IME 组合状态追踪（防拼音误触）
    └─ platform.dart          # 平台差异工具
 ```
 

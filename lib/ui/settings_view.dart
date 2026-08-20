@@ -351,52 +351,81 @@ class _SettingsViewState extends State<SettingsView> {
   Widget _writingPage() {
     final notebooks = widget.library.notebooks;
     final notebookId = _goalNotebookId;
-    if (notebooks.isEmpty || notebookId == null) {
-      return _SettingsGroup(
-        label: '写作目标',
-        children: [
-          Text(
-            '新建笔记本后即可设定独立的每日目标',
-            style: TextStyle(
-              fontSize: 13,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      );
-    }
-    final goal = widget.settings.goalForNotebook(notebookId);
-    return _SettingsGroup(
-      label: '写作目标',
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _row(
-          '笔记本',
-          ZzSelect<String>(
-            value: notebookId,
-            display: notebooks.firstWhere((n) => n.id == notebookId).name,
-            options: [for (final n in notebooks) (label: n.name, value: n.id)],
-            onChanged: (id) {
-              setState(() {
-                _goalNotebookId = id;
-                _syncGoalController();
-              });
-            },
-          ),
-          description: '每本书独立计算今日进度',
-        ),
-        _row(
-          '启用今日目标',
-          ZzSwitch(
-            value: goal.enabled,
-            onChanged: (enabled) => widget.settings.updateNotebookGoal(
-              notebookId,
-              enabled: enabled,
+        if (notebooks.isEmpty || notebookId == null)
+          _SettingsGroup(
+            label: '写作目标',
+            children: [
+              Text(
+                '新建笔记本后即可设定独立的每日目标',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          )
+        else ...[
+          () {
+            final goal = widget.settings.goalForNotebook(notebookId);
+            return _SettingsGroup(
+              label: '写作目标',
+              children: [
+                _row(
+                  '笔记本',
+                  ZzSelect<String>(
+                    value: notebookId,
+                    display:
+                        notebooks.firstWhere((n) => n.id == notebookId).name,
+                    options: [
+                      for (final n in notebooks) (label: n.name, value: n.id),
+                    ],
+                    onChanged: (id) {
+                      setState(() {
+                        _goalNotebookId = id;
+                        _syncGoalController();
+                      });
+                    },
+                  ),
+                  description: '每本书独立计算今日进度',
+                ),
+                _row(
+                  '启用今日目标',
+                  ZzSwitch(
+                    value: goal.enabled,
+                    onChanged: (enabled) => widget.settings.updateNotebookGoal(
+                      notebookId,
+                      enabled: enabled,
+                    ),
+                  ),
+                  description: '关闭后不在状态栏和沉浸模式显示',
+                ),
+                if (goal.enabled)
+                  _row(
+                    '每日目标字数',
+                    _goalField(notebookId),
+                    description: '只计入该笔记本今天新增的文字',
+                  ),
+              ],
+            );
+          }(),
+        ],
+        _SettingsGroup(
+          label: '字数统计',
+          children: [
+            _row(
+              '标点计入字数',
+              ZzSwitch(
+                value: _s.countPunctuation,
+                onChanged: (v) =>
+                    _update(_s.copyWith(countPunctuation: v)),
+              ),
+              description: '开启后中文标点（。，！？等）也计入字数',
             ),
-          ),
-          description: '关闭后不在状态栏和沉浸模式显示',
+          ],
         ),
-        if (goal.enabled)
-          _row('每日目标字数', _goalField(notebookId), description: '只计入该笔记本今天新增的文字'),
       ],
     );
   }

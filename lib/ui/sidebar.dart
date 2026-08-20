@@ -34,6 +34,135 @@ class _EditSession {
   final String? notebookId;
 }
 
+/// 「第 N 章/回/节/卷」式编号标题检测（与 export.dart 的 `_numberedTitle` 同源）。
+final RegExp _numberedChapterTitle = RegExp(
+  r'^\s*第\s*[0-9０-９一二三四五六七八九十百千万零两]+\s*[章回节卷]',
+);
+
+/// 从「第 N 章」式标题中抽取 (序号, 是否阿拉伯数字)；无法解析返回 null。
+final RegExp _chapterNumber = RegExp(
+  r'第\s*([0-9０-９一二三四五六七八九十百千万零两]+)\s*[章回节卷]',
+);
+final RegExp _arabicDigits = RegExp(r'^[0-9０-９]+$');
+
+(int, bool)? _chapterNumberOf(String title) {
+  final m = _chapterNumber.firstMatch(title);
+  if (m == null) return null;
+  final raw = m.group(1)!;
+  if (_arabicDigits.hasMatch(raw)) {
+    final n = int.tryParse(_toHalfWidthDigits(raw));
+    return n == null ? null : (n, true);
+  }
+  final n = _parseChineseNumber(raw);
+  return n < 0 ? null : (n, false);
+}
+
+/// 根据已有章节推断新章节默认标题。
+///
+/// 已有章节均符合「第 N 章」模式时按最大序号 +1 自动递增，并沿用原数字
+/// 风格（纯中文 → 中文，纯阿拉伯/混用 → 阿拉伯）；任意章节不符合模式则
+/// 返回 '新章节'，不强制编号。空笔记本返回 '第 1 章'。
+String suggestedChapterTitle(List<Document> existingDocs) {
+  if (existingDocs.isEmpty) return '第 1 章';
+  // 任意章节不符合编号模式 → 不强制编号，沿用默认名。
+  if (!existingDocs.every((d) => _numberedChapterTitle.hasMatch(d.title))) {
+    return '新章节';
+  }
+  var maxNumber = 0;
+  var allChinese = true;
+  for (final doc in existingDocs) {
+    final parsed = _chapterNumberOf(doc.title);
+    if (parsed == null) {
+      // 全部命中模式但有不可解析序号 → 回退为序号计数 +1。
+      return '第 ${existingDocs.length + 1} 章';
+    }
+    final (n, isArabic) = parsed;
+    if (isArabic) allChinese = false;
+    if (n > maxNumber) maxNumber = n;
+  }
+  final next = maxNumber + 1;
+  return allChinese ? '第${_toChineseNumber(next)}章' : '第 $next 章';
+}
+
+/// 全角数字 ０-９ → 半角 0-9。
+String _toHalfWidthDigits(String s) {
+  final buf = StringBuffer();
+  for (final ch in s.runes) {
+    buf.writeCharCode(ch >= 0xFF10 && ch <= 0xFF19 ? ch - 0xFEE0 : ch);
+  }
+  return buf.toString();
+}
+
+/// 中文数字串 → int；无法解析返回 -1。
+int _parseChineseNumber(String s) {
+  const digits = {
+    '零': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4,
+    '五': 5, '六': 6, '七': 7, '八': 8, '九': 9,
+  };
+  const units = {'十': 10, '百': 100, '千': 1000, '万': 10000};
+  var total = 0;
+  var section = 0;
+  var number = 0;
+  for (final ch in s.split('')) {
+    if (digits.containsKey(ch)) {
+      number = digits[ch]!;
+    } else if (units.containsKey(ch)) {
+      final unit = units[ch]!;
+      if (ch == '万') {
+        section = (section + number) * unit;
+        total += section;
+        section = 0;
+        number = 0;
+      } else {
+        section += (number == 0 ? 1 : number) * unit;
+        number = 0;
+      }
+    } else {
+      return -1;
+    }
+  }
+  return total + section + number;
+}
+
+/// int → 中文数字串（1..99999999；超出范围回退阿拉伯数字）。
+String _toChineseNumber(int n) {
+  assert(n > 0);
+  if (n >= 100000000) return n.toString();
+  const d = '零一二三四五六七八九';
+  const u = ['', '十', '百', '千'];
+  String below10000(int g) {
+    final s = g.toString();
+    final buf = StringBuffer();
+    var prevZero = false;
+    for (var i = 0; i < s.length; i++) {
+      final digit = s.codeUnitAt(i) - 0x30;
+      final pos = s.length - 1 - i;
+      if (digit == 0) {
+        prevZero = true;
+      } else {
+        if (prevZero) buf.write('零');
+        buf.write(d[digit]);
+        buf.write(u[pos]);
+        prevZero = false;
+      }
+    }
+    var r = buf.toString();
+    // 10-19 省略开头的「一」：一十 → 十。
+    if (r.startsWith('一十')) r = '十${r.substring(2)}';
+    return r;
+  }
+  final wan = n ~/ 10000;
+  final ge = n % 10000;
+  final buf = StringBuffer();
+  if (wan > 0) buf.write('${below10000(wan)}万');
+  if (ge > 0) {
+    // 万级后个级不足千时补零，如 一万零五。
+    if (wan > 0 && ge < 1000) buf.write('零');
+    buf.write(below10000(ge));
+  }
+  return buf.toString();
+}
+
 class Sidebar extends StatefulWidget {
   const Sidebar({
     super.key,
@@ -211,7 +340,7 @@ class _SidebarState extends State<Sidebar> {
                 _startEdit(
                   _EditSession(
                     target: _EditTarget.document,
-                    initial: '新章节.md',
+                    initial: suggestedChapterTitle(library.documentsOf(nb.id)),
                     notebookId: nb.id,
                   ),
                 );
@@ -264,7 +393,7 @@ class _SidebarState extends State<Sidebar> {
                 onPressed: () => _startEdit(
                   _EditSession(
                     target: _EditTarget.document,
-                    initial: '新章节.md',
+                    initial: suggestedChapterTitle(library.documentsOf(nb.id)),
                     notebookId: nb.id,
                   ),
                 ),

@@ -62,6 +62,25 @@ String deltaToPlainText(String deltaJson) {
 /// 文档 → 纯文本（导出 .txt / 分享用）。
 String exportPlainText(Document document) => deltaToPlainText(document.content);
 
+/// 投稿格式纯文本：单章导出，标题 + 空行 + 段首缩进正文。
+///
+/// 适用于起点/番茄/晋江等网文平台投稿：标题独占一行（无前导空白）、
+/// 标题后空一行、段首两个全角空格缩进、段间空行。
+String exportSubmissionFormat(Document document) {
+  final title = chapterHeading(document.title);
+  final body = _formatBody(
+    exportPlainText(document),
+    const BookExportOptions(
+      indentParagraphs: true,
+      blankLineBetweenParagraphs: true,
+    ),
+  );
+  final out = StringBuffer()..writeln(title)..writeln();
+  if (body.isNotEmpty) out.writeln(body);
+  final text = out.toString().trimRight();
+  return text.isEmpty ? '$title\n' : '$text\n';
+}
+
 // ── 整书导出（docs/app/ui-settings.md §导出）─────────────────
 
 /// 整书导出格式选项。
@@ -107,9 +126,23 @@ String chapterHeading(String title, {int? number}) {
   return '第 $number 章 $text';
 }
 
-/// 正文按段落重排：过滤空行，按选项加段首缩进/段间空行。
+/// 纯文本规范化：统一换行、剥离零宽字符、折叠多余空行。
+///
+/// 导出前清理复制粘贴带入的脏字符与多余空行。
+String cleanPlainText(String text) {
+  var out = text;
+  // 统一换行：\r\n / \r → \n
+  out = out.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  // 剥离零宽字符（U+200B 零宽空格、U+FEFF BOM/零宽不换行空格）
+  out = out.replaceAll('\u200B', '').replaceAll('\uFEFF', '');
+  // 折叠 3 个及以上连续换行为单个空行（保留正常段间空行）
+  out = out.replaceAll(RegExp(r'\n{3,}'), '\n\n');
+  return out;
+}
+
+/// 正文按段落重排：先规范化纯文本，再过滤空行、按选项加段首缩进/段间空行。
 String _formatBody(String plain, BookExportOptions options) {
-  final paragraphs = plain
+  final paragraphs = cleanPlainText(plain)
       .split('\n')
       .map((line) => line.trimRight())
       .where((line) => line.trim().isNotEmpty)

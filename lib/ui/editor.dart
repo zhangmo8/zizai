@@ -32,10 +32,12 @@ import '../core/word_count.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/debounce.dart';
+import '../util/ime_state.dart';
 import '../util/platform.dart';
 import 'find_bar.dart';
 import 'focus_view.dart';
 import 'glass.dart';
+import 'notes_panel.dart';
 import 'outline_panel.dart';
 import 'slash_menu.dart';
 import 'snapshot_panel.dart';
@@ -117,7 +119,7 @@ class EditorView extends StatefulWidget {
 
 class _EditorViewState extends State<EditorView> {
   late final q.QuillController _quill;
-  final GlobalKey<q.EditorState> _editorKey = GlobalKey<q.EditorState>();
+  final GlobalKey<q.QuillRawEditorState> _editorKey = GlobalKey<q.QuillRawEditorState>();
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scroll = ScrollController();
   final Debouncer _saveDebounce = Debouncer(
@@ -180,7 +182,7 @@ class _EditorViewState extends State<EditorView> {
     );
     _loadedDocumentId = widget.library.currentDocument?.id;
     _lastSavedContent = widget.library.currentDocument?.content ?? '';
-    _lastObservedWords = wordCount(_quill.document.toPlainText());
+    _lastObservedWords = _countWords();
     _changesSub = _quill.document.changes.listen(_onDocChange);
     _quill.addListener(_onQuillChanged);
     _scroll.addListener(_onEditorScrolled);
@@ -194,6 +196,8 @@ class _EditorViewState extends State<EditorView> {
     widget.library.beforeSwitchSave = _saveNow;
     _checkRecovery();
     _refreshOutline();
+    // 监听 IME 组合状态：组合阶段不触发保存/字数刷新。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _attachComposingListener());
     // 全书搜索切换文档后：新编辑器实例装载完成，消费待跳转（需等首帧布局）。
     if (widget.jumpRequest?.value != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _consumeJump());
@@ -210,6 +214,7 @@ class _EditorViewState extends State<EditorView> {
       _loadedDocumentId = null;
       _saveDebounce.cancel();
       _journalDebounce.cancel();
+      _notesDebounce.cancel();
       _closeSlash();
       _changesSub?.cancel();
       _quill.document = q.Document();
@@ -237,6 +242,7 @@ class _EditorViewState extends State<EditorView> {
   void dispose() {
     _closeSlash();
     _changesSub?.cancel();
+    _detachComposingListener();
     _quill.removeListener(_onQuillChanged);
     _quill.dispose();
     _focusNode.dispose();
@@ -245,6 +251,7 @@ class _EditorViewState extends State<EditorView> {
     _saveDebounce.cancel();
     _journalDebounce.cancel();
     _outlineDebounce.cancel();
+    _notesDebounce.cancel();
     widget.toolbarDismissTick?.removeListener(_onDismissToolbar);
     widget.saveTick?.removeListener(_onSaveTick);
     widget.findTick?.removeListener(_onFindTick);
@@ -271,6 +278,28 @@ class _EditorViewState extends State<EditorView> {
     _saveNow();
   }
 
+  // ── IME 组合状态追踪 ────────────────────────────────────────
+
+  /// 监听编辑器的 composingRange，更新全局 [imeComposing] 状态。
+  void _attachComposingListener() {
+    final state = _editorKey.currentState;
+    if (state == null) return;
+    state.composingRange.addListener(_onComposingChanged);
+    _onComposingChanged();
+  }
+
+  void _detachComposingListener() {
+    final state = _editorKey.currentState;
+    state?.composingRange.removeListener(_onComposingChanged);
+    imeComposing.value = false;
+  }
+
+  void _onComposingChanged() {
+    final state = _editorKey.currentState;
+    final range = state?.composingRange.value;
+    imeComposing.value = range != null && range.isValid && !range.isCollapsed;
+  }
+
   // ── 文档装载 ──────────────────────────────────────────────
 
   q.Document _documentFromCurrent() {
@@ -294,6 +323,7 @@ class _EditorViewState extends State<EditorView> {
     _loadedDocumentId = doc.id;
     _saveDebounce.cancel();
     _journalDebounce.cancel();
+    _notesDebounce.cancel();
     _closeSlash();
     _changesSub?.cancel();
     _quill.document = _documentFromJson(doc.content);
@@ -304,7 +334,7 @@ class _EditorViewState extends State<EditorView> {
     _changesSub = _quill.document.changes.listen(_onDocChange);
     _lastSavedContent = doc.content;
     _pendingWrittenWords = 0;
-    _lastObservedWords = wordCount(_quill.document.toPlainText());
+    _lastObservedWords = _countWords();
     widget.library.reportLiveWords(doc.words);
     _closeFind(refocusEditor: false);
     _refreshOutline();
@@ -312,10 +342,23 @@ class _EditorViewState extends State<EditorView> {
 
   // ── 变更 → 字数 / 自动保存 / 崩溃日志 / 斜杠菜单 ────────────
 
+  /// 当前字数（按设置决定是否计入标点）。
+  int _countWords() =>
+      wordCount(_quill.document.toPlainText(),
+          countPunctuation: widget.settings.settings.countPunctuation);
+
   void _onDocChange(q.DocChange change) {
-    final words = wordCount(_quill.document.toPlainText());
-    if (words > _lastObservedWords) {
-      _pendingWrittenWords += words - _lastObservedWords;
+    // IME 组合阶段（拼音未确认）的变更不触发保存/字数/大纲刷新，
+    // 避免中间态写入崩溃日志或触发自动保存。组合结束后会再触发一次变更。
+    if (isImeComposing) {
+      _handleSlashTrigger(change);
+      return;
+    }
+    final words = _countWords();
+    final delta = words > _lastObservedWords ? words - _lastObservedWords : 0;
+    if (delta > 0) {
+      _pendingWrittenWords += delta;
+      widget.library.session.onWordsWritten(delta);
     }
     _lastObservedWords = words;
     widget.library.reportLiveWords(words);
@@ -879,6 +922,25 @@ class _EditorViewState extends State<EditorView> {
     if (mounted) setState(() {});
   }
 
+  // ── 章节备注 ──────────────────────────────────────────────
+
+  Future<void> _toggleNotes() async {
+    final next = !widget.settings.notesOpen;
+    await widget.settings.setNotesOpen(next);
+    if (mounted) setState(() {});
+  }
+
+  /// 备注防抖保存。
+  final Debouncer _notesDebounce = Debouncer(const Duration(milliseconds: 800));
+
+  void _onNotesChanged(String notes) {
+    final doc = widget.library.currentDocument;
+    if (doc == null) return;
+    _notesDebounce.schedule(() async {
+      await widget.library.setDocumentNotes(doc.id, notes);
+    });
+  }
+
   // ── 查找/替换（当前文档范围）──────────────────────────────
 
   void _onFindTick() {
@@ -1161,6 +1223,8 @@ class _EditorViewState extends State<EditorView> {
                     : _showHistory,
                 outlineOpen: widget.settings.outlineOpen,
                 onToggleOutline: doc == null ? null : _toggleOutline,
+                notesOpen: widget.settings.notesOpen,
+                onToggleNotes: doc == null ? null : _toggleNotes,
               ),
               // 常驻格式工具栏：字体样式始终可见，不随选区隐藏。
               _FormatToolbar(
@@ -1264,6 +1328,11 @@ class _EditorViewState extends State<EditorView> {
         hasDoc &&
         !focusMode &&
         widget.settings.outlineOpen &&
+        windowWidth >= _outlineMinWindowWidth;
+    final showDockedNotes =
+        hasDoc &&
+        !focusMode &&
+        widget.settings.notesOpen &&
         windowWidth >= _outlineMinWindowWidth;
     final hoverOutlineAvailable =
         hasDoc && isDesktopPlatform && !showDockedOutline;
@@ -1376,6 +1445,16 @@ class _EditorViewState extends State<EditorView> {
               entries: _outlineEntries,
               activeIndex: _outlineActive,
               onJump: _jumpToOutline,
+            ),
+          ),
+        if (showDockedNotes)
+          DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(left: BorderSide(color: colors.outline)),
+            ),
+            child: NotesPanel(
+              notes: doc.notes,
+              onChanged: _onNotesChanged,
             ),
           ),
       ],
@@ -1516,6 +1595,8 @@ class _EditorHeader extends StatelessWidget {
     this.onShowHistory,
     this.outlineOpen = false,
     this.onToggleOutline,
+    this.notesOpen = false,
+    this.onToggleNotes,
   });
 
   final String title;
@@ -1527,6 +1608,8 @@ class _EditorHeader extends StatelessWidget {
   final VoidCallback? onShowHistory;
   final bool outlineOpen;
   final VoidCallback? onToggleOutline;
+  final bool notesOpen;
+  final VoidCallback? onToggleNotes;
 
   @override
   Widget build(BuildContext context) {
@@ -1605,6 +1688,15 @@ class _EditorHeader extends StatelessWidget {
                 tooltip: outlineOpen ? '收起大纲' : '展开大纲',
                 icon: Icons.toc,
                 active: outlineOpen,
+              ),
+            ],
+            if (onToggleNotes != null) ...[
+              const SizedBox(width: 2),
+              _HeaderAction(
+                onPressed: onToggleNotes!,
+                tooltip: notesOpen ? '收起备注' : '展开备注',
+                icon: Icons.sticky_note_2_outlined,
+                active: notesOpen,
               ),
             ],
             const SizedBox(width: 2),

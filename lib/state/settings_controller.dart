@@ -46,6 +46,17 @@ class SettingsController extends ChangeNotifier {
     await _db.setSetting('outline.open', open.toString());
   }
 
+  /// 章节备注面板展开状态（状态记忆）。
+  bool _notesOpen = false;
+  bool get notesOpen => _notesOpen;
+
+  Future<void> setNotesOpen(bool open) async {
+    if (_notesOpen == open) return;
+    _notesOpen = open;
+    notifyListeners();
+    await _db.setSetting('notes.open', open.toString());
+  }
+
   /// 库文件路径（设置页「数据」区展示 / 打开目录）。
   String get dbPath => _db.path;
 
@@ -56,6 +67,7 @@ class SettingsController extends ChangeNotifier {
   Future<void> load() async {
     final values = await _db.allSettings();
     _settings = Settings.fromMap(values);
+    _db.countPunctuation = _settings.countPunctuation;
     final goals = <String, NotebookGoal>{};
     for (final entry in values.entries) {
       const prefix = 'notebookGoal.';
@@ -77,6 +89,7 @@ class SettingsController extends ChangeNotifier {
     }
     _notebookGoals = goals;
     _outlineOpen = values['outline.open'] == 'true';
+    _notesOpen = values['notes.open'] == 'true';
     _loaded = true;
     notifyListeners();
   }
@@ -85,6 +98,7 @@ class SettingsController extends ChangeNotifier {
   Future<void> update(Settings next) async {
     if (next == _settings) return;
     _settings = next;
+    _db.countPunctuation = next.countPunctuation;
     notifyListeners();
     await _db.saveSettings(next);
   }

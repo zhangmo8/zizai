@@ -70,6 +70,8 @@ class Document {
     required this.position,
     required this.createdAt,
     required this.updatedAt,
+    this.status = DocumentStatus.draft,
+    this.notes = '',
   });
 
   final String id;
@@ -85,6 +87,12 @@ class Document {
   final int createdAt;
   final int updatedAt;
 
+  /// 章节状态标记（草稿/完成/待修改）。
+  final DocumentStatus status;
+
+  /// 章节备注（不进正文导出）：本章目的、出场人物、伏笔、待修改事项等。
+  final String notes;
+
   factory Document.fromRow(Map<String, Object?> row) => Document(
     id: row['id']! as String,
     notebookId: row['notebook_id']! as String,
@@ -94,6 +102,8 @@ class Document {
     position: row['position']! as int,
     createdAt: row['created_at']! as int,
     updatedAt: row['updated_at']! as int,
+    status: DocumentStatus.fromString(row['status'] as String? ?? 'draft'),
+    notes: (row['notes'] as String?) ?? '',
   );
 
   @override
@@ -106,7 +116,9 @@ class Document {
       other.words == words &&
       other.position == position &&
       other.createdAt == createdAt &&
-      other.updatedAt == updatedAt;
+      other.updatedAt == updatedAt &&
+      other.status == status &&
+      other.notes == notes;
 
   @override
   int get hashCode => Object.hash(
@@ -118,7 +130,33 @@ class Document {
     position,
     createdAt,
     updatedAt,
+    status,
+    notes,
   );
+}
+
+/// 章节状态标记。
+enum DocumentStatus {
+  /// 草稿。
+  draft,
+  /// 完成。
+  done,
+  /// 待修改。
+  todo;
+
+  static DocumentStatus fromString(String s) {
+    return switch (s) {
+      'done' => DocumentStatus.done,
+      'todo' => DocumentStatus.todo,
+      _ => DocumentStatus.draft,
+    };
+  }
+
+  String get label => switch (this) {
+    DocumentStatus.draft => '草稿',
+    DocumentStatus.done => '完成',
+    DocumentStatus.todo => '待修改',
+  };
 }
 
 /// 设置（UI 可配置项）。settings 表为 KV，其余键（如同步配置）由调用方
@@ -130,6 +168,7 @@ class Settings {
     this.fontSize = 18,
     this.lineHeight = 1.8,
     this.dailyGoal = 2000,
+    this.countPunctuation = false,
   });
 
   /// 'system' | 'light' | 'dark'
@@ -143,12 +182,16 @@ class Settings {
   /// 每日目标字数（100–50000）。
   final int dailyGoal;
 
+  /// 是否将中文标点计入字数。
+  final bool countPunctuation;
+
   static const settingsKeys = [
     'theme',
     'fontFamily',
     'fontSize',
     'lineHeight',
     'dailyGoal',
+    'countPunctuation',
   ];
 
   Map<String, String> toMap() => {
@@ -157,6 +200,7 @@ class Settings {
     'fontSize': fontSize.toString(),
     'lineHeight': lineHeight.toString(),
     'dailyGoal': dailyGoal.toString(),
+    'countPunctuation': countPunctuation.toString(),
   };
 
   Settings copyWith({
@@ -165,12 +209,14 @@ class Settings {
     double? fontSize,
     double? lineHeight,
     int? dailyGoal,
+    bool? countPunctuation,
   }) => Settings(
     theme: theme ?? this.theme,
     fontFamily: fontFamily ?? this.fontFamily,
     fontSize: fontSize ?? this.fontSize,
     lineHeight: lineHeight ?? this.lineHeight,
     dailyGoal: dailyGoal ?? this.dailyGoal,
+    countPunctuation: countPunctuation ?? this.countPunctuation,
   );
 
   factory Settings.fromMap(Map<String, String> kv) {
@@ -195,6 +241,7 @@ class Settings {
       fontSize: parseD('fontSize', 18, 12, 28),
       lineHeight: parseD('lineHeight', 1.8, 1.2, 2.4),
       dailyGoal: parseI('dailyGoal', 2000, 100, 50000),
+      countPunctuation: kv['countPunctuation'] == 'true',
     );
   }
 }

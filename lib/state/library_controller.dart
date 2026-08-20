@@ -6,9 +6,10 @@ library;
 
 import 'package:flutter/foundation.dart';
 
+import '../core/chapter_ops.dart';
 import '../core/db.dart';
 import '../core/models.dart';
-
+import '../core/writing_session.dart';
 /// 待删除对象类型（删除确认条用）。
 enum DeletionKind { notebook, document }
 
@@ -68,6 +69,9 @@ class LibraryController extends ChangeNotifier {
   /// 保存成功时刻（状态栏闪「已保存」1s）。
   final ValueNotifier<DateTime?> savedAt = ValueNotifier<DateTime?>(null);
 
+  /// 写作会话追踪（本次字数/时长/速度）。编辑器上报增量，状态栏订阅显示。
+  final WritingSession session = WritingSession();
+
   DeletionRequest? _pendingDeletion;
   DeletionRequest? get pendingDeletion => _pendingDeletion;
 
@@ -103,6 +107,7 @@ class LibraryController extends ChangeNotifier {
     if (doc == null) return;
     _currentDocument = doc;
     await _refreshTodayDelta();
+    session.reset();
     await _db.saveLastOpen(
       notebookId: doc.notebookId,
       documentId: doc.id,
@@ -221,6 +226,109 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  /// 拖拽重排：将文档移动到目标笔记本的指定位置。
+  Future<void> reorderDocument(
+    String id, {
+    required String notebookId,
+    required int newPosition,
+  }) async {
+    await _db.reorderDocument(id, notebookId: notebookId, newPosition: newPosition);
+    await _reloadTree();
+    if (_currentDocument != null && _currentDocument!.id == id) {
+      _currentDocument = await _db.getDocument(id);
+      notifyListeners();
+    }
+  }
+
+  /// 复制章节：创建副本并刷新树。
+  Future<Document> duplicateDocument(String id) async {
+    final doc = await _db.duplicateDocument(id);
+    await _reloadTree();
+    return doc;
+  }
+
+  /// 拆分章节：在纯文本偏移处将文档一分为二，后半段作为新章节插入。
+  ///
+  /// [splitOffset] 为纯文本中的字符偏移（来自编辑器选区或光标位置）。
+  /// 返回新创建的后半段文档。
+  Future<Document> splitDocument(String id, int splitOffset) async {
+    final src = await _db.getDocument(id);
+    if (src == null) throw StateError('文档不存在: $id');
+    final result = splitDocumentContent(src.content, splitOffset);
+    // 更新原文档为前半段
+    await _db.saveDocument(
+      id: id,
+      title: src.title,
+      content: result.firstContent,
+      writtenWords: 0,
+    );
+    // 创建新文档（后半段），position 紧跟原文档
+    final newDoc = await _db.createDocument(
+      src.notebookId,
+      title: '${src.title}（续）',
+      content: result.secondContent,
+    );
+    // 把新文档移到原文档之后
+    await _db.reorderDocument(
+      newDoc.id,
+      notebookId: src.notebookId,
+      newPosition: src.position + 1,
+    );
+    await _reloadTree();
+    return newDoc;
+  }
+
+  /// 合并章节：将 [sourceId] 的内容追加到 [targetId] 末尾，然后删除源文档。
+  Future<void> mergeDocuments({
+    required String targetId,
+    required String sourceId,
+  }) async {
+    final target = await _db.getDocument(targetId);
+    final source = await _db.getDocument(sourceId);
+    if (target == null) throw StateError('目标文档不存在: $targetId');
+    if (source == null) throw StateError('源文档不存在: $sourceId');
+    final merged = mergeDocumentContent(target.content, source.content);
+    await _db.saveDocument(
+      id: targetId,
+      title: target.title,
+      content: merged,
+      writtenWords: 0,
+    );
+    await _db.deleteDocument(sourceId);
+    await _reloadTree();
+    if (_currentDocument?.id == sourceId) {
+      await switchDocument(targetId);
+    }
+  }
+
+  /// 设置章节状态标记。
+  Future<void> setDocumentStatus(String id, DocumentStatus status) async {
+    await _db.setDocumentStatus(id, status);
+    final cur = _currentDocument;
+    if (cur != null && cur.id == id) {
+      _currentDocument = await _db.getDocument(id);
+    }
+    await _reloadTree();
+  }
+
+  /// 设置章节备注（不进正文导出）。
+  Future<void> setDocumentNotes(String id, String notes) async {
+    await _db.setDocumentNotes(id, notes);
+    final cur = _currentDocument;
+    if (cur != null && cur.id == id) {
+      _currentDocument = await _db.getDocument(id);
+    }
+    // 备注不触发整树重载——只更新缓存中的备注字段。
+    final docs = _documentsByNotebook[cur?.notebookId ?? ''];
+    if (docs != null) {
+      final index = docs.indexWhere((d) => d.id == id);
+      if (index >= 0 && cur != null) {
+        docs[index] = cur;
+      }
+    }
+    notifyListeners();
+  }
+
   // ── 删除确认（非模态，5s 自动关由 UI 层 Timer 驱动）──────────
 
   void requestDelete({
@@ -285,6 +393,7 @@ class LibraryController extends ChangeNotifier {
   void dispose() {
     savedAt.dispose();
     liveWords.dispose();
+    session.dispose();
     super.dispose();
   }
 

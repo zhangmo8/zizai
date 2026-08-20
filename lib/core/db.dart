@@ -14,8 +14,9 @@ import 'models.dart';
 import 'word_count.dart';
 
 /// 当前代码里的 DB schema 版本（`PRAGMA user_version`）。
-/// v1：基础五表；v2：+ sync_journal（云同步脏标记）。
-const int currentSchemaVersion = 2;
+/// v1：基础五表；v2：+ sync_journal（云同步脏标记）；v3：+ documents.status（章节状态标记）；
+/// v4：+ documents.notes（章节备注，不进正文导出）。
+const int currentSchemaVersion = 4;
 
 /// 单级迁移：`to` 为目标版本，`up` 执行该级全部 DDL/DML。
 class SchemaMigration {
@@ -42,6 +43,24 @@ CREATE TABLE sync_journal (
 )''');
       await db.execute(
         'ALTER TABLE notebooks ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0',
+      );
+    },
+  ),
+  // v3：documents.status —— 章节状态标记（draft/done/todo），默认 draft。
+  SchemaMigration(
+    to: 3,
+    up: (db) async {
+      await db.execute(
+        "ALTER TABLE documents ADD COLUMN status TEXT NOT NULL DEFAULT 'draft'",
+      );
+    },
+  ),
+  // v4：documents.notes —— 章节备注（不进正文导出），默认空串。
+  SchemaMigration(
+    to: 4,
+    up: (db) async {
+      await db.execute(
+        "ALTER TABLE documents ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
       );
     },
   ),
@@ -143,6 +162,9 @@ class Db {
   final Database _db;
   final String _path;
   final DateTime Function()? _clock;
+
+  /// 是否将中文标点计入字数（由 SettingsController 设置，影响 _wordsOf）。
+  bool countPunctuation = false;
 
   /// 本地数据变更回调（云同步引擎挂接：保存/增删改后触发推送调度）。
   /// 引擎在 pull 应用期间自行抑制（置 null 再恢复），避免推送回环。
@@ -437,6 +459,155 @@ CREATE TABLE last_open (
     });
   }
 
+  /// 拖拽重排：将文档移动到 [notebookId] 内的 [newPosition] 位。
+  /// 跨笔记本移动时目标笔记本 position 重排；同笔记本内重排。
+  Future<void> reorderDocument(
+    String id, {
+    required String notebookId,
+    required int newPosition,
+  }) async {
+    await _db.transaction((txn) async {
+      final rows = await txn.query(
+        'documents',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw LibraryException('文档不存在: $id', path: _path);
+      final oldNotebookId = rows.first['notebook_id']! as String;
+
+      if (oldNotebookId == notebookId) {
+        // 同笔记本内重排：取出目标笔记本全部文档，按新顺序重写 position。
+        final all = await txn.query(
+          'documents',
+          where: 'notebook_id = ?',
+          whereArgs: [notebookId],
+          orderBy: 'position ASC, created_at ASC',
+        );
+        final ordered = all.where((r) => r['id'] != id).toList();
+        final clampedNew = newPosition.clamp(0, ordered.length);
+        ordered.insert(clampedNew, {'id': id});
+        for (var i = 0; i < ordered.length; i++) {
+          await txn.update(
+            'documents',
+            {'position': i},
+            where: 'id = ?',
+            whereArgs: [ordered[i]['id']],
+          );
+        }
+      } else {
+        // 跨笔记本移动：从旧笔记本移除（重排旧笔记本），插入新笔记本。
+        // 先从旧笔记本列表中移除并重排（不实际删除行，只重排剩余的）。
+        final oldRows = await txn.query(
+          'documents',
+          where: 'notebook_id = ?',
+          whereArgs: [oldNotebookId],
+          orderBy: 'position ASC, created_at ASC',
+        );
+        final oldRemaining = oldRows.where((r) => r['id'] != id).toList();
+        for (var i = 0; i < oldRemaining.length; i++) {
+          await txn.update(
+            'documents',
+            {'position': i},
+            where: 'id = ?',
+            whereArgs: [oldRemaining[i]['id']],
+          );
+        }
+        // 新笔记本：position >= newPosition 的后移一位
+        final targetRows = await txn.query(
+          'documents',
+          where: 'notebook_id = ?',
+          whereArgs: [notebookId],
+          orderBy: 'position ASC, created_at ASC',
+        );
+        final clampedNew = newPosition.clamp(0, targetRows.length);
+        await txn.rawUpdate(
+          'UPDATE documents SET position = position + 1 '
+          'WHERE notebook_id = ? AND position >= ?',
+          [notebookId, clampedNew],
+        );
+        await txn.update(
+          'documents',
+          {'notebook_id': notebookId, 'position': clampedNew},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+    });
+    await _markDirty(id);
+  }
+
+  /// 复制文档：在同一笔记本内创建副本，position 紧跟原文档。
+  Future<Document> duplicateDocument(String id) async {
+    final rows = await _db.query(
+      'documents',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) throw LibraryException('文档不存在: $id', path: _path);
+    final src = Document.fromRow(rows.first);
+    final newId = _newId('doc');
+    final now = _nowMs();
+    // 目标 position = 原 position + 1；之后的文档后移一位。
+    await _db.transaction((txn) async {
+      await txn.rawUpdate(
+        'UPDATE documents SET position = position + 1 '
+        'WHERE notebook_id = ? AND position > ?',
+        [src.notebookId, src.position],
+      );
+      await txn.insert('documents', {
+        'id': newId,
+        'notebook_id': src.notebookId,
+        'title': '${src.title} 副本',
+        'content': src.content,
+        'words': src.words,
+        'position': src.position + 1,
+        'created_at': now,
+        'updated_at': now,
+        'status': src.status.name,
+      });
+    });
+    await _markDirty(newId);
+    return Document(
+      id: newId,
+      notebookId: src.notebookId,
+      title: '${src.title} 副本',
+      content: src.content,
+      words: src.words,
+      position: src.position + 1,
+      createdAt: now,
+      updatedAt: now,
+      status: src.status,
+    );
+  }
+
+  /// 更新文档状态标记。
+  Future<void> setDocumentStatus(String id, DocumentStatus status) async {
+    final now = _nowMs();
+    final n = await _db.update(
+      'documents',
+      {'status': status.name, 'updated_at': now},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (n == 0) throw LibraryException('文档不存在: $id', path: _path);
+    await _markDirty(id);
+  }
+
+  /// 更新章节备注（不进正文导出）。
+  Future<void> setDocumentNotes(String id, String notes) async {
+    final now = _nowMs();
+    final n = await _db.update(
+      'documents',
+      {'notes': notes, 'updated_at': now},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (n == 0) throw LibraryException('文档不存在: $id', path: _path);
+    await _markDirty(id);
+  }
+
   /// 保存文档：更新内容/标题，重算字数快照，返回本次字数增量；
   /// 增量非零时累加当日 stats（负数不下探到 0），并同步 last_open 快照。
   ///
@@ -600,7 +771,10 @@ CREATE TABLE last_open (
 
   int _wordsOf(String deltaJson) {
     try {
-      return wordCount(deltaToPlainText(deltaJson));
+      return wordCount(
+        deltaToPlainText(deltaJson),
+        countPunctuation: countPunctuation,
+      );
     } on FormatException catch (e) {
       throw LibraryException('内容不是有效 Delta: ${e.message}', path: _path);
     }

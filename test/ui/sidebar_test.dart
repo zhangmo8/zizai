@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:zi_zai/app.dart';
 import 'package:zi_zai/core/db.dart';
+import 'package:zi_zai/core/models.dart';
 import 'package:zi_zai/state/library_controller.dart';
 import 'package:zi_zai/state/settings_controller.dart';
 import 'package:zi_zai/ui/sidebar.dart';
@@ -88,6 +89,51 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
   }
+
+  group('suggestedChapterTitle', () {
+    Document doc(String title) => Document(
+          id: title,
+          notebookId: 'nb',
+          title: title,
+          content: '{}',
+          words: 0,
+          position: 0,
+          createdAt: 0,
+          updatedAt: 0,
+        );
+
+    test('空笔记本 → 第 1 章', () {
+      expect(suggestedChapterTitle(const <Document>[]), '第 1 章');
+    });
+
+    test('全部阿拉伯编号 → 递增', () {
+      expect(
+        suggestedChapterTitle([doc('第 1 章'), doc('第 2 章')]),
+        '第 3 章',
+      );
+    });
+
+    test('混入自定义名 → 新章节', () {
+      expect(
+        suggestedChapterTitle([doc('第 1 章'), doc('序章')]),
+        '新章节',
+      );
+    });
+
+    test('中文编号 → 中文递增', () {
+      expect(
+        suggestedChapterTitle([doc('第一章'), doc('第二章')]),
+        '第三章',
+      );
+    });
+
+    test('非连续编号 → 取最大值 +1', () {
+      expect(
+        suggestedChapterTitle([doc('第 1 章'), doc('第 5 章')]),
+        '第 6 章',
+      );
+    });
+  });
 
   testWidgets('树渲染：笔记本展开 + 文档 + 当前文档高亮', (tester) async {
     final (library, _) = (await tester.runAsync(

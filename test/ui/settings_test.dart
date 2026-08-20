@@ -165,7 +165,7 @@ void main() {
     await openSettings(tester);
     await openCategory(tester, '写作');
 
-    await tester.tap(find.byType(ZzSwitch));
+    await tester.tap(find.byType(ZzSwitch).first);
     await tester.pump();
     final notebookId = library.currentDocument!.notebookId;
     expect(settings.goalForNotebook(notebookId).enabled, isFalse);

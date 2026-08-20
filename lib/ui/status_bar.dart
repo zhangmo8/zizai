@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../app.dart' show appColorsOf;
 import '../core/backup/backup.dart';
+import '../core/writing_session.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
 import 'glass.dart';
@@ -134,6 +135,7 @@ class _StatusBarState extends State<StatusBar> {
               ),
             ],
             const Spacer(),
+            _SessionChip(session: widget.library.session),
             if (widget.backup != null)
               _BackupIndicator(
                 backup: widget.backup!,
@@ -205,6 +207,90 @@ class _StatusChipState extends State<_StatusChip> {
           child: DefaultTextStyle.merge(
             style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
             child: widget.child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 写作会话条：本次字数 / 时长 / 速度。仅在本次有新增字数时显示。
+///
+/// 活跃时每 30 秒自动刷新时长；订阅 [WritingSession] 局部重建，不影响状态栏其余部分。
+class _SessionChip extends StatefulWidget {
+  const _SessionChip({required this.session});
+
+  final WritingSession session;
+
+  @override
+  State<_SessionChip> createState() => _SessionChipState();
+}
+
+class _SessionChipState extends State<_SessionChip> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.session.addListener(_onChanged);
+    _scheduleTick();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SessionChip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.session != widget.session) {
+      oldWidget.session.removeListener(_onChanged);
+      widget.session.addListener(_onChanged);
+      _scheduleTick();
+    }
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    widget.session.removeListener(_onChanged);
+    super.dispose();
+  }
+
+  void _onChanged() {
+    if (mounted) {
+      setState(() {});
+      _scheduleTick();
+    }
+  }
+
+  /// 活跃会话每 30s 刷新一次时长显示。
+  void _scheduleTick() {
+    _tick?.cancel();
+    if (!widget.session.active) return;
+    _tick = Timer(const Duration(seconds: 30), () {
+      if (mounted) {
+        setState(() {});
+        _scheduleTick();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final snap = widget.session.snapshot;
+    if (snap.words == 0) return const SizedBox.shrink();
+    final appColors = appColorsOf(context);
+    final duration = formatSessionDuration(snap.duration);
+    final wph = snap.wordsPerHour;
+    final tooltip = '本次写作 +${snap.words} 字 · $duration'
+        '${wph > 0 ? ' · $wph 字/小时' : ''}';
+    return Tooltip(
+      message: tooltip,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 12),
+        child: Text(
+          '+${snap.words} · $duration${wph > 0 ? ' · $wph/时' : ''}',
+          style: TextStyle(
+            fontSize: 12,
+            color: appColors.success,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ),

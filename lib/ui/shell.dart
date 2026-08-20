@@ -18,6 +18,7 @@ import '../core/snapshot_history.dart';
 import '../core/update.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
+import '../util/ime_state.dart';
 import '../util/platform.dart';
 import 'book_search_dialog.dart';
 import 'editor.dart';
@@ -105,6 +106,8 @@ class _ShellState extends State<Shell> {
 
   bool _onGlobalKey(KeyEvent event) {
     if (event is! KeyDownEvent) return false;
+    // IME 组合阶段（拼音未确认）不处理任何快捷键，避免误触保存/查找/侧栏。
+    if (isImeComposing) return false;
     final key = event.logicalKey;
     final kb = HardwareKeyboard.instance;
     final mod = kb.isControlPressed || kb.isMetaPressed;
