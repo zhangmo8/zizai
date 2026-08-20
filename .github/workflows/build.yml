@@ -227,7 +227,8 @@ jobs:
           MSYS2_ARG_CONV_EXCL: "*"
         run: |
           app_version="${TAG#v}"
-          # 脚本内路径已由 ${__FILEDIR__} 锚定，只需注入版本号。
+          mkdir -p build/installer
+          # 脚本内路径已由脚本目录 ..\..\..\ 锚定，只需注入版本号。
           makensis \
             /DAPP_VERSION="${app_version}" \
             tool/installer/windows/zi_zai_installer.nsi

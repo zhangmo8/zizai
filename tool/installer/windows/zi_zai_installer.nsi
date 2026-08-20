@@ -11,8 +11,9 @@
 ; 用法（CI 或本地，需先安装 NSIS，如 choco install nsis）：
 ;   makensis /DAPP_VERSION=1.4.0 \
 ;           tool\installer\windows\zi_zai_installer.nsi
-; 脚本内文件路径以脚本所在目录为基准（${__FILEDIR__} 锚定），无需传
-; /DSOURCE /DICON_SRC /DOUT_DIR，任意 CWD 下构建结果一致。
+; 脚本内文件路径以脚本所在目录（tool/installer/windows/）为基准，用
+; ..\..\..\ 前缀锚定到仓库根，无需传 /DSOURCE /DICON_SRC /DOUT_DIR，
+; 任意 CWD 下构建结果一致。
 ;
 ; 设计：
 ;   - 按用户安装到 %LOCALAPPDATA%\Programs\ZiZai（免管理员、免 UAC）
@@ -36,17 +37,17 @@ ManifestDPIAware true
 !ifndef APP_VERSION
   !define APP_VERSION "0.0.0"
 !endif
-; NSIS 以「脚本所在目录」为基准解析脚本内相对路径，因此这里统一用
-; ${__FILEDIR__}（本脚本的绝对目录）锚定到仓库根，CI 与本地任意 CWD 都稳定。
-!define SCRIPT_DIR "${__FILEDIR__}"
+; NSIS 以「脚本所在目录」为基准解析脚本内相对路径（本脚本位于
+; tool/installer/windows/，向上三级到仓库根）。因此这里直接用 ..\..\..\ 前缀，
+; CI 与本地任意 CWD 下解析结果一致。
 !ifndef SOURCE
-  !define SOURCE "${SCRIPT_DIR}\..\..\..\build\windows\x64\runner\Release"
+  !define SOURCE "..\..\..\build\windows\x64\runner\Release"
 !endif
 !ifndef ICON_SRC
-  !define ICON_SRC "${SCRIPT_DIR}\..\..\..\windows\runner\resources\app_icon.ico"
+  !define ICON_SRC "..\..\..\windows\runner\resources\app_icon.ico"
 !endif
 !ifndef OUT_DIR
-  !define OUT_DIR "${SCRIPT_DIR}\..\..\..\build\installer"
+  !define OUT_DIR "..\..\..\build\installer"
 !endif
 
 Name "${APP_NAME} ${APP_VERSION}"
