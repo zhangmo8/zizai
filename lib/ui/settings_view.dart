@@ -915,17 +915,29 @@ class _SettingsViewState extends State<SettingsView> {
     }
   }
 
-  /// 平台安装：Android 经 FileProvider 触发系统安装；桌面解压到更新目录并提示
-  /// （运行中 .app 无法自替换，自用 V1 给出路径 + 手动替换说明，见 update.md）。
+  /// 平台安装：
+  /// - Android：经 FileProvider 触发系统安装；
+  /// - Windows：自更新下载的是 setup.exe —— 以 /S 静默安装，应用先落盘再退出，
+  ///   由安装器替换文件并自动重启新版（zi_zai_installer.nsi 双用途）；
+  /// - macOS/Linux：解压到更新目录并提示手动替换（运行中 .app 无法自替换，见 update.md）。
   Future<void> _installPackage() async {
     final path = widget.updateChecker!.readyPath.value;
     if (path == null) return;
     if (isAndroidPlatform) {
       const channel = MethodChannel('dev.zizai/install');
       await channel.invokeMethod('installApk', {'path': path});
-    } else {
-      await _extractDesktop(path);
+      return;
     }
+    if (Platform.isWindows) {
+      // 先落盘当前缓冲，再退出；安装器完成静默安装后自动重启新版。
+      await widget.library.beforeSwitchSave?.call();
+      await widget.logger?.info('update.install.windows', data: {'path': path});
+      await Process.start(path, const ['/S']);
+      // 给安装器一点启动时间后退出本进程（子进程独立存活，不随父进程终止）。
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      exit(0);
+    }
+    await _extractDesktop(path);
   }
 
   Future<void> _extractDesktop(String zipPath) async {

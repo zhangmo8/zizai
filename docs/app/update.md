@@ -40,7 +40,9 @@ Status: Draft
 update.json                              ← 根路径，App 始终检查此 URL
 releases/v1.2.0/app-release.apk
 releases/v1.2.0/zizai-macos.zip
+releases/v1.2.0/zizai-macos.pkg           ← 首次安装向导（不参与自更新）
 releases/v1.2.0/zizai-windows.zip
+releases/v1.2.0/zizai-1.2.0-windows-setup.exe   ← Windows 自更新 + 首次安装
 releases/v1.2.0/update.json              ← 版本归档
 ```
 
@@ -55,9 +57,9 @@ App 首次启动即可自动检查更新，无需手动配置。
   "latest": "1.2.0",
   "minDbSchema": 4,
   "platforms": {
-    "macos":   { "url": "https://.../zizai-1.2.0-macos.zip",  "sha256": "..." },
-    "windows": { "url": "https://.../zizai-1.2.0-windows.zip", "sha256": "..." },
-    "android": { "url": "https://.../zizai-1.2.0.apk",        "sha256": "..." }
+    "macos":   { "url": "https://.../zizai-1.2.0-macos.zip",           "sha256": "..." },
+    "windows": { "url": "https://.../zizai-1.2.0-windows-setup.exe",   "sha256": "..." },
+    "android": { "url": "https://.../zizai-1.2.0.apk",                 "sha256": "..." }
   },
   "notes": "新增云同步；修复自动保存竞态"
 }
@@ -70,7 +72,9 @@ App 首次启动即可自动检查更新，无需手动配置。
 3. 下载：校验 sha256，失败拒绝安装并报错。
 4. 安装：
    - Android：下载 APK → FileProvider 触发系统安装（未知来源提示，自用可接受）。
-   - 桌面：下载 zip → 解压到 `updates/unpacked/`（解压前清空旧残留，避免新旧文件混入 bundle）→ 打开该文件夹由用户手动替换应用。**macOS 必须经系统 `ditto -x -k` 解压**：`.app` 内含符号链接与可执行位，Dart 侧解压会丢失两者并使签名失效（替换后系统报「已损坏，无法打开」），与 CI 打包 `ditto -c -k` 对称；解压后统一 `xattr -dr com.apple.quarantine` 剥除隔离属性（带隔离属性的 ad-hoc 签名 `.app` 会被 Gatekeeper 判「已损坏」）；Windows/Linux 仍用 Dart 解压。未签名 app 需「右键打开」首次运行，文档说明。
+   - **Windows：自更新下载 setup.exe → `/S` 静默安装**（应用先落盘再退出，安装器通过「改名腾位」处理运行中的 exe/dll 文件锁，完成后自动重启新版；与首次安装向导共用同一包，见 §7）。
+   - **macOS：下载 zip → 解压到 `updates/unpacked/`**（解压前清空旧残留，避免新旧文件混入 bundle）→ 打开该文件夹由用户手动替换应用。**必须经系统 `ditto -x -k` 解压**：`.app` 内含符号链接与可执行位，Dart 侧解压会丢失两者并使签名失效（替换后系统报「已损坏，无法打开」），与 CI 打包 `ditto -c -k` 对称；解压后统一 `xattr -dr com.apple.quarantine` 剥除隔离属性（带隔离属性的 ad-hoc 签名 `.app` 会被 Gatekeeper 判「已损坏」）。未签名 app 需「右键打开」首次运行，文档说明。
+   - **macOS 不走 .pkg 自更新**：`.pkg` 是 `auth="root"` 装到 /Applications，每次自更新要输管理员密码，体验不如 zip 手动替换；`.pkg` 仅作首次安装向导（§7）。
    - **macOS 不启用 App Sandbox**（直接分发，非 App Store）：沙盒应用写出的一切文件（含下载的更新包与解压产物）会被系统自动打上 `com.apple.quarantine`，且沙盒内禁止移除该属性，自更新链路必然产出被 Gatekeeper 拒开的 app。去沙盒后数据目录从 `~/Library/Containers/dev.zizai.ziZai/...` 变为 `~/Library/Application Support/dev.zizai.ziZai/`，启动时对旧容器内的 `zi-zai.db*` 做一次性迁移（新路径无 db 才执行）。
 5. 更新后首次启动：若本地 DB schema < `minDbSchema` → 自动执行 §2 迁移链；新功能随迁移解锁。
 6. 安装包由 pkg-006 构建并上传 R2（wrangler/rclone 均可，R2 凭据与桶配置见 docs/app/sync.md）。
@@ -116,3 +120,18 @@ GitHub Actions 工作流 [build.yml](../../.github/workflows/build.yml) 负责�
 - 迁移回放：v1 空库 → 当前版本，schema/数据断言。
 - 迁移失败注入：中断某级迁移 → 库保持备份可恢复。
 - 清单解析：版本比较正确；sha256 不符拒绝安装；下载失败重试。
+
+## 7. 首次安装向导包（与自更新分离）
+
+自更新走 zip 解压替换（§3），**首次安装**额外产出带向导的安装包，方便新用户「下一步 → 安装 → 完成」：
+
+| 平台 | 产物 | 工具 | 构建脚本 |
+|---|---|---|---|
+| macOS | `zizai-<ver>-macos.pkg`（欢迎页 + 系统安装向导，装到 /Applications） | 系统自带 `pkgbuild`/`productbuild` | `tool/installer/macos/build_pkg.sh`（`Distribution.xml` 提供欢迎页 UI；choice id 必须与 pkg-ref id 一致，否则组件包被静默丢弃） |
+| Windows | `zizai-<ver>-windows-setup.exe`（MUI2 向导：欢迎 → 目录 → 安装 → 完成，按用户安装到 `%LOCALAPPDATA%\Programs\ZiZai`，带开始菜单/桌面快捷方式与卸载项） | NSIS（CI 用 `choco install nsis`） | `tool/installer/windows/zi_zai_installer.nsi` |
+
+- 构建流程已接入 [build.yml](../../.github/workflows/build.yml)：macos/windows job 在打包 zip 后追加打安装包并上传 R2（`releases/<tag>/`），发布后校验探针同时验证安装包可达。
+- 安装包与自更新的关系：
+  - **Windows 的 setup.exe 进 update.json**：首次安装与自更新共用同一包（自更新 `/S` 静默安装，§3）。
+  - **macOS 的 .pkg 不进 update.json**：`.pkg` 装到 /Applications 需管理员权限，不适合自更新；macOS 自更新仍走 zip 手动替换（§3），`.pkg` 仅作发布页/下载页的首次安装入口。
+- macOS 安装包与 zip 均未签名（自用分发）；Gatekeeper 提示时「右键打开」。

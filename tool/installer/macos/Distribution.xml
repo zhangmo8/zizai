@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  macOS .pkg 安装向导 UI 描述。
+  提供 Welcome(欢迎) 页 + 标准「安装 → 完成」流程；
+  用户看到的是系统安装器的多步向导（下一步 → 安装 → 完成）。
+
+  注意：choice 的 id 必须与 pkg-ref 的 id 一致（这里都是 dev.zizai.ziZai），
+  否则 productbuild 无法把组件包关联进产物，会静默丢弃。
+-->
+<installer-gui-script minSpecVersion="1">
+  <title>字在</title>
+
+  <options customize="never" require-scripts="false" hostArchitectures="x86_64,arm64" />
+
+  <welcome
+    file="welcome.rtf"
+    mime-type="text/rtf" />
+
+  <choices-outline>
+    <line choice="default">
+      <line choice="dev.zizai.ziZai" />
+    </line>
+  </choices-outline>
+
+  <choice id="default" />
+
+  <choice
+    id="dev.zizai.ziZai"
+    title="字在"
+    description="字在 — 沉浸式本地写作工具">
+    <pkg-ref id="dev.zizai.ziZai" />
+  </choice>
+
+  <pkg-ref id="dev.zizai.ziZai" version="__VERSION__" onConclusion="none">zi_zai-component.pkg</pkg-ref>
+
+  <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true" />
+</installer-gui-script>

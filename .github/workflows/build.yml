@@ -149,6 +149,21 @@ jobs:
         run: |
           cd build/macos/Build/Products/Release
           ditto -c -k --sequesterRsrc --keepParent zi_zai.app zizai-macos.zip
+      - name: 打包安装向导 .pkg
+        run: tool/installer/macos/build_pkg.sh
+      - name: Upload installer pkg to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_KEY: ${{ env.R2_RELEASES_PREFIX }}/${{ needs.validate.outputs.tag }}/zizai-macos.pkg
+        run: |
+          pkg=$(ls build/installer/zizai-*-macos.pkg)
+          aws s3 cp "${pkg}" \
+            "s3://${R2_BUCKET}/${R2_KEY}" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --no-progress
       - id: manifest
         name: Compute sha256
         run: |
@@ -194,13 +209,43 @@ jobs:
         run: |
           cd build/windows/x64/runner/Release
           powershell Compress-Archive -Path * -DestinationPath zizai-windows.zip
+      - name: 安装 NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+      - name: 打包安装向导 setup.exe
+        shell: bash
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          app_version="${TAG#v}"
+          makensis \
+            /DAPP_VERSION="${app_version}" \
+            /DSOURCE="build/windows/x64/runner/Release" \
+            /DICON_SRC="windows/runner/resources/app_icon.ico" \
+            tool/installer/windows/zi_zai_installer.nsi
+      - name: Upload installer setup.exe to R2
+        shell: pwsh
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_KEY: ${{ env.R2_RELEASES_PREFIX }}/${{ needs.validate.outputs.tag }}/zizai-windows-setup.exe
+        run: |
+          $exe = (Get-ChildItem 'build/installer/zizai-*-windows-setup.exe').FullName
+          aws s3 cp $exe `
+            "s3://$env:R2_BUCKET/$env:R2_KEY" `
+            --endpoint-url "$env:R2_ENDPOINT" `
+            --no-progress
       - id: manifest
-        name: Compute sha256
+        name: Compute sha256 (setup.exe)
         shell: pwsh
         run: |
-          $hash = (Get-FileHash -Algorithm SHA256 'build/windows/x64/runner/Release/zizai-windows.zip').Hash.ToLower()
+          $exe = (Get-ChildItem 'build/installer/zizai-*-windows-setup.exe').FullName
+          $hash = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower()
+          $name = (Get-Item $exe).Name
           echo "sha256=$hash" >> $env:GITHUB_OUTPUT
-          echo "file=zizai-windows.zip" >> $env:GITHUB_OUTPUT
+          echo "file=$name" >> $env:GITHUB_OUTPUT
       - name: Upload to R2
         shell: pwsh
         env:
@@ -305,6 +350,13 @@ jobs:
               )
           EOF
           for file in "${ANDROID_FILE}" "${MACOS_FILE}" "${WINDOWS_FILE}"; do
+            curl --fail --silent --show-error \
+              --retry 5 --retry-delay 2 --retry-all-errors \
+              --range 0-0 \
+              "${base}/releases/${TAG}/${file}" -o /dev/null
+          done
+          # 首次安装向导包（不参与自更新，仅发布页下载）
+          for file in zizai-macos.pkg zizai-windows-setup.exe; do
             curl --fail --silent --show-error \
               --retry 5 --retry-delay 2 --retry-all-errors \
               --range 0-0 \
