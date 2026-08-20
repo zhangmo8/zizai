@@ -228,9 +228,13 @@ jobs:
         run: |
           app_version="${TAG#v}"
           mkdir -p build/installer
-          # 脚本内路径已由脚本目录 ..\..\..\ 锚定，只需注入版本号。
+          # 传绝对路径，避免 NSIS 对 Icon/File 相对路径的解析基准不一致
+          # （Icon 按脚本目录、File 按工作目录）。/D 值不会被 MSYS2 改写。
           makensis \
             /DAPP_VERSION="${app_version}" \
+            "/DSOURCE=${GITHUB_WORKSPACE}\build\windows\x64\runner\Release" \
+            "/DICON_SRC=${GITHUB_WORKSPACE}\windows\runner\resources\app_icon.ico" \
+            "/DOUT_DIR=${GITHUB_WORKSPACE}\build\installer" \
             tool/installer/windows/zi_zai_installer.nsi
       - name: Upload installer setup.exe to R2
         shell: pwsh

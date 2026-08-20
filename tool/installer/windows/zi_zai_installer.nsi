@@ -11,9 +11,9 @@
 ; 用法（CI 或本地，需先安装 NSIS，如 choco install nsis）：
 ;   makensis /DAPP_VERSION=1.4.0 \
 ;           tool\installer\windows\zi_zai_installer.nsi
-; 脚本内文件路径以脚本所在目录（tool/installer/windows/）为基准，用
-; ..\..\..\ 前缀锚定到仓库根，无需传 /DSOURCE /DICON_SRC /DOUT_DIR，
-; 任意 CWD 下构建结果一致。
+; 编译时 NSIS 的工作目录为脚本所在目录（tool/installer/windows/），脚本内
+; 相对路径均以它为基准，用 ..\..\..\ 前缀锚定到仓库根。CI 另会传入
+; /DSOURCE /DICON_SRC /DOUT_DIR 绝对路径覆盖，双保险。
 ;
 ; 设计：
 ;   - 按用户安装到 %LOCALAPPDATA%\Programs\ZiZai（免管理员、免 UAC）
@@ -37,9 +37,8 @@ ManifestDPIAware true
 !ifndef APP_VERSION
   !define APP_VERSION "0.0.0"
 !endif
-; NSIS 以「脚本所在目录」为基准解析脚本内相对路径（本脚本位于
-; tool/installer/windows/，向上三级到仓库根）。因此这里直接用 ..\..\..\ 前缀，
-; CI 与本地任意 CWD 下解析结果一致。
+; 编译期 NSIS 的工作目录即脚本所在目录（tool/installer/windows/），
+; 相对路径用它向上三级（..\..\..\）锚定到仓库根；CI 用绝对路径 /D 覆盖。
 !ifndef SOURCE
   !define SOURCE "..\..\..\build\windows\x64\runner\Release"
 !endif
@@ -90,7 +89,7 @@ Section "Install"
   IfFileExists "$INSTDIR\${APP_EXE}" 0 +3
     Rename "$INSTDIR\${APP_EXE}" "$INSTDIR\${APP_EXE}.old"
     Rename "$INSTDIR\flutter_windows.dll" "$INSTDIR\flutter_windows.dll.old"
-  File /r "${SOURCE}/*"
+  File /r "${SOURCE}\*"
   Delete "$INSTDIR\${APP_EXE}.old"
   Delete "$INSTDIR\flutter_windows.dll.old"
 
