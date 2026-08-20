@@ -1305,6 +1305,18 @@ class _EditorViewState extends State<EditorView> {
           paintCursorAboveText: false,
           characterShortcutEvents: q.standardCharactersShortcutEvents,
           spaceShortcutEvents: _spaceShortcuts,
+          // 拦截 flutter_quill 内置的 Cmd/Ctrl+F（其 OpenSearchIntent 会弹
+          // 未接本地化的空白搜索对话框 = 白蒙层），改走应用自己的查找/替换条。
+          // customShortcuts 在 quill 合并快捷键时优先于默认值，因此其内置
+          // 搜索框不会触发；_FindIntent 交由外层 Actions 处理（与编辑器外层
+          // Shortcuts 一致）。
+          customShortcuts: {
+            SingleActivator(
+              LogicalKeyboardKey.keyF,
+              meta: isMacOS,
+              control: !isMacOS,
+            ): _FindIntent(),
+          },
           // 桌面点击菜单/侧栏不丢编辑焦点（Notion 行为）；移动端收起键盘。
           onTapOutside: (event, focusNode) {
             if (!isDesktopPlatform) focusNode.unfocus();

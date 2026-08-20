@@ -12,6 +12,7 @@ import 'package:zi_zai/core/export.dart' show deltaToPlainText;
 import 'package:zi_zai/core/snapshot_history.dart';
 import 'package:zi_zai/state/library_controller.dart';
 import 'package:zi_zai/state/settings_controller.dart';
+import 'package:zi_zai/ui/find_bar.dart';
 
 void main() {
   setUpAll(() {
@@ -146,6 +147,38 @@ void main() {
 
     final doc = await tester.runAsync(() => db.getDocument(docId));
     expect(deltaToPlainText(doc!.content), '失焦保存');
+  });
+
+  testWidgets('Cmd/Ctrl+F 打开应用查找条，Quill 内置搜索框不弹', (tester) async {
+    final (library, settings, _, _, _) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    // 聚焦编辑器（命中 flutter_quill 内置 Cmd+F → OpenSearchIntent 的关键路径）
+    await tester.tap(find.byType(q.QuillEditor));
+    await tester.pump();
+
+    await press(tester, [modifierKey(), LogicalKeyboardKey.keyF]);
+    await settle(tester);
+
+    // 应用自己的查找条打开
+    expect(find.byType(FindBar), findsOneWidget);
+    // flutter_quill 内置（未接本地化的空白）搜索对话框不得弹出
+    expect(find.byType(q.QuillToolbarSearchDialog), findsNothing);
+    expect(find.byType(Dialog), findsNothing);
+
+    // 再次 Cmd+F：保持打开，仅重新聚焦查找框（不重复弹层）
+    await press(tester, [modifierKey(), LogicalKeyboardKey.keyF]);
+    await settle(tester);
+    expect(find.byType(FindBar), findsOneWidget);
+    expect(find.byType(q.QuillToolbarSearchDialog), findsNothing);
+
+    // Esc 关闭
+    await press(tester, [LogicalKeyboardKey.escape]);
+    await settle(tester);
+    expect(find.byType(FindBar), findsNothing);
   });
 
   testWidgets('上下文工具栏：选中浮现 → 加粗 → Esc 收起', (tester) async {
