@@ -227,10 +227,9 @@ jobs:
           MSYS2_ARG_CONV_EXCL: "*"
         run: |
           app_version="${TAG#v}"
+          # 脚本内路径已由 ${__FILEDIR__} 锚定，只需注入版本号。
           makensis \
             /DAPP_VERSION="${app_version}" \
-            /DSOURCE="build/windows/x64/runner/Release" \
-            /DICON_SRC="windows/runner/resources/app_icon.ico" \
             tool/installer/windows/zi_zai_installer.nsi
       - name: Upload installer setup.exe to R2
         shell: pwsh
