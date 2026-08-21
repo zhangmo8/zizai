@@ -114,6 +114,8 @@ void main() {
     // 预览文本应用了字号
     final preview = tester.widget<Text>(find.textContaining('预览：'));
     expect(preview.style?.fontSize, settings.settings.fontSize);
+    // 排空 sqflite 落库队列（见「恢复默认」测试注释），避免定时器残留 flake。
+    await tester.runAsync(() => settings.load());
   });
 
   testWidgets('每日目标输入 → 状态栏进度即时刷新', (tester) async {
@@ -274,5 +276,9 @@ void main() {
     // 文档仍在
     expect(library.notebooks, hasLength(1));
     expect(library.documentsOf(library.notebooks.first.id), hasLength(1));
+    // 确定性排空 sqflite 队列：update/resetNotebookGoals 是「先改内存再落库」，
+    // 落库经 txnSynchronized 会挂 10s 超时定时器；load() 会排队等待之前的事务
+    // 完成，避免测试结束时仍残留定时器（!timersPending flake，CI 慢机偶发）。
+    await tester.runAsync(() => settings.load());
   });
 }
