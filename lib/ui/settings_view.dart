@@ -426,6 +426,19 @@ class _SettingsViewState extends State<SettingsView> {
             ),
           ],
         ),
+        _SettingsGroup(
+          label: '焦点暗淡',
+          children: [
+            _row(
+              '暗淡非当前行',
+              ZzSwitch(
+                value: _s.focusDim,
+                onChanged: (v) => _update(_s.copyWith(focusDim: v)),
+              ),
+              description: '仅高亮光标所在段落，其余变暗（编辑器顶栏可快速切换）',
+            ),
+          ],
+        ),
       ],
     );
   }

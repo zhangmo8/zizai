@@ -178,6 +178,39 @@ void main() {
     expect(find.textContaining('今日'), findsNothing);
   });
 
+  testWidgets('焦点暗淡开关 → 即改即存并持久化', (tester) async {
+    final (library, settings) = (await tester.runAsync(() => makeApp()))!;
+    await pumpApp(tester, library, settings);
+    await openSettings(tester);
+    await openCategory(tester, '写作');
+
+    expect(settings.settings.focusDim, isFalse);
+
+    // 定位「暗淡非当前行」所在行的开关（与该行 label 同处一行）。
+    final row = find
+        .ancestor(
+          of: find.text('暗淡非当前行'),
+          matching: find.byWidgetPredicate((w) => w is Row),
+        )
+        .first;
+    final dimSwitch = find.descendant(of: row, matching: find.byType(ZzSwitch));
+    expect(dimSwitch, findsOneWidget);
+
+    await tester.tap(dimSwitch);
+    await tester.pump();
+    // 让真实异步写库完成（sqflite 事务在 FakeAsync 内不会自行结束）
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pump();
+    }
+    expect(settings.settings.focusDim, isTrue);
+    // 持久化：重新加载
+    await tester.runAsync(() => settings.load());
+    expect(settings.settings.focusDim, isTrue);
+  });
+
   testWidgets('导出：有文档可用且回调收到当前文档', (tester) async {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     Document? exported;

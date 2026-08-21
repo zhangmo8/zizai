@@ -169,6 +169,7 @@ class Settings {
     this.lineHeight = 1.8,
     this.dailyGoal = 2000,
     this.countPunctuation = false,
+    this.focusDim = false,
   });
 
   /// 'system' | 'light' | 'dark'
@@ -185,6 +186,9 @@ class Settings {
   /// 是否将中文标点计入字数。
   final bool countPunctuation;
 
+  /// 焦点暗淡：仅高亮光标所在段落，其余蒙页面底色（ui-editor.md §焦点暗淡）。
+  final bool focusDim;
+
   static const settingsKeys = [
     'theme',
     'fontFamily',
@@ -192,6 +196,7 @@ class Settings {
     'lineHeight',
     'dailyGoal',
     'countPunctuation',
+    'focusDim',
   ];
 
   Map<String, String> toMap() => {
@@ -201,6 +206,7 @@ class Settings {
     'lineHeight': lineHeight.toString(),
     'dailyGoal': dailyGoal.toString(),
     'countPunctuation': countPunctuation.toString(),
+    'focusDim': focusDim.toString(),
   };
 
   Settings copyWith({
@@ -210,6 +216,7 @@ class Settings {
     double? lineHeight,
     int? dailyGoal,
     bool? countPunctuation,
+    bool? focusDim,
   }) => Settings(
     theme: theme ?? this.theme,
     fontFamily: fontFamily ?? this.fontFamily,
@@ -217,6 +224,7 @@ class Settings {
     lineHeight: lineHeight ?? this.lineHeight,
     dailyGoal: dailyGoal ?? this.dailyGoal,
     countPunctuation: countPunctuation ?? this.countPunctuation,
+    focusDim: focusDim ?? this.focusDim,
   );
 
   factory Settings.fromMap(Map<String, String> kv) {
@@ -242,6 +250,7 @@ class Settings {
       lineHeight: parseD('lineHeight', 1.8, 1.2, 2.4),
       dailyGoal: parseI('dailyGoal', 2000, 100, 50000),
       countPunctuation: kv['countPunctuation'] == 'true',
+      focusDim: kv['focusDim'] == 'true',
     );
   }
 }

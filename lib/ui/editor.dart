@@ -122,6 +122,9 @@ class _EditorViewState extends State<EditorView> {
   final GlobalKey<q.QuillRawEditorState> _editorKey = GlobalKey<q.QuillRawEditorState>();
   final FocusNode _focusNode = FocusNode();
   final ScrollController _scroll = ScrollController();
+
+  /// 焦点暗淡蒙层宿主 Stack 的 key（painter 用它做坐标换算锚点）。
+  final GlobalKey _dimStackKey = GlobalKey();
   final Debouncer _saveDebounce = Debouncer(
     const Duration(milliseconds: _autoSaveDebounceMs),
   );
@@ -922,6 +925,16 @@ class _EditorViewState extends State<EditorView> {
     if (mounted) setState(() {});
   }
 
+  // ── 焦点暗淡 ──────────────────────────────────────────────
+
+  /// 切换「暗淡非当前行」：写入 settings（持久化），编辑区随之挂载/卸载蒙层。
+  Future<void> _toggleFocusDim() async {
+    final next = !widget.settings.settings.focusDim;
+    await widget.settings.update(
+      widget.settings.settings.copyWith(focusDim: next),
+    );
+  }
+
   // ── 章节备注 ──────────────────────────────────────────────
 
   Future<void> _toggleNotes() async {
@@ -1225,6 +1238,8 @@ class _EditorViewState extends State<EditorView> {
                 onToggleOutline: doc == null ? null : _toggleOutline,
                 notesOpen: widget.settings.notesOpen,
                 onToggleNotes: doc == null ? null : _toggleNotes,
+                focusDim: s.focusDim,
+                onToggleFocusDim: _toggleFocusDim,
               ),
               // 常驻格式工具栏：字体样式始终可见，不随选区隐藏。
               _FormatToolbar(
@@ -1355,7 +1370,19 @@ class _EditorViewState extends State<EditorView> {
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: _maxContentWidth),
-              child: editor,
+              // 焦点暗淡：编辑器 + 上/下暗带 overlay（ui-editor.md §焦点暗淡）。
+              child: s.focusDim && hasDoc
+                  ? _FocusDimStack(
+                      stackKey: _dimStackKey,
+                      editorKey: _editorKey,
+                      controller: _quill,
+                      scrollController: _scroll,
+                      dimColor: Theme.of(
+                        context,
+                      ).scaffoldBackgroundColor.withValues(alpha: 0.6),
+                      child: editor,
+                    )
+                  : editor,
             ),
           ),
         ),
@@ -1609,6 +1636,8 @@ class _EditorHeader extends StatelessWidget {
     this.onToggleOutline,
     this.notesOpen = false,
     this.onToggleNotes,
+    this.focusDim = false,
+    this.onToggleFocusDim,
   });
 
   final String title;
@@ -1622,6 +1651,10 @@ class _EditorHeader extends StatelessWidget {
   final VoidCallback? onToggleOutline;
   final bool notesOpen;
   final VoidCallback? onToggleNotes;
+
+  /// 焦点暗淡开关状态（active 态高亮）。
+  final bool focusDim;
+  final VoidCallback? onToggleFocusDim;
 
   @override
   Widget build(BuildContext context) {
@@ -1709,6 +1742,15 @@ class _EditorHeader extends StatelessWidget {
                 tooltip: notesOpen ? '收起备注' : '展开备注',
                 icon: Icons.sticky_note_2_outlined,
                 active: notesOpen,
+              ),
+            ],
+            if (onToggleFocusDim != null) ...[
+              const SizedBox(width: 2),
+              _HeaderAction(
+                onPressed: onToggleFocusDim!,
+                tooltip: focusDim ? '关闭暗淡非当前行' : '暗淡非当前行',
+                icon: Icons.contrast,
+                active: focusDim,
               ),
             ],
             const SizedBox(width: 2),
@@ -2583,4 +2625,169 @@ class _NoticeBar extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── 焦点暗淡（Focus Dim）──────────────────────────────────
+// 设计：docs/app/ui-editor.md §焦点暗淡。编辑器 + 上/下暗带 overlay，
+// 亮区 = 光标（选区 base）所在段落块；跨段落选区 = base..extent 全部段落。
+
+/// 焦点暗淡蒙层宿主：把编辑器包进 Stack，叠加一层 IgnorePointer 的 CustomPaint，
+/// 对「当前段落块」上/下方绘制页面底色暗带（内容宽度内）。
+///
+/// 订阅 controller（选区/文档变更）与 scrollController（滚动）触发重绘，
+/// 实现逐帧跟随；overlay 不拦截输入/滚动/选区。
+class _FocusDimStack extends StatefulWidget {
+  const _FocusDimStack({
+    required this.stackKey,
+    required this.editorKey,
+    required this.controller,
+    required this.scrollController,
+    required this.dimColor,
+    required this.child,
+  });
+
+  /// 宿主 Stack 的 key：painter 用它做 globalToLocal 坐标换算锚点。
+  final GlobalKey stackKey;
+
+  final GlobalKey<q.QuillRawEditorState> editorKey;
+  final q.QuillController controller;
+  final ScrollController scrollController;
+  final Color dimColor;
+  final Widget child;
+
+  @override
+  State<_FocusDimStack> createState() => _FocusDimStackState();
+}
+
+class _FocusDimStackState extends State<_FocusDimStack> {
+  StreamSubscription<q.DocChange>? _docSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _docSub = widget.controller.document.changes.listen((_) => _onInvalidated());
+    widget.controller.addListener(_onInvalidated);
+    widget.scrollController.addListener(_onInvalidated);
+  }
+
+  @override
+  void dispose() {
+    _docSub?.cancel();
+    widget.controller.removeListener(_onInvalidated);
+    widget.scrollController.removeListener(_onInvalidated);
+    super.dispose();
+  }
+
+  /// 选区 / 文档变更 / 滚动时重绘暗带（geometry 由 painter 在 paint 时实时计算）。
+  void _onInvalidated() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      key: widget.stackKey,
+      children: [
+        widget.child,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: _FocusDimPainter(
+                editorKey: widget.editorKey,
+                controller: widget.controller,
+                stackKey: widget.stackKey,
+                dimColor: widget.dimColor,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FocusDimPainter extends CustomPainter {
+  _FocusDimPainter({
+    required this.editorKey,
+    required this.controller,
+    required this.stackKey,
+    required this.dimColor,
+  });
+
+  final GlobalKey<q.QuillRawEditorState> editorKey;
+  final q.QuillController controller;
+  final GlobalKey stackKey;
+  final Color dimColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final range = _highlightRange(size);
+    if (range == null) return;
+    final paint = Paint()..color = dimColor;
+    final top = Rect.fromLTRB(0, 0, size.width, range.$1);
+    if (top.height > 0) canvas.drawRect(top, paint);
+    final bottom = Rect.fromLTRB(0, range.$2, size.width, size.height);
+    if (bottom.height > 0) canvas.drawRect(bottom, paint);
+  }
+
+  /// 亮区（当前段落块）在宿主 Stack 坐标系下的 `[top, bottom]`；
+  /// 无法计算（无文档 / 选区无效 / 编辑器未挂载）时返回 null，不绘制蒙层。
+  (double, double)? _highlightRange(Size size) {
+    final editorState = editorKey.currentState;
+    final stackBox = stackKey.currentContext?.findRenderObject();
+    if (editorState == null || stackBox is! RenderBox || !stackBox.hasSize) {
+      return null;
+    }
+    final q.RenderEditor editor;
+    try {
+      editor = editorState.renderEditor;
+    } catch (_) {
+      return null; // 首帧尚未挂载。
+    }
+    if (!editor.attached || editor.firstChild == null) return null;
+
+    final selection = controller.selection;
+    if (!selection.isValid) return null;
+
+    final base = _blockAt(editor, selection.baseOffset);
+    final extent = _blockAt(editor, selection.extentOffset);
+    if (base == null || extent == null) return null;
+
+    // 跨段落选区：base..extent 覆盖的全部段落（按文档序取上下界）。
+    var first = base;
+    var last = extent;
+    if (first.container.documentOffset > last.container.documentOffset) {
+      first = extent;
+      last = base;
+    }
+    final firstTop = (first.parentData as q.EditableContainerParentData).offset.dy;
+    final lastBottom = (last.parentData as q.EditableContainerParentData).offset.dy +
+        last.size.height;
+    final localTop = stackBox.globalToLocal(
+      editor.localToGlobal(Offset(0, firstTop)),
+    ).dy;
+    final localBottom = stackBox.globalToLocal(
+      editor.localToGlobal(Offset(0, lastBottom)),
+    ).dy;
+    final top = localTop.clamp(0.0, size.height);
+    final bottom = localBottom.clamp(0.0, size.height);
+    if (bottom <= top) return null;
+    return (top, bottom);
+  }
+
+  /// 文档偏移 [offset] 所在的段落渲染盒；越界（如光标在文末）取末尾块。
+  /// 返回类型用推断，避免直接引用 flutter_quill 未导出的 `RenderEditableBox`。
+  dynamic _blockAt(q.RenderEditor editor, int offset) {
+    dynamic last;
+    var child = editor.firstChild;
+    while (child != null) {
+      last = child;
+      if (child.container.containsOffset(offset)) return child;
+      child = editor.childAfter(child);
+    }
+    return last;
+  }
+
+  @override
+  bool shouldRepaint(covariant _FocusDimPainter oldDelegate) => true;
 }

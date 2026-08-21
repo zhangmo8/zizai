@@ -294,6 +294,44 @@ void main() {
     expect(find.byTooltip('退出沉浸 (Esc)'), findsNothing);
   });
 
+  testWidgets('焦点暗淡：顶栏 contrast 开关写入 settings 并挂载蒙层', (tester) async {
+    final (library, settings, _, _, _) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pump();
+
+    expect(settings.settings.focusDim, isFalse);
+    expect(find.byTooltip('暗淡非当前行'), findsOneWidget);
+
+    await typeText(tester, '第一段\n第二段\n第三段');
+
+    // 打开 → 写入 settings 并持久化；蒙层挂载（active 态 tooltip 同步）。
+    await tester.tap(find.byTooltip('暗淡非当前行'));
+    await tester.pump();
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pump();
+    }
+    expect(settings.settings.focusDim, isTrue);
+    expect(find.byTooltip('关闭暗淡非当前行'), findsOneWidget);
+    // 蒙层 CustomPaint 已挂载且渲染无异常（选区/滚动重绘不抛错）。
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.runAsync(() => settings.load());
+    expect(settings.settings.focusDim, isTrue);
+
+    // 关闭 → 恢复
+    await tester.tap(find.byTooltip('关闭暗淡非当前行'));
+    await tester.pump();
+    expect(settings.settings.focusDim, isFalse);
+  });
+
   testWidgets('崩溃恢复：启动出现确认条 → 恢复 → 内容入库', (tester) async {
     final (library, settings, db, journal, docId) = (await tester.runAsync(
       () => makeApp(),
