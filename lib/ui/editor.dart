@@ -2060,8 +2060,9 @@ class _FormatButtons extends StatelessWidget {
           borderRadius: BorderRadius.circular(4),
           onTap: onTap,
           child: Container(
+            // 与图标按钮同尺寸（30×30），保证标题按钮与图标按钮视觉密度一致。
+            width: 30,
             height: 30,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: active ? appColors.rowSelected : Colors.transparent,

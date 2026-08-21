@@ -139,4 +139,23 @@ void main() {
     expect(find.text('导出整本书'), findsOneWidget);
     expect(find.text('已导出 2 章'), findsNothing);
   });
+
+  testWidgets('handler 抛异常（写入失败）→ toast 导出失败，对话框保持打开', (tester) async {
+    final library = (await tester.runAsync(makeLibrary))!;
+    await pumpDialog(
+      tester,
+      library,
+      saveText: (_, _) async => throw Exception('disk full'),
+    );
+
+    await tester.tap(find.widgetWithText(ZzButton, '导出'));
+    await settle(tester);
+
+    // 失败结果用 toast 反馈（design.md §5.4：异步结束 → toast，无 inline error）
+    expect(find.textContaining('导出失败'), findsOneWidget);
+    // 对话框不关闭，可重试
+    expect(find.text('导出整本书'), findsOneWidget);
+    expect(find.text('已导出 2 章'), findsNothing);
+    await tester.pump(const Duration(seconds: 3)); // toast 定时器走完
+  });
 }

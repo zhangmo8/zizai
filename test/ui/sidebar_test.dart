@@ -422,6 +422,36 @@ void main() {
     expect(library.documentsOf(nbId), hasLength(1));
   });
 
+  testWidgets('删除笔记本：确认后级联删除其下全部章节', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
+          ('小说', ['第一章', '第二章']),
+        ],
+      ),
+    ))!;
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pump();
+
+    await openRowMenu(tester, 0); // 笔记本行
+    await tester.tap(find.text('删除'));
+    await tester.pump();
+
+    expect(find.textContaining('删除《小说》'), findsOneWidget);
+    await tester.tap(find.text('确认删除'));
+    await settle(tester);
+
+    // 笔记本与全部章节一起从树中移除（级联删除）
+    expect(library.notebooks, isEmpty);
+    expect(library.allDocuments, isEmpty);
+    expect(find.text('第一章'), findsNothing);
+    expect(find.text('第二章'), findsNothing);
+  });
+
   testWidgets('全书搜索入口：接线时顶栏出现按钮，点击触发回调', (tester) async {
     final (library, _) = (await tester.runAsync(
       () => makeApp(

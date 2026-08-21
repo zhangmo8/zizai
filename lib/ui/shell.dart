@@ -112,6 +112,10 @@ class _ShellState extends State<Shell> {
     final kb = HardwareKeyboard.instance;
     final mod = kb.isControlPressed || kb.isMetaPressed;
     if (key == LogicalKeyboardKey.keyS && mod) {
+      // 焦点在普通输入框（侧边栏重命名、设置表单等）时让位给输入框，
+      // 不触发全局保存（自动保存防抖仍兜底）。Quill 编辑器不是 TextField
+      // 子树，不受此判定影响。
+      if (_plainTextFieldFocused()) return false;
       _saveTick.value++; // 立即保存（UI 自动保存防抖照常）
       return true;
     }
@@ -144,6 +148,15 @@ class _ShellState extends State<Shell> {
       return false;
     }
     return false;
+  }
+
+  /// 焦点是否在普通文本输入框（TextField 子树，如侧边栏重命名、设置表单）内。
+  ///
+  /// 这类场景全局快捷键应让位给输入框自身；Quill 编辑器用自绘 RawEditor，
+  /// 不在 TextField 子树中，因此焦点在编辑器内时返回 false（快捷键照常生效）。
+  bool _plainTextFieldFocused() {
+    final focus = FocusManager.instance.primaryFocus;
+    return focus?.context?.findAncestorWidgetOfExactType<TextField>() != null;
   }
 
   /// 全书搜索：命中点击 → 下发跳转请求，必要时切换文档。

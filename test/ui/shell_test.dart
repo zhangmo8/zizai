@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' as q;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -6,6 +9,7 @@ import 'package:zi_zai/app.dart';
 import 'package:zi_zai/core/db.dart';
 import 'package:zi_zai/state/library_controller.dart';
 import 'package:zi_zai/state/settings_controller.dart';
+import 'package:zi_zai/ui/sidebar.dart';
 
 void main() {
   setUpAll(() {
@@ -122,5 +126,32 @@ void main() {
     expect(find.text('本文 5 字'), findsOneWidget);
     // 当前文档标题：侧边栏树行 + 编辑器区各一处
     expect(find.text('第一章'), findsNWidgets(2));
+  });
+
+  testWidgets('Ctrl/Cmd+B 切换侧边栏显隐（桌面）', (tester) async {
+    await pumpAtSize(tester, const Size(1200, 800));
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(seed: true),
+    ))!;
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    // 初始：侧边栏可见（「小说」同时在侧边栏树与顶栏 breadcrumb，故用 Sidebar 组件判定）
+    expect(find.byType(Sidebar), findsOneWidget);
+
+    final mod = Platform.isMacOS
+        ? LogicalKeyboardKey.metaLeft
+        : LogicalKeyboardKey.controlLeft;
+    Future<void> pressB() async {
+      await tester.sendKeyDownEvent(mod);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+      await tester.sendKeyUpEvent(mod);
+      await tester.pump();
+    }
+
+    await pressB();
+    expect(find.byType(Sidebar), findsNothing); // 侧边栏隐藏，编辑器区占满
+    await pressB();
+    expect(find.byType(Sidebar), findsOneWidget); // 再次按下恢复
   });
 }

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:zi_zai/app.dart';
@@ -279,6 +280,35 @@ void main() {
     // 确定性排空 sqflite 队列：update/resetNotebookGoals 是「先改内存再落库」，
     // 落库经 txnSynchronized 会挂 10s 超时定时器；load() 会排队等待之前的事务
     // 完成，避免测试结束时仍残留定时器（!timersPending flake，CI 慢机偶发）。
+    await tester.runAsync(() => settings.load());
+  });
+
+  testWidgets('Esc 关闭设置对话框', (tester) async {
+    final (library, settings) = (await tester.runAsync(() => makeApp()))!;
+    await pumpApp(tester, library, settings);
+    await openSettings(tester);
+    expect(find.text('写作'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(find.text('写作'), findsNothing);
+    expect(find.text('每日目标字数'), findsNothing);
+  });
+
+  testWidgets('状态栏今日进度点击 → 打开设置并聚焦每日目标', (tester) async {
+    final (library, settings) = (await tester.runAsync(() => makeApp()))!;
+    await pumpApp(tester, library, settings);
+    expect(find.text('今日 0/2000'), findsOneWidget);
+
+    await tester.tap(find.text('今日 0/2000'));
+    await tester.pumpAndSettle();
+
+    // 设置对话框打开并定位到「写作」分类，每日目标输入框获得焦点
+    expect(find.text('每日目标字数'), findsOneWidget);
+    final goalField = tester.widget<TextField>(find.byType(TextField).first);
+    expect(goalField.focusNode?.hasFocus, isTrue);
+    // 排空 sqflite 落库队列，避免定时器残留 flake。
     await tester.runAsync(() => settings.load());
   });
 }

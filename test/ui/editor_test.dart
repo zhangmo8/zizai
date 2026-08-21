@@ -350,6 +350,55 @@ void main() {
     expect(library.liveDocWords, 4);
   });
 
+  testWidgets('保存失败 → 重试成功后错误条清除', (tester) async {
+    final (library, settings, db, _, docId) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    // 注入瞬时保存失败：给 documents 表加 BEFORE UPDATE 触发器，保存即中止。
+    // 用第二个连接创建，不影响应用持有的 db 连接；随后删除触发器恢复写库。
+    Future<void> withConn(Future<void> Function(dynamic conn) fn) async {
+      // singleInstance:false —— 必须独立连接：默认 singleInstance 共享同一
+      // Database 实例，close() 会把应用持有的 db 连接一起关掉。
+      final conn = await tester.runAsync(
+        () => databaseFactory.openDatabase(
+          '${tempDir.path}/test.db',
+          options: OpenDatabaseOptions(singleInstance: false),
+        ),
+      );
+      try {
+        await tester.runAsync(() => fn(conn!));
+      } finally {
+        await tester.runAsync(() => conn!.close());
+      }
+    }
+
+    await withConn((conn) async => conn.execute(
+      "CREATE TRIGGER inject_save_fail BEFORE UPDATE ON documents "
+      "BEGIN SELECT RAISE(ABORT, 'injected'); END",
+    ));
+
+    await typeText(tester, '重试后可存');
+    await tester.pump(const Duration(milliseconds: 1100));
+    await settle(tester);
+
+    // 保存被触发器中止 → 错误条 + 缓冲保留
+    expect(find.textContaining('保存失败'), findsOneWidget);
+    expect(library.saveError, isNotNull);
+
+    // 恢复写库能力后点「重试」→ 保存成功、错误条清除
+    await withConn((conn) async => conn.execute('DROP TRIGGER inject_save_fail'));
+    await tester.tap(find.text('重试'));
+    await settle(tester);
+
+    expect(find.textContaining('保存失败'), findsNothing);
+    expect(library.saveError, isNull);
+    final doc = await tester.runAsync(() => db.getDocument(docId));
+    expect(deltaToPlainText(doc!.content), '重试后可存');
+  });
+
   testWidgets('切换章节：先保存旧章节并立即显示新章节内容', (tester) async {
     final (library, settings, db, _, firstId) = (await tester.runAsync(
       () => makeApp(),
