@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 
 import '../app.dart' show appColorsOf;
 import 'glass.dart';
+import 'zz.dart';
 
 class FindBar extends StatefulWidget {
   const FindBar({
@@ -120,8 +121,6 @@ class FindBarState extends State<FindBar> {
     void Function()? onSubmit,
     void Function()? onShiftSubmit,
   }) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
     return SizedBox(
       width: 168,
       height: 28,
@@ -137,38 +136,14 @@ class FindBarState extends State<FindBar> {
           }
           return KeyEventResult.ignored;
         },
-        child: TextField(
+        child: ZzTextField(
           controller: controller,
+          hint: hint,
           focusNode: focusNode,
+          compact: true,
+          fontSize: 12.5,
           onChanged: onChanged,
           onSubmitted: onSubmit == null ? null : (_) => onSubmit(),
-          maxLines: 1,
-          textAlignVertical: TextAlignVertical.center,
-          style: TextStyle(fontSize: 12.5, color: colors.onSurface),
-          cursorColor: colors.primary,
-          cursorWidth: 2,
-          decoration: InputDecoration(
-            isDense: true,
-            hintText: hint,
-            hintStyle: TextStyle(
-              fontSize: 12.5,
-              color: appColors.textTertiary,
-            ),
-            filled: true,
-            fillColor: appColors.callout,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 8,
-              vertical: 6,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(4),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(4),
-              borderSide: BorderSide(color: colors.primary),
-            ),
-          ),
         ),
       ),
     );

@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../app.dart' show appColorsOf;
+import 'zz.dart';
 
 /// 章节备注面板。
 class NotesPanel extends StatefulWidget {
@@ -86,37 +87,14 @@ class NotesPanelState extends State<NotesPanel> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-              child: TextField(
+              child: ZzTextField(
                 controller: _controller,
+                hint: '本章目的、出场人物、伏笔、待修改事项…',
                 maxLines: null,
                 expands: true,
-                textAlignVertical: TextAlignVertical.top,
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.6,
-                  color: colors.onSurface,
-                ),
-                cursorColor: colors.primary,
-                cursorWidth: 2,
-                decoration: InputDecoration(
-                  isDense: true,
-                  filled: true,
-                  fillColor: appColors.callout,
-                  hintText: '本章目的、出场人物、伏笔、待修改事项…',
-                  hintStyle: TextStyle(
-                    fontSize: 13,
-                    color: appColors.textTertiary,
-                  ),
-                  contentPadding: const EdgeInsets.all(8),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(4),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(4),
-                    borderSide: BorderSide(color: colors.primary),
-                  ),
-                ),
+                fontSize: 13,
+                lineHeight: 1.6,
+                contentPadding: const EdgeInsets.all(8),
                 onChanged: widget.onChanged,
               ),
             ),

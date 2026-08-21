@@ -1829,7 +1829,6 @@ class _EditableHeaderTitleState extends State<_EditableHeaderTitle> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
     if (!_editing) {
       return Tooltip(
         message: '编辑标题',
@@ -1863,33 +1862,12 @@ class _EditableHeaderTitleState extends State<_EditableHeaderTitle> {
       },
       child: SizedBox(
         height: 28,
-        child: TextField(
+        child: ZzTextField(
           controller: _controller,
+          hint: '',
           focusNode: _focusNode,
           enabled: !_saving,
-          maxLines: 1,
-          textAlignVertical: TextAlignVertical.center,
-          style: TextStyle(fontSize: 13, color: colors.onSurface),
-          cursorColor: colors.primary,
-          cursorWidth: 2,
-          cursorRadius: const Radius.circular(1),
-          decoration: InputDecoration(
-            isDense: true,
-            filled: true,
-            fillColor: appColors.callout,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 8,
-              vertical: 5,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(4),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(4),
-              borderSide: BorderSide(color: colors.primary),
-            ),
-          ),
+          compact: true,
           textInputAction: TextInputAction.done,
           onSubmitted: (_) => _finish(),
         ),

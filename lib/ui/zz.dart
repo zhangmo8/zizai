@@ -336,6 +336,10 @@ class _ZzButtonState extends State<ZzButton> {
 // ── 输入框 ───────────────────────────────────────────────────
 
 /// Notion 式输入框：浅底、无边框，focus 时 accent 1px 描边。
+///
+/// 全应用统一入口：单行默认 28–32px 垂直居中，多行（[expands] 或
+/// [maxLines]>1）顶对齐；空 hint 转 null，避免空字符串 hint 让文本下移
+/// ~1.6px 破坏与同行按钮的水平居中对齐。
 class ZzTextField extends StatelessWidget {
   const ZzTextField({
     super.key,
@@ -348,8 +352,15 @@ class ZzTextField extends StatelessWidget {
     this.autofocus = false,
     this.error = false,
     this.compact = false,
+    this.maxLines = 1,
+    this.expands = false,
+    this.fontSize = 13,
+    this.lineHeight,
+    this.contentPadding,
+    this.textInputAction,
     this.onSubmitted,
     this.onChanged,
+    this.onEditingComplete,
   });
 
   final TextEditingController controller;
@@ -363,14 +374,36 @@ class ZzTextField extends StatelessWidget {
 
   /// 错误态：描边转 danger（行内命名冲突等即时校验用）。
   final bool error;
+
+  /// 行数：1 = 单行；null / [expands] = 多行文本区。
+  final int? maxLines;
+
+  /// 填满父级高度（配合 `maxLines: null`，如章节备注面板）。
+  final bool expands;
+
+  /// 字号（默认 13；查找条用 12.5）。
+  final double fontSize;
+
+  /// 行高倍数（仅多行文本区常用，如备注面板 1.6）。
+  final double? lineHeight;
+
+  /// 内部内边距（默认 水平 8、垂直 0 —— 垂直 0 保证单行文本在定高内居中）。
+  final EdgeInsets? contentPadding;
+
+  final TextInputAction? textInputAction;
   final ValueChanged<String>? onSubmitted;
   final ValueChanged<String>? onChanged;
+  final VoidCallback? onEditingComplete;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final appColors = appColorsOf(context);
     final radius = BorderRadius.circular(4);
+    final singleLine = !expands && maxLines == 1;
+    // 空 hint 转 null：InputDecorator 遇到空字符串 hintText 会额外保留
+    // 垂直空间，把文本整体下移 ~1.6px，与同行按钮不再水平居中。
+    final resolvedHint = hint.isEmpty ? null : hint;
     final field = TextField(
       controller: controller,
       focusNode: focusNode,
@@ -378,18 +411,33 @@ class ZzTextField extends StatelessWidget {
       obscureText: obscure,
       enabled: enabled,
       autofocus: autofocus,
-      style: TextStyle(fontSize: 13, color: colors.onSurface),
-      textAlignVertical: TextAlignVertical.center,
+      maxLines: expands ? null : maxLines,
+      expands: expands,
+      textInputAction: textInputAction,
+      // 单行垂直居中、多行顶对齐 —— 统一处理所有输入框的对齐。
+      textAlignVertical: singleLine
+          ? TextAlignVertical.center
+          : TextAlignVertical.top,
+      style: TextStyle(
+        fontSize: fontSize,
+        height: lineHeight,
+        color: colors.onSurface,
+      ),
       cursorColor: colors.primary,
       cursorWidth: 2,
       cursorRadius: const Radius.circular(1),
       decoration: InputDecoration(
-        isDense: true,
+        // 不用 isDense：isDense 会把单行文本往上推 ~4px（Flutter 行为），
+        // 破坏水平居中对齐；改用 vertical:0 contentPadding 居中。
         filled: true,
         fillColor: appColors.callout,
-        hintText: hint,
-        hintStyle: TextStyle(fontSize: 13, color: appColors.textTertiary),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+        hintText: resolvedHint,
+        hintStyle: TextStyle(
+          fontSize: fontSize,
+          color: appColors.textTertiary,
+        ),
+        contentPadding:
+            contentPadding ?? const EdgeInsets.symmetric(horizontal: 8),
         enabledBorder: OutlineInputBorder(
           borderRadius: radius,
           borderSide: error ? BorderSide(color: colors.error) : BorderSide.none,
@@ -405,6 +453,7 @@ class ZzTextField extends StatelessWidget {
       ),
       onSubmitted: onSubmitted,
       onChanged: onChanged,
+      onEditingComplete: onEditingComplete,
     );
     // 高度规则（design.md §4：控件 28–32px）：父给有界高度则继承，
     // 与同行按钮等元素天然对齐；否则回退 compact 28 / 常规 32 定高。
