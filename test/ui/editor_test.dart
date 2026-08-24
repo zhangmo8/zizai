@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -595,6 +596,71 @@ void main() {
 
     await insertAtCursor(tester, '你');
     expect(controller.document.toPlainText().trim(), '你');
+
+    await tester.runAsync(() => db.close());
+  });
+
+  testWidgets('打字机滚动：开启后光标移到末尾行自动滚动到视口中部', (tester) async {
+    final (library, settings, db, _, docId) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    // 写一个长文档（30 行），让内容超出视口。
+    final longContent = List.generate(
+      30,
+      (i) => '第${i + 1}行内容\n',
+    ).join();
+    await tester.runAsync(
+      () => library.saveDocument(
+        documentId: docId,
+        title: '第一章',
+        content: jsonEncode([
+          {'insert': longContent},
+        ]),
+        writtenWords: 0,
+      ),
+    );
+    await tester.runAsync(
+      () => settings.setTypewriterScroll(true),
+    );
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    final controller = editor.controller;
+    final scroll = editor.scrollController;
+    expect(scroll.offset, 0); // 初始在顶部
+
+    // 光标跳到文档末尾（第 30 行）→ 打字机滚动拉回到视口中部。
+    controller.updateSelection(
+      TextSelection.collapsed(offset: controller.document.length - 1),
+      q.ChangeSource.local,
+    );
+    await tester.pump();
+    // 120ms 平滑滚动动画：持续 pump 到结束。
+    await tester.pumpAndSettle();
+
+    expect(scroll.offset, greaterThan(0));
+    // 光标行应处于视口中部（顶部 1/4 到 3/4 之间）——区别于 flutter_quill
+    // 自带 bringIntoView 的「滚到视口底部边缘」。
+    final rawState = tester.state<q.QuillRawEditorState>(
+      find.byType(q.QuillRawEditor),
+    );
+    final caret = rawState.renderEditor.getLocalRectForCaret(
+      TextPosition(offset: controller.selection.baseOffset),
+    );
+    final caretGlobalY = rawState.renderEditor
+        .localToGlobal(caret.topLeft)
+        .dy;
+    final viewportGlobalY =
+        (scroll.position.context.storageContext.findRenderObject()!
+                as RenderBox)
+            .localToGlobal(Offset.zero)
+            .dy;
+    // 全局坐标已含滚动偏移：光标相对视口位置 = 光标全局 y - 视口顶部全局 y。
+    final caretInViewport = caretGlobalY - viewportGlobalY;
+    final viewportH = scroll.position.viewportDimension;
+    expect(caretInViewport, greaterThan(viewportH * 0.25));
+    expect(caretInViewport, lessThan(viewportH * 0.75));
 
     await tester.runAsync(() => db.close());
   });

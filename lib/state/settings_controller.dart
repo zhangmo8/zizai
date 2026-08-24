@@ -72,6 +72,17 @@ class SettingsController extends ChangeNotifier {
   bool _notesOpen = false;
   bool get notesOpen => _notesOpen;
 
+  /// 打字机滚动（光标行保持视口中部，settings 键 `typewriterScroll`，默认关）。
+  bool _typewriterScroll = false;
+  bool get typewriterScroll => _typewriterScroll;
+
+  Future<void> setTypewriterScroll(bool enabled) async {
+    if (_typewriterScroll == enabled) return;
+    _typewriterScroll = enabled;
+    notifyListeners();
+    await _db.setSetting('typewriterScroll', enabled.toString());
+  }
+
   Future<void> setNotesOpen(bool open) async {
     if (_notesOpen == open) return;
     _notesOpen = open;
@@ -121,6 +132,7 @@ class SettingsController extends ChangeNotifier {
     _paragraphIndents = indents;
     _outlineOpen = values['outline.open'] == 'true';
     _notesOpen = values['notes.open'] == 'true';
+    _typewriterScroll = values['typewriterScroll'] == 'true';
     _loaded = true;
     notifyListeners();
   }

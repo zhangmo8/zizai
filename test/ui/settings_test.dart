@@ -383,6 +383,45 @@ void main() {
     await tester.runAsync(() => settings.load());
   });
 
+  testWidgets('写作区：打字机滚动开关即改即存并持久化', (tester) async {
+    final (library, settings) = (await tester.runAsync(() => makeApp()))!;
+    await pumpApp(tester, library, settings);
+    await openSettings(tester);
+    await openCategory(tester, '写作');
+
+    expect(settings.typewriterScroll, isFalse);
+
+    final row = find
+        .ancestor(
+          of: find.text('打字机滚动'),
+          matching: find.byWidgetPredicate((w) => w is Row),
+        )
+        .first;
+    final typewriterSwitch = find.descendant(
+      of: row,
+      matching: find.byType(ZzSwitch),
+    );
+    expect(typewriterSwitch, findsOneWidget);
+
+    // 写作辅助组在设置页底部，确保开关进入视口后再点。
+    await tester.ensureVisible(typewriterSwitch);
+    await tester.pumpAndSettle();
+    await tester.tap(typewriterSwitch);
+    await tester.pump();
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pump();
+    }
+    expect(settings.typewriterScroll, isTrue);
+    // 持久化：重新加载。
+    await tester.runAsync(() => settings.load());
+    expect(settings.typewriterScroll, isTrue);
+    // 排空 sqflite 落库队列，避免定时器残留 flake。
+    await tester.runAsync(() => settings.load());
+  });
+
   testWidgets('关于区：快捷键说明面板打开与关闭', (tester) async {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);

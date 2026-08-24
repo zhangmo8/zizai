@@ -443,7 +443,7 @@ class _SettingsViewState extends State<SettingsView> {
           ],
         ),
         _SettingsGroup(
-          label: '焦点暗淡',
+          label: '写作辅助',
           children: [
             _row(
               '暗淡非当前行',
@@ -452,6 +452,14 @@ class _SettingsViewState extends State<SettingsView> {
                 onChanged: (v) => _update(_s.copyWith(focusDim: v)),
               ),
               description: '仅高亮光标所在段落，其余变暗（编辑器顶栏可快速切换）',
+            ),
+            _row(
+              '打字机滚动',
+              ZzSwitch(
+                value: widget.settings.typewriterScroll,
+                onChanged: (v) => widget.settings.setTypewriterScroll(v),
+              ),
+              description: '光标所在行滚动到视口中部，写长文时视线不用追光标',
             ),
           ],
         ),

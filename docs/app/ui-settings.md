@@ -48,6 +48,7 @@ Status: Draft（v3：双栏分类导航）
 | 写作 | 行首自动缩进 | 针对「写作目标」选中的笔记本独立开关（settings 键 `paragraphIndent.<id>`，默认关）；开启后新段落行首自动空两个全角空格（中文排版） |
 | 写作 | 标点计入字数 | 开关，即改即存，影响字数统计与今日增量 |
 | 写作 | 暗淡非当前行 | 开关（settings 键 `focusDim`，默认关）；开启后编辑器仅高亮光标所在段落，其余蒙页面底色，见 ui-editor.md §焦点暗淡；顶栏 icon 同步此状态 |
+| 写作 | 打字机滚动 | 开关（settings 键 `typewriterScroll`，默认关）；开启后光标所在行平滑滚动到视口中部（120ms easeOut），写长文时视线不追光标 |
 | 备份 | Account ID / Bucket / Access Key / Secret Key | Cloudflare R2 备份凭据；Secret Key 掩码显示，仅保存在本机 settings 表 |
 | 备份 | 上次备份 / 立即备份 | 只读最近状态；按钮手动触发备份，进行中显示进度态 |
 | 数据 / 本地数据 | 数据库路径 | 只读展示；「打开目录」在文件管理器中定位（Android 隐藏） |

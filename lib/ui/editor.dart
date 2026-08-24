@@ -308,6 +308,10 @@ class _EditorViewState extends State<EditorView> {
     _quill.removeListener(_onQuillChanged);
     _quill.dispose();
     _focusNode.dispose();
+    if (_typewriterArmed) {
+      _scroll.position.isScrollingNotifier
+          .removeListener(_onTypewriterScrollStopped);
+    }
     _scroll.dispose();
     widget.library.removeListener(_onLibraryChanged);
     _saveDebounce.cancel();
@@ -801,6 +805,66 @@ class _EditorViewState extends State<EditorView> {
   /// 控制器任何通知（选区/文档）时校验菜单有效性并刷新过滤。
   void _onQuillChanged() {
     if (_slashOverlay != null) _refreshSlash();
+    _typewriterScroll();
+  }
+
+  /// 打字机滚动（写作辅助，settings 键 typewriterScroll）：光标所在行平滑
+  /// 滚动到视口中部，写长文时视线始终跟随光标。
+  ///
+  /// flutter_quill 在选区变化时会自动滚动（showCaretOnScreen）把光标带到
+  /// 可见位置；若直接居中会与之竞争。这里监听滚动状态：自动滚动进行中则
+  /// 等其结束（isScrollingNotifier 变 false）再居中，否则 post-frame 后
+  /// 居中——保证光标行居中总是最终状态。120ms easeOut 平滑跟随。
+  bool _typewriterArmed = false;
+
+  void _typewriterScroll() {
+    if (!widget.settings.typewriterScroll || _typewriterArmed) return;
+    // 双重 post-frame：flutter_quill 的 showCaretOnScreen 在本帧 post-frame
+    // 才启动自动滚动（animateTo），第一帧注册的第二帧回调晚于它，此时才能
+    // 看到真实滚动状态——进行中则等结束再居中，未滚动则直接居中。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final pos = _scroll.position;
+        if (pos.isScrollingNotifier.value) {
+          _typewriterArmed = true;
+          pos.isScrollingNotifier.addListener(_onTypewriterScrollStopped);
+        } else {
+          _typewriterScrollPostFrame();
+        }
+      });
+    });
+  }
+
+  void _onTypewriterScrollStopped() {
+    if (_scroll.position.isScrollingNotifier.value) return;
+    _scroll.position.isScrollingNotifier
+        .removeListener(_onTypewriterScrollStopped);
+    _typewriterArmed = false;
+    _typewriterScrollPostFrame();
+  }
+
+  void _typewriterScrollPostFrame() {
+    final state = _editorKey.currentState;
+    final scroll = _scroll;
+    if (state == null || !scroll.hasClients) return;
+    final sel = _quill.selection;
+    if (!sel.isValid || !sel.isCollapsed) return;
+    final caret = state.renderEditor.getLocalRectForCaret(
+      TextPosition(offset: sel.baseOffset),
+    );
+    final viewportH = scroll.position.viewportDimension;
+    // 光标行在滚动内容中的 y（renderEditor 本地 = 内容坐标），居中目标
+    // 与当前滚动位置无关。
+    final target =
+        (caret.top - viewportH / 2 + caret.height / 2)
+            .clamp(0.0, scroll.position.maxScrollExtent);
+    if ((target - scroll.offset).abs() < 1) return;
+    scroll.animateTo(
+      target,
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOut,
+    );
   }
 
   void _onEditorScrolled() {
