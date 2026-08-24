@@ -526,7 +526,17 @@ class _SidebarState extends State<Sidebar> {
       onMoveUp: () => library.moveDocument(doc.id, up: true),
       onMoveDown: () => library.moveDocument(doc.id, up: false),
       dragHandle: isDesktopPlatform
-          ? ReorderableDragStartListener(index: index, child: const _GripIcon())
+          ? ReorderableDragStartListener(
+              index: index,
+              child: GestureDetector(
+                // 消费手柄区域的点击：pan 手势在「点击（无拖动）」时未确认会
+                // 落到行体 InkWell 触发切换文档，这里用空 onTap 拦截（拖拽时
+                // pan 胜出，tap 落选，不影响拖动）。
+                behavior: HitTestBehavior.opaque,
+                onTap: () {},
+                child: const _GripIcon(),
+              ),
+            )
           : const _GripIcon(),
     );
     if (!isDesktopPlatform) {
