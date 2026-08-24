@@ -154,4 +154,24 @@ void main() {
     await pressB();
     expect(find.byType(Sidebar), findsOneWidget); // 再次按下恢复
   });
+
+  testWidgets('顶栏侧边栏按钮切换侧边栏显隐（桌面）', (tester) async {
+    await pumpAtSize(tester, const Size(1200, 800));
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(seed: true),
+    ))!;
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    // 初始：侧边栏可见，按钮为「收起」态。
+    expect(find.byType(Sidebar), findsOneWidget);
+    final mod = Platform.isMacOS ? '⌘' : 'Ctrl';
+    await tester.tap(find.byTooltip('收起侧边栏 ($mod+B)'));
+    await tester.pump();
+    expect(find.byType(Sidebar), findsNothing);
+    // 按钮仍可见（EditorHeader 常驻），tooltip 切为「展开」态。
+    await tester.tap(find.byTooltip('展开侧边栏 ($mod+B)'));
+    await tester.pump();
+    expect(find.byType(Sidebar), findsOneWidget);
+  });
 }

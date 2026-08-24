@@ -68,6 +68,9 @@ class _ShellState extends State<Shell> {
   bool _sidebarVisible = true;
   bool _focusMode = false;
 
+  /// Android Drawer 的 Scaffold（顶栏按钮打开 Drawer 用）。
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
   /// 通知编辑器收起上下文工具栏（Esc 全局处理，与焦点无关）。
   final ValueNotifier<int> _toolbarDismissTick = ValueNotifier(0);
 
@@ -239,6 +242,11 @@ class _ShellState extends State<Shell> {
               logger: widget.logger,
               snapshots: widget.snapshots,
               jumpRequest: _jumpRequest,
+              // 顶栏侧边栏按钮：桌面切换显隐（active 态跟随），Android 打开 Drawer。
+              sidebarVisible: desktop ? _sidebarVisible : false,
+              onToggleSidebar: desktop
+                  ? () => setState(() => _sidebarVisible = !_sidebarVisible)
+                  : () => _scaffoldKey.currentState?.openDrawer(),
             );
             final sidebar = Sidebar(
               library: widget.library,
@@ -275,6 +283,7 @@ class _ShellState extends State<Shell> {
             }
             // Android 形态：Drawer 左滑入（含遮罩），编辑器全宽。
             return Scaffold(
+              key: _scaffoldKey,
               drawer: _focusMode
                   ? null
                   : Drawer(width: _androidDrawerWidth, child: sidebar),

@@ -81,6 +81,8 @@ class EditorView extends StatefulWidget {
     this.logger,
     this.snapshots,
     this.jumpRequest,
+    this.sidebarVisible = false,
+    this.onToggleSidebar,
   });
 
   final LibraryController library;
@@ -88,6 +90,12 @@ class EditorView extends StatefulWidget {
   final bool focusMode;
   final VoidCallback onToggleFocusMode;
   final void Function({bool focusDailyGoal, bool focusBackup}) onOpenSettings;
+
+  /// 侧边栏当前可见（桌面端按钮 active 态；Android Drawer 形态忽略）。
+  final bool sidebarVisible;
+
+  /// 切换侧边栏：桌面 = 显隐切换；Android = 打开 Drawer。null = 不显示按钮。
+  final VoidCallback? onToggleSidebar;
 
   /// Esc 收起工具栏通知（Shell 全局处理，与焦点无关）。
   final ValueNotifier<int>? toolbarDismissTick;
@@ -1240,6 +1248,8 @@ class _EditorViewState extends State<EditorView> {
                 onToggleNotes: doc == null ? null : _toggleNotes,
                 focusDim: s.focusDim,
                 onToggleFocusDim: _toggleFocusDim,
+                sidebarVisible: widget.sidebarVisible,
+                onToggleSidebar: widget.onToggleSidebar,
               ),
               // 常驻格式工具栏：字体样式始终可见，不随选区隐藏。
               _FormatToolbar(
@@ -1638,6 +1648,8 @@ class _EditorHeader extends StatelessWidget {
     this.onToggleNotes,
     this.focusDim = false,
     this.onToggleFocusDim,
+    this.sidebarVisible = false,
+    this.onToggleSidebar,
   });
 
   final String title;
@@ -1656,6 +1668,10 @@ class _EditorHeader extends StatelessWidget {
   final bool focusDim;
   final VoidCallback? onToggleFocusDim;
 
+  /// 侧边栏可见状态与切换回调（null = 未接线，不显示按钮）。
+  final bool sidebarVisible;
+  final VoidCallback? onToggleSidebar;
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -1667,7 +1683,23 @@ class _EditorHeader extends StatelessWidget {
         height: 46,
         child: Row(
           children: [
-            const SizedBox(width: 18),
+            // 侧边栏切换按钮：桌面显隐切换，Android 打开 Drawer（ui-shell.md
+            // Interactions）。tooltip 带快捷键提示，兼顾「快捷键 + 可见入口」。
+            if (onToggleSidebar != null) ...[
+              const SizedBox(width: 6),
+              _HeaderAction(
+                onPressed: onToggleSidebar!,
+                tooltip: isDesktopPlatform
+                    ? (sidebarVisible
+                          ? '收起侧边栏 (${isMacOS ? '⌘' : 'Ctrl'}+B)'
+                          : '展开侧边栏 (${isMacOS ? '⌘' : 'Ctrl'}+B)')
+                    : '打开侧边栏',
+                icon: Icons.menu,
+                active: sidebarVisible && isDesktopPlatform,
+              ),
+              const SizedBox(width: 10),
+            ] else
+              const SizedBox(width: 18),
             Icon(
               Icons.description_outlined,
               size: 16,

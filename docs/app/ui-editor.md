@@ -34,7 +34,7 @@ Status: Draft（v4：常驻格式工具栏 + 选区浮动工具栏）
 
 | 区域 | 内容 |
 |---|---|
-| 顶栏 | 面包屑「笔记本 / 文档名」（长名省略）；点击文档名后原地编辑，`Enter`/失焦保存、`Esc` 取消；右侧依次为查找、版本历史、大纲、沉浸按钮（icon + tooltip） |
+| 顶栏 | 最左侧「侧边栏」切换按钮（menu icon，active 态跟随；桌面 tooltip 带 `Ctrl/Cmd+B` 提示，Android 点击打开 Drawer）；面包屑「笔记本 / 文档名」（长名省略）；点击文档名后原地编辑，`Enter`/失焦保存、`Esc` 取消；右侧依次为查找、版本历史、大纲、沉浸按钮（icon + tooltip） |
 | 内容区 | flutter_quill 编辑器（`QuillEditor`），行宽约束 760px，居中 |
 | 常驻格式工具栏 | 顶栏下方始终可见：撤销/重做、标题 H1–H3、加粗/斜体/下划线/删除线、链接、无序/有序列表、待办清单、引用、行内代码、代码块、清除格式；监听控制器实时高亮光标处格式；沉浸模式改为精简悬浮工具栏（见 §FocusMode 细节） |
 | 上下文工具栏 | 选中文本时在实际选区上方浮现同款格式按钮（就近操作）；由 `QuillEditorConfig.contextMenuBuilder` 交给 Flutter/Quill 选区锚点定位 |
@@ -47,6 +47,7 @@ Status: Draft（v4：常驻格式工具栏 + 选区浮动工具栏）
 
 | 输入 | 范围 | 行为 |
 |---|---|---|
+| 顶栏侧边栏按钮 | 全局（非沉浸） | 桌面：切换侧边栏显隐（同 `Ctrl/Cmd+B`）；Android：打开 Drawer |
 | 输入/格式化 | 内容区 | 即时渲染所见即所得；更新字数；启动 1s 防抖自动保存 |
 | 失焦 | 内容区 | 立即保存 |
 | 切换文档/退出 | 全局 | 保存当前文档后执行 |
@@ -154,7 +155,7 @@ Status: Draft（v4：常驻格式工具栏 + 选区浮动工具栏）
 
 ```text
 EditorView
-├─ EditorHeader（breadcrumb / EditableTitle / Find・History・Outline・Focus icons）
+├─ EditorHeader（SidebarToggle / breadcrumb / EditableTitle / Find・History・Outline・Focus icons）
 ├─ FormatToolbar（常驻格式工具栏：ListenableBuilder ← QuillController）
 ├─ ContentArea
 │  └─ QuillEditor

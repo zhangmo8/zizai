@@ -62,7 +62,7 @@ Drawer（左滑入，覆盖，宽 360px，含遮罩 0.3 黑）
 
 | 输入 | 范围 | 行为 |
 |---|---|---|
-| `Ctrl/Cmd + B` | 全局（桌面） | 切换侧边栏显隐 |
+| `Ctrl/Cmd + B` | 全局（桌面） | 切换侧边栏显隐（EditorHeader 左侧 menu 按钮同样可切换，见 ui-editor.md） |
 | `Ctrl/Cmd + P` | 全局（桌面） | 打开全书搜索（ui-sidebar.md §全书搜索）；沉浸模式下吞掉不响应 |
 | Drawer 边缘滑动 | Android | 打开/关闭侧边栏 |
 | 遮罩点击 | Android Drawer | 关闭抽屉 |
