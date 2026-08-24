@@ -28,7 +28,7 @@ class SettingsController extends ChangeNotifier {
   /// 笔记本行首缩进开关（settings 键 `paragraphIndent.<notebookId>`，默认关）。
   Map<String, bool> _paragraphIndents = const {};
 
-  /// 该笔记本是否开启「行首自动空两个字」（中文排版首行缩进）。
+  /// 该笔记本是否开启「行首自动缩进」（中文排版首行缩进，样式层生效，不写文本）。
   bool indentForNotebook(String? notebookId) {
     if (notebookId == null) return false;
     return _paragraphIndents[notebookId] ?? false;

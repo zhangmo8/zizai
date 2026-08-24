@@ -424,7 +424,7 @@ class _SettingsViewState extends State<SettingsView> {
                   onChanged: (v) =>
                       widget.settings.setIndentForNotebook(notebookId, v),
                 ),
-                description: '针对「写作目标」选中的笔记本：新段落行首自动空两个全角空格',
+                description: '针对「写作目标」选中的笔记本：新段落行首自动缩进两个全角字宽（纯样式，不写入文本，导出投稿格式时再补空格）',
               ),
             ],
           ),

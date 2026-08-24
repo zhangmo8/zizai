@@ -15,6 +15,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' as q;
@@ -67,10 +68,10 @@ const Set<String> _bracketClosing = {'）', '】', '”', '"', '」', '}'};
 
 final Set<String> _bracketChars = {..._bracketPairs.keys, ..._bracketClosing};
 
-/// 行首输入这些字符时不自动缩进：它们是 markdown 块格式触发词
-/// （`#`/`##`/`###`、`-`、`*`、`1.`、`>`、`[]`/`[x]`、`` ``` ``），
-/// 前置缩进会让快捷语法失效。
-const Set<String> _blockTriggerChars = {'#', '-', '*', '1', '>', '[', '`'};
+/// 行首以这些字符开头的段落不垫首行缩进：它们是 markdown 块格式触发词
+/// （`#`/`-`/`*`/`1.`/`>`/`[]`/`[x]`/`` ``` ``），视觉上保持顶格，保证
+/// markdown 快捷语法与旧版「行首不缩进」行为一致。
+const List<String> _indentSkipPrefixes = ['#', '-', '*', '1', '>', '[', '`'];
 
 /// 标点配对修正（纯函数，便于单测）：把 [typed] 插入 [before] 的 [pos] 处后
 /// 应得到的 (文本, 光标位置)；无需修正返回 null。
@@ -190,15 +191,16 @@ class _EditorViewState extends State<EditorView> {
   /// 标点配对修正的防递归闸：修正动作（补插/删除）会再次触发 change。
   bool _bracketBusy = false;
 
-  /// 行首缩进的防递归闸（前置「　　」会再次触发 change）。
-  bool _indentBusy = false;
-
   /// 上次成功保存的内容（Delta JSON），避免空保存。
   String _lastSavedContent = '';
 
   /// 从上次保存起实际新增的字数；删除不倒扣今日产出。
   int _pendingWrittenWords = 0;
   int _lastObservedWords = 0;
+
+  /// 上次观察到的「当前笔记本行首缩进」开关值，用于在设置变化时强制编辑器
+  /// 重绘（缩进是样式层渲染，flutter_quill 不会因 config 变更自动重绘文本行）。
+  bool _indentSetting = false;
 
   /// 保存串行化，防止自动保存与切换前保存竞态。
   Future<void>? _saveInFlight;
@@ -250,6 +252,8 @@ class _EditorViewState extends State<EditorView> {
     _scroll.addListener(_onEditorScrolled);
     _focusNode.addListener(_onFocusChanged);
     widget.library.addListener(_onLibraryChanged);
+    widget.settings.addListener(_onSettingsChanged);
+    _indentSetting = _isIndentEnabled();
     widget.toolbarDismissTick?.addListener(_onDismissToolbar);
     widget.saveTick?.addListener(_onSaveTick);
     widget.findTick?.addListener(_onFindTick);
@@ -266,9 +270,29 @@ class _EditorViewState extends State<EditorView> {
     }
   }
 
+  /// 设置变化 → 行首缩进开关翻转时强制编辑器重绘（样式层缩进即时生效）。
+  void _onSettingsChanged() {
+    final enabled = _isIndentEnabled();
+    if (enabled == _indentSetting) return;
+    _indentSetting = enabled;
+    // flutter_quill 的 RawEditor 不会因 config 里 textSpanBuilder 变化就
+    // 自动重建文本行；用一次空操作选区更新触发其 _markNeedsBuild 重绘。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _quill.updateSelection(_quill.selection, q.ChangeSource.local);
+    });
+  }
+
+  /// 当前笔记本是否开启「行首自动缩进」。
+  bool _isIndentEnabled() {
+    final nb = widget.library.currentDocument?.notebookId;
+    return nb != null && widget.settings.indentForNotebook(nb);
+  }
+
   /// 库状态变化 → 当前文档 id 与已装载不一致时重载编辑器内容。
   void _onLibraryChanged() {
     final doc = widget.library.currentDocument;
+    _indentSetting = _isIndentEnabled();
     if (doc?.id == _loadedDocumentId) return;
     if (doc != null) {
       _loadDocument(doc);
@@ -314,6 +338,7 @@ class _EditorViewState extends State<EditorView> {
     }
     _scroll.dispose();
     widget.library.removeListener(_onLibraryChanged);
+    widget.settings.removeListener(_onSettingsChanged);
     _saveDebounce.cancel();
     _journalDebounce.cancel();
     _outlineDebounce.cancel();
@@ -420,7 +445,6 @@ class _EditorViewState extends State<EditorView> {
       _handleSlashTrigger(change);
       return;
     }
-    _handleParagraphIndent(change);
     _handleBracketPair(change);
     final words = _countWords();
     final delta = words > _lastObservedWords ? words - _lastObservedWords : 0;
@@ -752,39 +776,10 @@ class _EditorViewState extends State<EditorView> {
     }
   }
 
-  /// 行首自动缩进（中文排版首行空两格）：开启的笔记本里，在段落行首输入
-  /// 字符时前置两个全角空格，光标保持在输入字符之后。
-  ///
-  /// 与标点配对一样经 document.changes 监听（兼容 IME）。块格式触发词
-  /// （`#`/`-`/`1.` 等）不缩进，保证 markdown 快捷照常生效；[beforePos]
-  /// 为插入前光标位置，仅当它紧邻换行（或文档开头）时才是行首输入。
-  void _handleParagraphIndent(q.DocChange change) {
-    if (_indentBusy) return;
-    final doc = widget.library.currentDocument;
-    if (doc == null || !widget.settings.indentForNotebook(doc.notebookId)) {
-      return;
-    }
-    final inserted = _insertedText(change);
-    if (inserted == null || inserted.isEmpty) return;
-    if (_blockTriggerChars.contains(inserted[0])) return;
-    final sel = _quill.selection;
-    if (!sel.isValid || !sel.isCollapsed) return;
-    final beforePos = sel.baseOffset - inserted.length;
-    if (beforePos < 0) return;
-    final text = _quill.document.toPlainText();
-    if (beforePos > 0 && text[beforePos - 1] != '\n') return;
-    _indentBusy = true;
-    try {
-      _quill.replaceText(
-        beforePos,
-        0,
-        '\u3000\u3000', // 两个全角空格
-        TextSelection.collapsed(offset: sel.baseOffset + 2),
-      );
-    } finally {
-      _indentBusy = false;
-    }
-  }
+  // 行首自动缩进（样式层，不写文本）：当前实现见 [_textSpanBuilder]——
+  // 笔记本开启「行首自动缩进」时，普通段落首行以 inline WidgetSpan 垫
+  // 两个全角字宽，文档文本始终保持干净。历史方案曾在输入时往文本里塞
+  // 两个全角空格（U+3000），会污染原文，已废弃。
 
   void _handleSlashTrigger(q.DocChange change) {
     if (_slashOverlay != null) {
@@ -1519,6 +1514,7 @@ class _EditorViewState extends State<EditorView> {
             focusMode ? 88 : 160,
           ),
           customStyles: _buildStyles(s),
+          textSpanBuilder: _textSpanBuilder,
           textSelectionThemeData: TextSelectionThemeData(
             cursorColor: colors.primary,
             selectionColor: colors.primary.withValues(alpha: 0.22),
@@ -1791,6 +1787,78 @@ class _EditorViewState extends State<EditorView> {
         radius: const Radius.circular(4),
       ),
     );
+  }
+
+  // ── 行首自动缩进（样式层） ────────────────────────────────
+
+  /// 行首自动缩进以纯样式生效：笔记本开启「行首自动缩进」时，普通段落
+  /// 首行前置两个全角字宽的 inline WidgetSpan，只垫视觉宽度，不往文档
+  /// 文本里写任何字符（历史方案是塞两个全角空格 U+3000，会污染原文）。
+  ///
+  /// 规则：
+  /// - 仅对行内第一个文本节点、且 offset==0（排除 IME 组合拆分）生效；
+  /// - 带块级格式的段落（标题/列表/引用/代码块）不缩进；
+  /// - 段落本身已以全角空格开头（旧内容遗留「　　」）不重复垫，避免双重缩进。
+  InlineSpan _textSpanBuilder(
+    BuildContext context,
+    q.Node node,
+    int nodeOffset,
+    String text,
+    TextStyle? style,
+    GestureRecognizer? recognizer,
+  ) {
+    final indent = _firstLineIndentWidth(node, style);
+    if (indent != null && nodeOffset == 0 && text.isNotEmpty && node.isFirst) {
+      return TextSpan(
+        children: [
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: SizedBox(width: indent),
+          ),
+          TextSpan(
+            text: text,
+            style: style,
+            recognizer: recognizer,
+            mouseCursor:
+                (recognizer != null) ? SystemMouseCursors.click : null,
+          ),
+        ],
+      );
+    }
+    return TextSpan(
+      text: text,
+      style: style,
+      recognizer: recognizer,
+      mouseCursor: (recognizer != null) ? SystemMouseCursors.click : null,
+    );
+  }
+
+  /// 当前行应垫的首行缩进宽度（两个全角字）；不缩进返回 null。
+  double? _firstLineIndentWidth(q.Node node, TextStyle? style) {
+    final doc = widget.library.currentDocument;
+    if (doc == null || !widget.settings.indentForNotebook(doc.notebookId)) {
+      return null;
+    }
+    final line = node.parent;
+    if (line == null) return null;
+    final attrs = line.style.attributes;
+    // 占位提示行、带块级格式的段落（标题/列表/引用/代码块）不缩进，
+    // 保证 markdown 快捷语法（`#`/`-`/`>`/``` 等）的视觉不受影响。
+    if (attrs.containsKey(q.Attribute.placeholder.key) ||
+        attrs.containsKey(q.Attribute.header.key) ||
+        attrs.containsKey(q.Attribute.list.key) ||
+        attrs.containsKey(q.Attribute.blockQuote.key) ||
+        attrs.containsKey(q.Attribute.codeBlock.key)) {
+      return null;
+    }
+    // 旧内容遗留的行首全角空格（「　　」）已自带缩进，不再重复垫。
+    // markdown 块格式触发词开头的段落保持顶格（同旧版行为）。
+    final lineText = line.children.isNotEmpty ? line.toPlainText() : '';
+    if (lineText.startsWith('\u3000')) return null;
+    if (_indentSkipPrefixes.any(lineText.startsWith)) return null;
+    final fontSize = style?.fontSize ?? 16;
+    // 跟随系统字号缩放，保证始终约等于两个全角字宽。
+    return fontSize * 2 * MediaQuery.textScalerOf(context).scale(1);
   }
 }
 
