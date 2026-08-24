@@ -88,20 +88,6 @@ void main() {
       ? LogicalKeyboardKey.metaLeft
       : LogicalKeyboardKey.controlLeft;
 
-  /// 找到正文指定段落的渲染纯文本。
-  ///
-  /// 行首缩进以样式（inline WidgetSpan）生效，不改动文档文本；渲染出的
-  /// 段落首行会带一个 U+FFFC 占位前缀（有缩进时），据此断言样式层缩进
-  /// 是否生效。返回 null 表示没渲染出该段落。
-  String? renderedParagraph(WidgetTester tester, String paragraph) {
-    for (final rt in tester.widgetList<RichText>(find.byType(RichText))) {
-      var plain = rt.text.toPlainText();
-      if (plain.startsWith('\uFFFC')) plain = plain.substring(1);
-      if (plain == paragraph) return rt.text.toPlainText();
-    }
-    return null;
-  }
-
   Future<void> press(WidgetTester tester, List<LogicalKeyboardKey> keys) async {
     // 前 N-1 个是修饰键，最后一个为主键（只发一次 down+up）。
     final mods = keys.take(keys.length - 1).toList();
@@ -547,7 +533,7 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
   });
 
-  testWidgets('行首缩进：开启后样式层缩进，文本保持干净（不塞空格）', (tester) async {
+  testWidgets('行首缩进：开启后段落行首输入自动前置两个全角空格', (tester) async {
     final (library, settings, db, _, docId) = (await tester.runAsync(
       () => makeApp(),
     ))!;
@@ -569,30 +555,29 @@ void main() {
     );
     await tester.pump();
 
-    // 行首输入「你」→ 纯样式缩进：文档文本必须保持干净，不写全角空格。
+    // 行首输入「你」→ 自动前置两个全角空格，光标在其后。
+    // 注意：断言用 trimRight 而非 trim——全角空格 U+3000 属于 Unicode 空白，
+    // String.trim() 会把它误删。
     await insertAtCursor(tester, '你');
-    expect(controller.document.toPlainText().trimRight(), '你');
-    expect(controller.selection.baseOffset, 1);
+    expect(controller.document.toPlainText().trimRight(), '\u3000\u3000你');
+    expect(controller.selection.baseOffset, 3);
 
-    // 渲染层应出现首行缩进占位（U+FFFC 前缀），即样式层缩进真实生效。
-    expect(renderedParagraph(tester, '你'), '\uFFFC你');
-
-    // 段落中间继续输入：文本仍干净，无多余空格。
+    // 段落中间继续输入不重复缩进。
     await insertAtCursor(tester, '好');
-    expect(controller.document.toPlainText().trimRight(), '你好');
-    expect(renderedParagraph(tester, '你好'), '\uFFFC你好');
+    expect(controller.document.toPlainText().trimRight(), '\u3000\u3000你好');
 
-    // 换行后行首输入块格式触发词 → 不缩进（markdown 快捷不受影响，保持顶格）。
+    // 换行后行首输入块格式触发词 → 不缩进（markdown 快捷不受影响）。
     await insertAtCursor(tester, '\n');
     await insertAtCursor(tester, '#');
-    expect(controller.document.toPlainText().trimRight(), '你好\n#');
-    // 渲染层 # 行不再带缩进占位（保持顶格）。
-    expect(renderedParagraph(tester, '#'), '#');
+    expect(
+      controller.document.toPlainText().trimRight(),
+      '\u3000\u3000你好\n#',
+    );
 
     await tester.runAsync(() => db.close());
   });
 
-  testWidgets('行首缩进：默认关闭时行首输入不缩进、无样式占位', (tester) async {
+  testWidgets('行首缩进：默认关闭时行首输入不缩进', (tester) async {
     final (library, settings, db, _, docId) = (await tester.runAsync(
       () => makeApp(),
     ))!;
@@ -611,7 +596,6 @@ void main() {
 
     await insertAtCursor(tester, '你');
     expect(controller.document.toPlainText().trim(), '你');
-    expect(renderedParagraph(tester, '你'), '你');
 
     await tester.runAsync(() => db.close());
   });
