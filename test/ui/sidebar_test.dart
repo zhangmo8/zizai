@@ -393,44 +393,38 @@ void main() {
     expect(tester.getTopLeft(find.text('第二章')).dy, secondChapterTop);
     await tester.tap(find.byTooltip('取消编辑'));
     await tester.pump();
-
-    final secondNotebookTop = tester.getTopLeft(find.text('随笔')).dy;
-    await tester.tap(find.text('新建章节').first);
-    await tester.pump();
-    expect(tester.getTopLeft(find.text('随笔')).dy, secondNotebookTop);
   });
 
-  testWidgets('新建章节：默认名行内重命名', (tester) async {
+  testWidgets('新建章节：点击 + 直接生成，自动编号（不进入命名）', (tester) async {
     final (library, _) = (await tester.runAsync(
-      () => makeApp(tree: [('小说', [])]),
+      () => makeApp(tree: [('小说', ['第 1 章', '第 2 章', '第 3 章'])]),
     ))!;
     await pumpSidebar(tester, library);
+    final nbId = library.notebooks.first.id;
 
-    await tester.tap(find.text('新建章节'));
-    await tester.pump();
-    await tester.enterText(find.byType(TextField), '01-开端.md');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.tap(find.text('新建章节').first);
     await settle(tester);
 
-    expect(find.text('01-开端.md'), findsOneWidget);
+    // 顺着已有章节自动编号：已有 3 章 → 第 4 章；无命名环节。
+    expect(
+      library.documentsOf(nbId).map((d) => d.title),
+      ['第 1 章', '第 2 章', '第 3 章', '第 4 章'],
+    );
+    expect(find.byType(TextField), findsNothing);
   });
 
-  testWidgets('新建章节：可用取消按钮退出且不创建文档', (tester) async {
+  testWidgets('新建章节：空笔记本点击 + → 直接生成「第 1 章」', (tester) async {
     final (library, _) = (await tester.runAsync(
       () => makeApp(tree: [('小说', [])]),
     ))!;
     await pumpSidebar(tester, library);
+    final nbId = library.notebooks.first.id;
 
     await tester.tap(find.text('新建章节'));
-    await tester.pump();
-    await tester.enterText(find.byType(TextField), '临时章节');
-    await tester.tap(find.byTooltip('取消编辑'));
-    await tester.pump();
+    await settle(tester);
 
-    final notebookId = library.notebooks.single.id;
-    expect(library.documentsOf(notebookId), isEmpty);
+    expect(library.documentsOf(nbId).map((d) => d.title), ['第 1 章']);
     expect(find.byType(TextField), findsNothing);
-    expect(find.text('新建章节'), findsOneWidget);
   });
 
   testWidgets('重命名文档：⋮ → 重命名 → Enter', (tester) async {

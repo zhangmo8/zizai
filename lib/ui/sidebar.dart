@@ -276,9 +276,6 @@ class _SidebarState extends State<Sidebar> {
   bool get _editingNewNotebook =>
       _editing?.target == _EditTarget.notebook && _editing?.id == null;
 
-  bool get _editingNewDocument =>
-      _editing?.target == _EditTarget.document && _editing?.id == null;
-
   bool _isEditingNotebook(String id) =>
       _editing?.target == _EditTarget.notebook && _editing?.id == id;
 
@@ -333,6 +330,15 @@ class _SidebarState extends State<Sidebar> {
   void _cancelEdit() => setState(() => _editing = null);
 
   void _startEdit(_EditSession session) => setState(() => _editing = session);
+
+  /// 点「+」直接创建章节：suggestedChapterTitle 自动编号（已有 3 章 → 第 4 章），
+  /// 不进入命名环节；创建后保持当前文档不变（不打断写作流）。
+  Future<void> _createDocumentDirect(String notebookId) async {
+    final title = suggestedChapterTitle(
+      widget.library.documentsOf(notebookId),
+    );
+    await widget.library.createDocument(notebookId, title: title);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -408,15 +414,10 @@ class _SidebarState extends State<Sidebar> {
               if (!_expanded.add(nb.id)) _expanded.remove(nb.id);
             }),
             onNewDocument: () {
-              // Notion 式行内 +：展开该笔记本并进入新章节命名。
+              // 直接创建，不进入命名：suggestedChapterTitle 顺着章节自动编号
+              //（已有 3 章 → 第 4 章），想改名用 ⋮ → 重命名。
               setState(() => _expanded.add(nb.id));
-              _startEdit(
-                _EditSession(
-                  target: _EditTarget.document,
-                  initial: suggestedChapterTitle(library.documentsOf(nb.id)),
-                  notebookId: nb.id,
-                ),
-              );
+              _createDocumentDirect(nb.id);
             },
             onEdit: () => _startEdit(
               _EditSession(
@@ -456,31 +457,13 @@ class _SidebarState extends State<Sidebar> {
             );
           }
         }
-        if (_editingNewDocument && _editing!.notebookId == nb.id) {
-          add(
-            _editField(
-              _editing!,
-              null,
-              notebookId: nb.id,
-              key: ValueKey('edit-doc-new-${nb.id}'),
-            ),
-            TreeRowRef(notebookId: nb.id),
-          );
-        } else {
-          add(
-            _NewDocumentButton(
-              key: ValueKey('new-doc-${nb.id}'),
-              onPressed: () => _startEdit(
-                _EditSession(
-                  target: _EditTarget.document,
-                  initial: suggestedChapterTitle(library.documentsOf(nb.id)),
-                  notebookId: nb.id,
-                ),
-              ),
-            ),
-            TreeRowRef(notebookId: nb.id),
-          );
-        }
+        add(
+          _NewDocumentButton(
+            key: ValueKey('new-doc-${nb.id}'),
+            onPressed: () => _createDocumentDirect(nb.id),
+          ),
+          TreeRowRef(notebookId: nb.id),
+        );
       }
     }
     if (_editingNewNotebook) {
@@ -507,6 +490,7 @@ class _SidebarState extends State<Sidebar> {
     final library = widget.library;
     final tile = _DocumentTile(
       key: ValueKey('doc-${doc.id}'),
+      index: index,
       document: doc,
       selected: library.currentDocument?.id == doc.id,
       onTap: () => library.switchDocument(doc.id),
@@ -525,19 +509,6 @@ class _SidebarState extends State<Sidebar> {
       ),
       onMoveUp: () => library.moveDocument(doc.id, up: true),
       onMoveDown: () => library.moveDocument(doc.id, up: false),
-      dragHandle: isDesktopPlatform
-          ? ReorderableDragStartListener(
-              index: index,
-              child: GestureDetector(
-                // 消费手柄区域的点击：pan 手势在「点击（无拖动）」时未确认会
-                // 落到行体 InkWell 触发切换文档，这里用空 onTap 拦截（拖拽时
-                // pan 胜出，tap 落选，不影响拖动）。
-                behavior: HitTestBehavior.opaque,
-                onTap: () {},
-                child: const _GripIcon(),
-              ),
-            )
-          : const _GripIcon(),
     );
     if (!isDesktopPlatform) {
       return ReorderableDelayedDragStartListener(index: index, child: tile);
@@ -812,25 +783,9 @@ class _NotebookTileState extends State<_NotebookTile> {
         hover: _hover,
         selected: false,
         onTap: widget.onToggle,
-        leading: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AnimatedRotation(
-              duration: const Duration(milliseconds: 120),
-              turns: widget.expanded ? 0.25 : 0,
-              child: Icon(
-                Icons.chevron_right,
-                size: 16,
-                color: colors.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(width: 5),
-            Icon(
-              Icons.folder_outlined,
-              size: 16,
-              color: colors.onSurfaceVariant,
-            ),
-          ],
+        leading: _NotebookLeadingIcon(
+          expanded: widget.expanded,
+          hover: _hover,
         ),
         title: widget.notebook.name,
         titleStyle: TextStyle(
@@ -861,10 +816,60 @@ class _NotebookTileState extends State<_NotebookTile> {
   }
 }
 
+/// 笔记本行前置图标：桌面端平时是文件夹，hover 切换为箭头（旋转指示
+/// 展开方向），避免「箭头 + 文件夹」双 icon 重复；触摸端无 hover，保留
+/// 箭头 + 文件夹（折叠状态必须常显）。
+class _NotebookLeadingIcon extends StatelessWidget {
+  const _NotebookLeadingIcon({required this.expanded, required this.hover});
+
+  final bool expanded;
+  final bool hover;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final color = colors.onSurfaceVariant;
+    final arrow = AnimatedRotation(
+      duration: const Duration(milliseconds: 120),
+      turns: expanded ? 0.25 : 0,
+      child: Icon(Icons.chevron_right, size: 16, color: color),
+    );
+    if (!isDesktopPlatform) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          arrow,
+          const SizedBox(width: 5),
+          Icon(Icons.folder_outlined, size: 16, color: color),
+        ],
+      );
+    }
+    return SizedBox(
+      width: 38,
+      child: Stack(
+        alignment: Alignment.centerLeft,
+        children: [
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 90),
+            opacity: hover ? 0 : 1,
+            child: Icon(Icons.folder_outlined, size: 16, color: color),
+          ),
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 90),
+            opacity: hover ? 1 : 0,
+            child: arrow,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// 文档行：选中高亮 + ⋮ 操作菜单（桌面端 hover 行才浮现）。
 class _DocumentTile extends StatefulWidget {
   const _DocumentTile({
     super.key,
+    required this.index,
     required this.document,
     required this.selected,
     required this.onTap,
@@ -872,9 +877,10 @@ class _DocumentTile extends StatefulWidget {
     required this.onDelete,
     required this.onMoveUp,
     required this.onMoveDown,
-    this.dragHandle,
   });
 
+  /// 在 ReorderableListView 中的行索引（拖拽手柄定位用）。
+  final int index;
   final Document document;
   final bool selected;
   final VoidCallback onTap;
@@ -882,9 +888,6 @@ class _DocumentTile extends StatefulWidget {
   final VoidCallback onDelete;
   final VoidCallback onMoveUp;
   final VoidCallback onMoveDown;
-
-  /// 拖拽手柄（桌面端由 ReorderableDragStartListener 包裹；触摸端为纯提示图标）。
-  final Widget? dragHandle;
 
   @override
   State<_DocumentTile> createState() => _DocumentTileState();
@@ -904,55 +907,69 @@ class _DocumentTileState extends State<_DocumentTile> {
         hover: _hover,
         selected: widget.selected,
         onTap: widget.onTap,
-        leading: Icon(
-          Icons.description_outlined,
-          size: 15,
-          color: widget.selected ? colors.onSurface : colors.onSurfaceVariant,
-        ),
+        leading: _buildLeading(colors),
         title: widget.document.title,
         titleStyle: TextStyle(
           fontSize: 13,
           fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w400,
           color: widget.selected ? colors.onSurface : colors.onSurfaceVariant,
         ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (widget.dragHandle != null)
-              _HoverReveal(
-                visible: _hover || !isDesktopPlatform,
-                child: widget.dragHandle!,
-              ),
-            _RowMenu(
-              visible: _hover || !isDesktopPlatform,
-              items: [
-                ('上移', Icons.arrow_upward, widget.onMoveUp),
-                ('下移', Icons.arrow_downward, widget.onMoveDown),
-                ('重命名', Icons.drive_file_rename_outline, widget.onEdit),
-                ('删除', Icons.delete_outline, widget.onDelete),
-              ],
-            ),
+        trailing: _RowMenu(
+          visible: _hover || !isDesktopPlatform,
+          items: [
+            ('上移', Icons.arrow_upward, widget.onMoveUp),
+            ('下移', Icons.arrow_downward, widget.onMoveDown),
+            ('重命名', Icons.drive_file_rename_outline, widget.onEdit),
+            ('删除', Icons.delete_outline, widget.onDelete),
           ],
         ),
       ),
     );
   }
-}
 
-/// 拖拽排序手柄：桌面端 hover 浮现（ReorderableDragStartListener 包裹，
-/// 仅手柄可拖，行体点击不受影响）；触摸端常显，仅作长按拖拽的提示。
-class _GripIcon extends StatelessWidget {
-  const _GripIcon();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 5),
-      child: Icon(
-        Icons.drag_indicator,
-        size: 15,
-        color: colors.onSurfaceVariant,
+  /// 章节行前置图标：平时是章节 icon，桌面端 hover 时切换为拖拽手柄。
+  ///
+  /// 手柄用 Stack 常驻树中（opacity/IgnorePointer 切换）：既保持低打扰的
+  /// 图标态，又让拖拽起点固定在最前（不随内容宽度漂移）。点击手柄由空
+  /// onTap 消费，避免 pan 未确认时落到行体切换文档。
+  Widget _buildLeading(ColorScheme colors) {
+    final iconColor = widget.selected ? colors.onSurface : colors.onSurfaceVariant;
+    final chapterIcon = Icon(
+      Icons.description_outlined,
+      size: 15,
+      color: iconColor,
+    );
+    if (!isDesktopPlatform) return chapterIcon; // 触摸端整行长按拖拽，无需手柄
+    return SizedBox(
+      width: 18,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 90),
+            opacity: _hover ? 0 : 1,
+            child: chapterIcon,
+          ),
+          IgnorePointer(
+            ignoring: !_hover,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 90),
+              opacity: _hover ? 1 : 0,
+              child: ReorderableDragStartListener(
+                index: widget.index,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {},
+                  child: Icon(
+                    Icons.drag_indicator,
+                    size: 15,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
