@@ -344,4 +344,31 @@ void main() {
     // 排空 sqflite 落库队列，避免定时器残留 flake。
     await tester.runAsync(() => settings.load());
   });
+
+  testWidgets('关于区：快捷键说明面板打开与关闭', (tester) async {
+    final (library, settings) = (await tester.runAsync(() => makeApp()))!;
+    await pumpApp(tester, library, settings);
+    await openSettings(tester);
+
+    // 关于分类常驻（不依赖 updateChecker 接线）。
+    await openCategory(tester, '关于');
+    expect(find.text('快捷键说明'), findsOneWidget);
+
+    await tester.tap(find.text('查看'));
+    await tester.pumpAndSettle();
+    // 面板标题与分组条目。
+    expect(find.text('快捷键'), findsOneWidget);
+    expect(find.text('切换侧边栏'), findsOneWidget);
+    expect(find.text('全书搜索'), findsOneWidget);
+    expect(find.text('沉浸模式'), findsOneWidget);
+    // 键位块渲染（macOS 显示 ⌘，其余 Ctrl）。
+    final mod = Platform.isMacOS ? '⌘' : 'Ctrl';
+    expect(find.text(mod), findsWidgets);
+    expect(find.text('B'), findsOneWidget);
+
+    // 关闭按钮收起面板。
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.text('切换侧边栏'), findsNothing);
+  });
 }

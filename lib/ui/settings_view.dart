@@ -280,7 +280,8 @@ class _SettingsViewState extends State<SettingsView> {
     _SettingsCategory.writing,
     if (widget.backup != null) _SettingsCategory.backup,
     _SettingsCategory.data,
-    if (widget.updateChecker != null) _SettingsCategory.about,
+    // 关于常驻：版本/更新组随 UpdateChecker 接线显隐，帮助组（快捷键）始终可用。
+    _SettingsCategory.about,
   ];
 
   void _selectCategory(_SettingsCategory category) {
@@ -485,30 +486,52 @@ class _SettingsViewState extends State<SettingsView> {
 
   Widget _aboutPage() {
     final checker = widget.updateChecker;
-    if (checker == null) return const SizedBox.shrink();
     return Column(
       children: [
+        if (checker != null) ...[
+          _SettingsGroup(
+            label: '版本信息',
+            children: [
+              _row(
+                'App 版本',
+                Text(checker.appVersion, style: const TextStyle(fontSize: 13)),
+              ),
+              _row(
+                '数据库版本',
+                Text(
+                  'schema v${widget.dbSchemaVersion ?? 0}',
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          _SettingsGroup(
+            label: '软件更新',
+            children: [_row('检查更新', _checkUpdateRow())],
+          ),
+        ],
         _SettingsGroup(
-          label: '版本信息',
+          label: '帮助',
           children: [
             _row(
-              'App 版本',
-              Text(checker.appVersion, style: const TextStyle(fontSize: 13)),
-            ),
-            _row(
-              '数据库版本',
-              Text(
-                'schema v${widget.dbSchemaVersion ?? 0}',
-                style: const TextStyle(fontSize: 13),
-              ),
+              '快捷键说明',
+              _shortcutsRow(),
+              description: '全局快捷键、编辑与 Markdown 快捷语法',
             ),
           ],
         ),
-        _SettingsGroup(
-          label: '软件更新',
-          children: [_row('检查更新', _checkUpdateRow())],
-        ),
       ],
+    );
+  }
+
+  /// 「快捷键说明」按钮 → 弹快捷键面板（桌面 Dialog；Android 同为 Dialog）。
+  Widget _shortcutsRow() {
+    return ZzButton.secondary(
+      label: '查看',
+      onPressed: () => showDialog<void>(
+        context: context,
+        builder: (_) => const _ShortcutsDialog(),
+      ),
     );
   }
 
@@ -1456,6 +1479,234 @@ class _SettingsRow extends StatelessWidget {
             child: Align(alignment: Alignment.centerRight, child: control),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 一条快捷键说明：动作名 + 键位（或说明文字）。
+class _ShortcutEntry {
+  const _ShortcutEntry(this.label, this.keys, {this.secondary, this.note});
+
+  final String label;
+
+  /// 键位块；null = 无键位（仅说明行）。
+  final List<String>? keys;
+
+  /// 第二组键位（如「重做」），与第一组以「/」分隔展示。
+  final List<String>? secondary;
+
+  /// 无键位时的说明文字（如「加粗走工具栏」）。
+  final String? note;
+}
+
+/// 快捷键说明面板（design.md §4 Dialog：6px 圆角卡片、文字按钮关闭）。
+class _ShortcutsDialog extends StatelessWidget {
+  const _ShortcutsDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    final mod = isMacOS ? '⌘' : 'Ctrl';
+    final shift = isMacOS ? '⇧' : 'Shift';
+    final groups = <(String, List<_ShortcutEntry>)>[
+      (
+        '全局',
+        [
+          _ShortcutEntry('立即保存', [mod, 'S']),
+          _ShortcutEntry('切换侧边栏', [mod, 'B']),
+          _ShortcutEntry('全书搜索', [mod, 'P']),
+          _ShortcutEntry('查找 / 替换（当前文档）', [mod, 'F']),
+          _ShortcutEntry('沉浸模式', [mod, shift, 'F']),
+          _ShortcutEntry('退出沉浸 / 收起工具栏', ['Esc']),
+        ],
+      ),
+      (
+        '编辑',
+        [
+          _ShortcutEntry('撤销 / 重做', [mod, 'Z'], secondary: [mod, shift, 'Z']),
+          _ShortcutEntry('斜体', [mod, 'I']),
+          _ShortcutEntry('下划线', [mod, 'U']),
+          _ShortcutEntry(
+            '加粗',
+            null,
+            note: '工具栏或选中文本后的浮动菜单（$mod+B 已用于切换侧边栏）',
+          ),
+        ],
+      ),
+      (
+        '行首输入后按空格',
+        [
+          _ShortcutEntry('标题 H1–H3', ['#', '##', '###']),
+          _ShortcutEntry('无序列表', ['-', '*']),
+          _ShortcutEntry('有序列表', ['1.']),
+          _ShortcutEntry('引用', ['>']),
+          _ShortcutEntry('待办清单', ['[]', '[x]']),
+          _ShortcutEntry('代码块', ['```']),
+        ],
+      ),
+      (
+        '其它',
+        [
+          _ShortcutEntry('斜杠命令菜单', ['/']),
+          _ShortcutEntry(
+            '行内格式',
+            ['**加粗**', '*斜体*', '`代码`', '~~删除线~~'],
+            note: '输入即渲染',
+          ),
+        ],
+      ),
+    ];
+    return Dialog(
+      child: Container(
+        width: 480,
+        constraints: const BoxConstraints(maxHeight: 560),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 10, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '快捷键',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: colors.onSurface,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    tooltip: '关闭',
+                    icon: const Icon(Icons.close, size: 16),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 6),
+                children: [
+                  for (final (title, entries) in groups) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 10, 0, 4),
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: appColors.textTertiary,
+                        ),
+                      ),
+                    ),
+                    for (final entry in entries) _ShortcutRow(entry: entry),
+                  ],
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('关闭'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ShortcutRow extends StatelessWidget {
+  const _ShortcutRow({required this.entry});
+
+  final _ShortcutEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              entry.label,
+              style: TextStyle(fontSize: 13, color: colors.onSurface),
+            ),
+          ),
+          if (entry.keys != null) ...[
+            for (final key in entry.keys!) _Kbd(text: key),
+            if (entry.secondary != null) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  '/',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: appColors.textTertiary,
+                  ),
+                ),
+              ),
+              for (final key in entry.secondary!) _Kbd(text: key),
+            ],
+          ] else if (entry.note != null)
+            Flexible(
+              child: Text(
+                entry.note!,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: appColors.textTertiary,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 键位块：bg-hover 底 + hairline 描边，4px 圆角。
+class _Kbd extends StatelessWidget {
+  const _Kbd({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: appColors.surfaceHover,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: colors.outline),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w500,
+            color: colors.onSurface,
+          ),
+        ),
       ),
     );
   }
