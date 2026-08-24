@@ -196,6 +196,9 @@ void main() {
     final dimSwitch = find.descendant(of: row, matching: find.byType(ZzSwitch));
     expect(dimSwitch, findsOneWidget);
 
+    // 写作辅助组在设置页底部，确保开关进入视口后再点（CI 文本度量不同可能越界）。
+    await tester.ensureVisible(dimSwitch);
+    await tester.pumpAndSettle();
     await tester.tap(dimSwitch);
     await tester.pump();
     // 让真实异步写库完成（sqflite 事务在 FakeAsync 内不会自行结束）
@@ -311,8 +314,15 @@ void main() {
     expect(library.notebooks, hasLength(1));
     expect(library.documentsOf(library.notebooks.first.id), hasLength(1));
     // 确定性排空 sqflite 队列：update/resetNotebookGoals 是「先改内存再落库」，
-    // 落库经 txnSynchronized 会挂 10s 超时定时器；load() 会排队等待之前的事务
-    // 完成，避免测试结束时仍残留定时器（!timersPending flake，CI 慢机偶发）。
+    // 落库经 txnSynchronized 会挂 10s 超时定时器；先多轮推进真实 I/O，再
+    // load() 排队等待之前的事务完成，避免测试结束时仍残留定时器
+    // （!timersPending flake，CI 慢机偶发）。
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pump();
+    }
     await tester.runAsync(() => settings.load());
   });
 
