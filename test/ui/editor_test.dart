@@ -69,6 +69,20 @@ void main() {
     await tester.pump();
   }
 
+  /// 在编辑器当前光标处插入文本（保留已有内容，光标移到插入文本末尾）。
+  Future<void> insertAtCursor(WidgetTester tester, String text) async {
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    final controller = editor.controller;
+    final pos = controller.selection.baseOffset;
+    controller.replaceText(
+      pos,
+      0,
+      text,
+      TextSelection.collapsed(offset: pos + text.length),
+    );
+    await tester.pump();
+  }
+
   LogicalKeyboardKey modifierKey() => Platform.isMacOS
       ? LogicalKeyboardKey.metaLeft
       : LogicalKeyboardKey.controlLeft;
@@ -516,6 +530,47 @@ void main() {
     expect(deltaToPlainText(saved!.content), '初稿的内容');
     // 走完回滚成功 toast 的自动消失定时器
     await tester.pump(const Duration(seconds: 3));
+  });
+
+  testWidgets('标点配对：输入【补全】光标在中间，输入】跳过', (tester) async {
+    final (library, settings, db, _, docId) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    final controller = editor.controller;
+    // 清空到空文档（保留结尾 \n），保证光标从 0 开始。
+    controller.replaceText(
+      0,
+      controller.document.length - 1,
+      '',
+      const TextSelection.collapsed(offset: 0),
+    );
+    await tester.pump();
+
+    // 输入【 → 自动补全】，光标停在中间。
+    await insertAtCursor(tester, '【');
+    expect(controller.document.toPlainText().trim(), '【】');
+    expect(controller.selection.baseOffset, 1);
+
+    // 光标在补全对中间输入】 → 跳过，不产生重复。
+    await insertAtCursor(tester, '】');
+    expect(controller.document.toPlainText().trim(), '【】');
+    expect(controller.selection.baseOffset, 2);
+
+    // 其它括号同样补全。
+    await insertAtCursor(tester, '（');
+    expect(controller.document.toPlainText().trim(), '【】（）');
+    expect(controller.selection.baseOffset, 3);
+
+    // 普通字符不受影响（光标在（）中间，内容自然填入其中）。
+    await insertAtCursor(tester, '内容');
+    expect(controller.document.toPlainText().trim(), '【】（内容）');
+    expect(controller.selection.baseOffset, 5);
+
+    await tester.runAsync(() => db.close());
   });
 
   testWidgets('全书搜索：Ctrl/Cmd+P 打开 → 命中分组 → 跨章跳转定位', (tester) async {

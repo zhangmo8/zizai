@@ -49,6 +49,46 @@ const int _journalThrottleMs = 500;
 const int _outlineDebounceMs = 300;
 const double _maxContentWidth = 760;
 
+// ── 标点自动配对 ──────────────────────────────────────────────
+
+/// 开括号 → 对应闭括号。输入开括号时自动补全闭括号，光标停在中间。
+const Map<String, String> _bracketPairs = {
+  '(': ')',
+  '（': '）',
+  '【': '】',
+  '“': '”',
+  '"': '"',
+  '「': '」',
+  '{': '}',
+};
+
+/// 闭括号集合：补全对中间输入时跳过（避免重复），`"` 开闭同字符。
+const Set<String> _bracketClosing = {'）', '】', '”', '"', '」', '}'};
+
+final Set<String> _bracketChars = {..._bracketPairs.keys, ..._bracketClosing};
+
+/// 标点配对修正（纯函数，便于单测）：把 [typed] 插入 [before] 的 [pos] 处后
+/// 应得到的 (文本, 光标位置)；无需修正返回 null。
+///
+/// - 光标紧邻同名闭括号（补全对中间）→ 跳过：文本不变，光标右移 1
+/// - 输入开括号 → 补全对应闭括号，光标停在中间（[pos] + 1）
+///
+/// [pos] 为插入前光标位置（0..before.length）；仅处理 [_bracketChars] 字符。
+(String, int)? bracketPairCorrection(String before, int pos, String typed) {
+  if (pos < 0 || pos > before.length) return null;
+  if (_bracketClosing.contains(typed) &&
+      pos < before.length &&
+      before[pos] == typed) {
+    return (before, pos + 1);
+  }
+  final close = _bracketPairs[typed];
+  if (close == null) return null;
+  return (
+    before.substring(0, pos) + typed + close + before.substring(pos),
+    pos + 1,
+  );
+}
+
 /// 窄窗强制收起大纲常驻面板的窗口宽度阈值（ui-editor.md §大纲面板）。
 const double _outlineMinWindowWidth = 960;
 
@@ -141,6 +181,9 @@ class _EditorViewState extends State<EditorView> {
   );
 
   StreamSubscription<q.DocChange>? _changesSub;
+
+  /// 标点配对修正的防递归闸：修正动作（补插/删除）会再次触发 change。
+  bool _bracketBusy = false;
 
   /// 上次成功保存的内容（Delta JSON），避免空保存。
   String _lastSavedContent = '';
@@ -365,6 +408,7 @@ class _EditorViewState extends State<EditorView> {
       _handleSlashTrigger(change);
       return;
     }
+    _handleBracketPair(change);
     final words = _countWords();
     final delta = words > _lastObservedWords ? words - _lastObservedWords : 0;
     if (delta > 0) {
@@ -647,6 +691,52 @@ class _EditorViewState extends State<EditorView> {
       }
     }
     return inserted;
+  }
+
+  /// 标点自动配对：change 插入的末字符是括号时修正（补全闭括号 / 跳过）。
+  ///
+  /// 用 document.changes 而非字符事件：中文标点经 IME 提交，字符事件只覆盖
+  /// 物理键输入。修正动作（补插/删除）会再次触发 change，用 [_bracketBusy]
+  /// 防递归；修正结果再走一次字数/自动保存等常规流程。
+  void _handleBracketPair(q.DocChange change) {
+    if (_bracketBusy) return;
+    final inserted = _insertedText(change);
+    if (inserted == null || inserted.isEmpty) return;
+    final typed = inserted[inserted.length - 1];
+    if (!_bracketChars.contains(typed)) return;
+    final sel = _quill.selection;
+    if (!sel.isValid || !sel.isCollapsed) return;
+    final pos = sel.baseOffset - 1; // typed 的插入位置
+    if (pos < 0) return;
+    final text = _quill.document.toPlainText();
+    if (pos >= text.length || text[pos] != typed) return;
+    // 还原插入前状态做判定（bracketPairCorrection 以插入前文本为输入）。
+    final before = text.substring(0, pos) + text.substring(pos + 1);
+    final correction = bracketPairCorrection(before, pos, typed);
+    if (correction == null) return;
+    final (_, cursor) = correction;
+    _bracketBusy = true;
+    try {
+      if (_bracketClosing.contains(typed)) {
+        // 跳过：删除刚输入的闭括号，光标越过补全的闭括号。
+        _quill.replaceText(
+          pos,
+          1,
+          '',
+          TextSelection.collapsed(offset: cursor),
+        );
+      } else {
+        // 补全：插入对应闭括号，光标停在中间。
+        _quill.replaceText(
+          pos + 1,
+          0,
+          _bracketPairs[typed]!,
+          TextSelection.collapsed(offset: cursor),
+        );
+      }
+    } finally {
+      _bracketBusy = false;
+    }
   }
 
   void _handleSlashTrigger(q.DocChange change) {
