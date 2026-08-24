@@ -532,6 +532,73 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
   });
 
+  testWidgets('行首缩进：开启后段落行首输入自动前置两个全角空格', (tester) async {
+    final (library, settings, db, _, docId) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    // 开启当前笔记本的行首缩进。
+    await tester.runAsync(
+      () => settings.setIndentForNotebook(library.notebooks.single.id, true),
+    );
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    final controller = editor.controller;
+    // 清空到空文档（保留结尾 \n），保证光标从 0 开始。
+    controller.replaceText(
+      0,
+      controller.document.length - 1,
+      '',
+      const TextSelection.collapsed(offset: 0),
+    );
+    await tester.pump();
+
+    // 行首输入「你」→ 自动前置两个全角空格，光标在其后。
+    // 注意：断言用 trimRight 而非 trim——全角空格 U+3000 属于 Unicode 空白，
+    // String.trim() 会把它误删。
+    await insertAtCursor(tester, '你');
+    expect(controller.document.toPlainText().trimRight(), '\u3000\u3000你');
+    expect(controller.selection.baseOffset, 3);
+
+    // 段落中间继续输入不重复缩进。
+    await insertAtCursor(tester, '好');
+    expect(controller.document.toPlainText().trimRight(), '\u3000\u3000你好');
+
+    // 换行后行首输入块格式触发词 → 不缩进（markdown 快捷不受影响）。
+    await insertAtCursor(tester, '\n');
+    await insertAtCursor(tester, '#');
+    expect(
+      controller.document.toPlainText().trimRight(),
+      '\u3000\u3000你好\n#',
+    );
+
+    await tester.runAsync(() => db.close());
+  });
+
+  testWidgets('行首缩进：默认关闭时行首输入不缩进', (tester) async {
+    final (library, settings, db, _, docId) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    final controller = editor.controller;
+    controller.replaceText(
+      0,
+      controller.document.length - 1,
+      '',
+      const TextSelection.collapsed(offset: 0),
+    );
+    await tester.pump();
+
+    await insertAtCursor(tester, '你');
+    expect(controller.document.toPlainText().trim(), '你');
+
+    await tester.runAsync(() => db.close());
+  });
+
   testWidgets('标点配对：输入【补全】光标在中间，输入】跳过', (tester) async {
     final (library, settings, db, _, docId) = (await tester.runAsync(
       () => makeApp(),

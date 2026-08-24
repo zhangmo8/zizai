@@ -413,6 +413,21 @@ class _SettingsViewState extends State<SettingsView> {
             );
           }(),
         ],
+        if (notebooks.isNotEmpty && notebookId != null)
+          _SettingsGroup(
+            label: '段落缩进',
+            children: [
+              _row(
+                '行首自动缩进',
+                ZzSwitch(
+                  value: widget.settings.indentForNotebook(notebookId),
+                  onChanged: (v) =>
+                      widget.settings.setIndentForNotebook(notebookId, v),
+                ),
+                description: '针对「写作目标」选中的笔记本：新段落行首自动空两个全角空格',
+              ),
+            ],
+          ),
         _SettingsGroup(
           label: '字数统计',
           children: [

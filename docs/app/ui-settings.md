@@ -45,6 +45,7 @@ Status: Draft（v3：双栏分类导航）
 | 外观 / 编辑器 | 字号 | Slider 12–28，步进 1，实时预览 |
 | 外观 / 编辑器 | 行距 | Slider 1.2–2.4，步进 0.1，实时预览 |
 | 写作 | 笔记本 / 启用今日目标 / 每日目标字数 | 选择笔记本后独立开关并设置 100–50000；关闭后隐藏该本进度 |
+| 写作 | 行首自动缩进 | 针对「写作目标」选中的笔记本独立开关（settings 键 `paragraphIndent.<id>`，默认关）；开启后新段落行首自动空两个全角空格（中文排版） |
 | 写作 | 标点计入字数 | 开关，即改即存，影响字数统计与今日增量 |
 | 写作 | 暗淡非当前行 | 开关（settings 键 `focusDim`，默认关）；开启后编辑器仅高亮光标所在段落，其余蒙页面底色，见 ui-editor.md §焦点暗淡；顶栏 icon 同步此状态 |
 | 备份 | Account ID / Bucket / Access Key / Secret Key | Cloudflare R2 备份凭据；Secret Key 掩码显示，仅保存在本机 settings 表 |

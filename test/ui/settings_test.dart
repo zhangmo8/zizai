@@ -345,6 +345,44 @@ void main() {
     await tester.runAsync(() => settings.load());
   });
 
+  testWidgets('写作区：行首自动缩进开关即改即存并持久化', (tester) async {
+    final (library, settings) = (await tester.runAsync(() => makeApp()))!;
+    await pumpApp(tester, library, settings);
+    await openSettings(tester);
+    await openCategory(tester, '写作');
+
+    final nbId = library.notebooks.single.id;
+    expect(settings.indentForNotebook(nbId), isFalse);
+
+    final row = find
+        .ancestor(
+          of: find.text('行首自动缩进'),
+          matching: find.byWidgetPredicate((w) => w is Row),
+        )
+        .first;
+    final indentSwitch = find.descendant(
+      of: row,
+      matching: find.byType(ZzSwitch),
+    );
+    expect(indentSwitch, findsOneWidget);
+
+    await tester.tap(indentSwitch);
+    await tester.pump();
+    // 让真实异步写库完成。
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pump();
+    }
+    expect(settings.indentForNotebook(nbId), isTrue);
+    // 持久化：重新加载。
+    await tester.runAsync(() => settings.load());
+    expect(settings.indentForNotebook(nbId), isTrue);
+    // 排空 sqflite 落库队列，避免定时器残留 flake。
+    await tester.runAsync(() => settings.load());
+  });
+
   testWidgets('关于区：快捷键说明面板打开与关闭', (tester) async {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);

@@ -67,6 +67,11 @@ const Set<String> _bracketClosing = {'）', '】', '”', '"', '」', '}'};
 
 final Set<String> _bracketChars = {..._bracketPairs.keys, ..._bracketClosing};
 
+/// 行首输入这些字符时不自动缩进：它们是 markdown 块格式触发词
+/// （`#`/`##`/`###`、`-`、`*`、`1.`、`>`、`[]`/`[x]`、`` ``` ``），
+/// 前置缩进会让快捷语法失效。
+const Set<String> _blockTriggerChars = {'#', '-', '*', '1', '>', '[', '`'};
+
 /// 标点配对修正（纯函数，便于单测）：把 [typed] 插入 [before] 的 [pos] 处后
 /// 应得到的 (文本, 光标位置)；无需修正返回 null。
 ///
@@ -184,6 +189,9 @@ class _EditorViewState extends State<EditorView> {
 
   /// 标点配对修正的防递归闸：修正动作（补插/删除）会再次触发 change。
   bool _bracketBusy = false;
+
+  /// 行首缩进的防递归闸（前置「　　」会再次触发 change）。
+  bool _indentBusy = false;
 
   /// 上次成功保存的内容（Delta JSON），避免空保存。
   String _lastSavedContent = '';
@@ -408,6 +416,7 @@ class _EditorViewState extends State<EditorView> {
       _handleSlashTrigger(change);
       return;
     }
+    _handleParagraphIndent(change);
     _handleBracketPair(change);
     final words = _countWords();
     final delta = words > _lastObservedWords ? words - _lastObservedWords : 0;
@@ -736,6 +745,40 @@ class _EditorViewState extends State<EditorView> {
       }
     } finally {
       _bracketBusy = false;
+    }
+  }
+
+  /// 行首自动缩进（中文排版首行空两格）：开启的笔记本里，在段落行首输入
+  /// 字符时前置两个全角空格，光标保持在输入字符之后。
+  ///
+  /// 与标点配对一样经 document.changes 监听（兼容 IME）。块格式触发词
+  /// （`#`/`-`/`1.` 等）不缩进，保证 markdown 快捷照常生效；[beforePos]
+  /// 为插入前光标位置，仅当它紧邻换行（或文档开头）时才是行首输入。
+  void _handleParagraphIndent(q.DocChange change) {
+    if (_indentBusy) return;
+    final doc = widget.library.currentDocument;
+    if (doc == null || !widget.settings.indentForNotebook(doc.notebookId)) {
+      return;
+    }
+    final inserted = _insertedText(change);
+    if (inserted == null || inserted.isEmpty) return;
+    if (_blockTriggerChars.contains(inserted[0])) return;
+    final sel = _quill.selection;
+    if (!sel.isValid || !sel.isCollapsed) return;
+    final beforePos = sel.baseOffset - inserted.length;
+    if (beforePos < 0) return;
+    final text = _quill.document.toPlainText();
+    if (beforePos > 0 && text[beforePos - 1] != '\n') return;
+    _indentBusy = true;
+    try {
+      _quill.replaceText(
+        beforePos,
+        0,
+        '\u3000\u3000', // 两个全角空格
+        TextSelection.collapsed(offset: sel.baseOffset + 2),
+      );
+    } finally {
+      _indentBusy = false;
     }
   }
 

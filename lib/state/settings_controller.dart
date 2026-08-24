@@ -25,6 +25,28 @@ class SettingsController extends ChangeNotifier {
         NotebookGoal(words: _settings.dailyGoal);
   }
 
+  /// 笔记本行首缩进开关（settings 键 `paragraphIndent.<notebookId>`，默认关）。
+  Map<String, bool> _paragraphIndents = const {};
+
+  /// 该笔记本是否开启「行首自动空两个字」（中文排版首行缩进）。
+  bool indentForNotebook(String? notebookId) {
+    if (notebookId == null) return false;
+    return _paragraphIndents[notebookId] ?? false;
+  }
+
+  Future<void> setIndentForNotebook(
+    String notebookId,
+    bool enabled,
+  ) async {
+    if (_paragraphIndents[notebookId] == enabled) return;
+    _paragraphIndents = {..._paragraphIndents, notebookId: enabled};
+    notifyListeners();
+    await _db.setSetting(
+      'paragraphIndent.$notebookId',
+      enabled.toString(),
+    );
+  }
+
   /// 主题三态：system / light / dark。
   ThemeMode get themeMode => switch (_settings.theme) {
     'light' => ThemeMode.light,
@@ -88,6 +110,15 @@ class SettingsController extends ChangeNotifier {
       }
     }
     _notebookGoals = goals;
+    final indents = <String, bool>{};
+    for (final entry in values.entries) {
+      const prefix = 'paragraphIndent.';
+      if (!entry.key.startsWith(prefix)) continue;
+      final notebookId = entry.key.substring(prefix.length);
+      if (notebookId.isEmpty) continue;
+      indents[notebookId] = entry.value != 'false';
+    }
+    _paragraphIndents = indents;
     _outlineOpen = values['outline.open'] == 'true';
     _notesOpen = values['notes.open'] == 'true';
     _loaded = true;
