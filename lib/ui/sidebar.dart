@@ -9,7 +9,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../app.dart' show appColorsOf;
+import '../app.dart' show AppColors, appColorsOf;
 import '../core/models.dart';
 import '../state/library_controller.dart';
 import '../util/platform.dart';
@@ -32,6 +32,64 @@ class _EditSession {
 
   /// 文档所属笔记本（仅 document 目标需要）。
   final String? notebookId;
+}
+
+/// 树行引用：拖拽重排时把扁平行索引映射回（目标笔记本, 目标位置）。
+///
+/// 与 `_buildTree` 的 children 一一对应；笔记本头行标记 isHeader，
+/// 全局「新建笔记本」编辑行（树末）notebookId 为 null。
+class TreeRowRef {
+  const TreeRowRef({this.notebookId, this.docId, this.isHeader = false});
+
+  final String? notebookId;
+  final String? docId;
+  final bool isHeader;
+}
+
+/// 拖拽落点映射（纯函数，便于单测）：把 ReorderableListView 的扁平行索引
+/// 映射为（目标笔记本 id, 目标位置）；不可落点或同笔记本落点未变返回 null。
+///
+/// [refs] 与列表 children 一一对应；[oldIndex] 为被拖行，[newIndex] 为
+/// onReorderItem 语义（移除被拖行后的插入位，无需再处理移除偏移）。
+(String?, int)? reorderTarget(List<TreeRowRef> refs, int oldIndex, int newIndex) {
+  if (oldIndex < 0 || oldIndex >= refs.length) return null;
+  final dragged = refs[oldIndex];
+  if (dragged.docId == null) return null; // 仅章节行可拖
+
+  final remaining = List<TreeRowRef>.of(refs)..removeAt(oldIndex);
+  final insertAt = newIndex.clamp(0, remaining.length);
+  final targetNb = _notebookOfInsertion(remaining, insertAt);
+  if (targetNb == null) return null;
+
+  // 目标位置 = 目标笔记本内、插入点之前的章节数。
+  var position = 0;
+  for (var i = 0; i < insertAt; i++) {
+    final r = remaining[i];
+    if (r.notebookId == targetNb && r.docId != null) position++;
+  }
+  if (targetNb == dragged.notebookId) {
+    // 同笔记本且落点未变 → 不写库。
+    var current = 0;
+    for (var i = 0; i < oldIndex; i++) {
+      final r = refs[i];
+      if (r.notebookId == targetNb && r.docId != null) current++;
+    }
+    if (position == current) return null;
+  }
+  return (targetNb, position);
+}
+
+/// 插入点 [insertAt]（插入到该行之前）所属笔记本。
+/// 行是笔记本头 → 上一个分区（前一个笔记本）；否则行自身所属。
+String? _notebookOfInsertion(List<TreeRowRef> remaining, int insertAt) {
+  if (insertAt < remaining.length && !remaining[insertAt].isHeader) {
+    return remaining[insertAt].notebookId;
+  }
+  for (var i = insertAt - 1; i >= 0; i--) {
+    final nb = remaining[i].notebookId;
+    if (nb != null) return nb;
+  }
+  return null;
 }
 
 /// 「第 N 章/回/节/卷」式编号标题检测（与 export.dart 的 `_numberedTitle` 同源）。
@@ -186,6 +244,9 @@ class _SidebarState extends State<Sidebar> {
   bool _seededExpansion = false;
   _EditSession? _editing;
 
+  /// 最近一次构建的行引用（拖拽落点时把扁平索引映射回笔记本/位置）。
+  List<TreeRowRef> _rowRefs = const [];
+
   @override
   void initState() {
     super.initState();
@@ -321,91 +382,222 @@ class _SidebarState extends State<Sidebar> {
 
   Widget _buildTree() {
     final library = widget.library;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 18),
-      children: [
-        for (final nb in library.notebooks) ...[
-          if (_isEditingNotebook(nb.id))
-            _editField(_editing!, nb.id)
-          else
-            _NotebookTile(
-              notebook: nb,
-              expanded: _expanded.contains(nb.id),
-              onToggle: () => setState(() {
-                if (!_expanded.add(nb.id)) _expanded.remove(nb.id);
-              }),
-              onNewDocument: () {
-                // Notion 式行内 +：展开该笔记本并进入新章节命名。
-                setState(() => _expanded.add(nb.id));
-                _startEdit(
-                  _EditSession(
-                    target: _EditTarget.document,
-                    initial: suggestedChapterTitle(library.documentsOf(nb.id)),
-                    notebookId: nb.id,
-                  ),
-                );
-              },
-              onEdit: () => _startEdit(
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    final children = <Widget>[];
+    final refs = <TreeRowRef>[];
+
+    void add(Widget child, TreeRowRef ref) {
+      children.add(child);
+      refs.add(ref);
+    }
+
+    for (final nb in library.notebooks) {
+      if (_isEditingNotebook(nb.id)) {
+        add(
+          _editField(_editing!, nb.id, key: ValueKey('edit-nb-${nb.id}')),
+          TreeRowRef(notebookId: nb.id),
+        );
+      } else {
+        add(
+          _NotebookTile(
+            key: ValueKey('nb-${nb.id}'),
+            notebook: nb,
+            expanded: _expanded.contains(nb.id),
+            onToggle: () => setState(() {
+              if (!_expanded.add(nb.id)) _expanded.remove(nb.id);
+            }),
+            onNewDocument: () {
+              // Notion 式行内 +：展开该笔记本并进入新章节命名。
+              setState(() => _expanded.add(nb.id));
+              _startEdit(
                 _EditSession(
-                  id: nb.id,
-                  target: _EditTarget.notebook,
-                  initial: nb.name,
+                  target: _EditTarget.document,
+                  initial: suggestedChapterTitle(library.documentsOf(nb.id)),
+                  notebookId: nb.id,
                 ),
-              ),
-              onDelete: () => library.requestDelete(
-                kind: DeletionKind.notebook,
+              );
+            },
+            onEdit: () => _startEdit(
+              _EditSession(
                 id: nb.id,
-                name: nb.name,
+                target: _EditTarget.notebook,
+                initial: nb.name,
               ),
-              onMoveUp: () => library.moveNotebook(nb.id, up: true),
-              onMoveDown: () => library.moveNotebook(nb.id, up: false),
             ),
-          if (_expanded.contains(nb.id)) ...[
-            for (final doc in library.documentsOf(nb.id)) ...[
-              if (_isEditingDocument(doc.id))
-                _editField(_editing!, doc.id, notebookId: nb.id)
-              else
-                _DocumentTile(
-                  document: doc,
-                  selected: library.currentDocument?.id == doc.id,
-                  onTap: () => library.switchDocument(doc.id),
-                  onEdit: () => _startEdit(
-                    _EditSession(
-                      id: doc.id,
-                      target: _EditTarget.document,
-                      initial: doc.title,
-                      notebookId: nb.id,
-                    ),
-                  ),
-                  onDelete: () => library.requestDelete(
-                    kind: DeletionKind.document,
-                    id: doc.id,
-                    name: doc.title,
-                  ),
-                  onMoveUp: () => library.moveDocument(doc.id, up: true),
-                  onMoveDown: () => library.moveDocument(doc.id, up: false),
-                ),
-            ],
-            if (_editingNewDocument && _editing!.notebookId == nb.id)
-              _editField(_editing!, null, notebookId: nb.id)
-            else
-              _NewDocumentButton(
-                onPressed: () => _startEdit(
-                  _EditSession(
-                    target: _EditTarget.document,
-                    initial: suggestedChapterTitle(library.documentsOf(nb.id)),
-                    notebookId: nb.id,
-                  ),
+            onDelete: () => library.requestDelete(
+              kind: DeletionKind.notebook,
+              id: nb.id,
+              name: nb.name,
+            ),
+            onMoveUp: () => library.moveNotebook(nb.id, up: true),
+            onMoveDown: () => library.moveNotebook(nb.id, up: false),
+          ),
+          TreeRowRef(notebookId: nb.id, isHeader: true),
+        );
+      }
+      if (_expanded.contains(nb.id)) {
+        for (final doc in library.documentsOf(nb.id)) {
+          if (_isEditingDocument(doc.id)) {
+            add(
+              _editField(
+                _editing!,
+                doc.id,
+                notebookId: nb.id,
+                key: ValueKey('edit-doc-${doc.id}'),
+              ),
+              TreeRowRef(notebookId: nb.id, docId: doc.id),
+            );
+          } else {
+            final index = children.length;
+            add(
+              _documentRow(nb, doc, index),
+              TreeRowRef(notebookId: nb.id, docId: doc.id),
+            );
+          }
+        }
+        if (_editingNewDocument && _editing!.notebookId == nb.id) {
+          add(
+            _editField(
+              _editing!,
+              null,
+              notebookId: nb.id,
+              key: ValueKey('edit-doc-new-${nb.id}'),
+            ),
+            TreeRowRef(notebookId: nb.id),
+          );
+        } else {
+          add(
+            _NewDocumentButton(
+              key: ValueKey('new-doc-${nb.id}'),
+              onPressed: () => _startEdit(
+                _EditSession(
+                  target: _EditTarget.document,
+                  initial: suggestedChapterTitle(library.documentsOf(nb.id)),
+                  notebookId: nb.id,
                 ),
               ),
-          ],
-        ],
-        if (_editingNewNotebook) _editField(_editing!, null),
-      ],
+            ),
+            TreeRowRef(notebookId: nb.id),
+          );
+        }
+      }
+    }
+    if (_editingNewNotebook) {
+      add(
+        _editField(_editing!, null, key: const ValueKey('edit-nb-new')),
+        const TreeRowRef(),
+      );
+    }
+    _rowRefs = refs;
+
+    return ReorderableListView(
+      buildDefaultDragHandles: false,
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 18),
+      onReorderItem: _onReorderItem,
+      proxyDecorator: (child, index, animation) =>
+          _dragProxyDecorator(child, animation, colors, appColors),
+      children: children,
     );
   }
 
-  Widget _editField(_EditSession session, String? id, {String? notebookId}) {
+  /// 章节行 + 拖拽接线：桌面端仅手柄可拖（行体点击不受干扰），
+  /// 触摸端整行长按拖拽（短按仍是切换文档）。
+  Widget _documentRow(Notebook nb, Document doc, int index) {
+    final library = widget.library;
+    final tile = _DocumentTile(
+      key: ValueKey('doc-${doc.id}'),
+      document: doc,
+      selected: library.currentDocument?.id == doc.id,
+      onTap: () => library.switchDocument(doc.id),
+      onEdit: () => _startEdit(
+        _EditSession(
+          id: doc.id,
+          target: _EditTarget.document,
+          initial: doc.title,
+          notebookId: nb.id,
+        ),
+      ),
+      onDelete: () => library.requestDelete(
+        kind: DeletionKind.document,
+        id: doc.id,
+        name: doc.title,
+      ),
+      onMoveUp: () => library.moveDocument(doc.id, up: true),
+      onMoveDown: () => library.moveDocument(doc.id, up: false),
+      dragHandle: isDesktopPlatform
+          ? ReorderableDragStartListener(index: index, child: const _GripIcon())
+          : const _GripIcon(),
+    );
+    if (!isDesktopPlatform) {
+      return ReorderableDelayedDragStartListener(index: index, child: tile);
+    }
+    return tile;
+  }
+
+  /// 拖拽落点：映射为（目标笔记本, 位置）后写库（映射逻辑见 reorderTarget）。
+  ///
+  /// onReorderItem 语义：newIndex 是「移除拖拽行之后」的插入位（已调整）。
+  void _onReorderItem(int oldIndex, int newIndex) {
+    final refs = _rowRefs;
+    final target = reorderTarget(refs, oldIndex, newIndex);
+    if (target == null) return;
+    final docId = refs[oldIndex].docId;
+    if (docId == null) return;
+    final (targetNb, position) = target;
+    widget.library.reorderDocument(
+      docId,
+      notebookId: targetNb!, // reorderTarget 非 null 返回时 targetNb 必非 null
+      newPosition: position,
+    );
+  }
+
+  /// 拖拽浮层：design.md §3 浮层阴影（0 4px 12px 10% 黑 + 1px hairline 描边）。
+  Widget _dragProxyDecorator(
+    Widget child,
+    Animation<double> animation,
+    ColorScheme colors,
+    AppColors appColors,
+  ) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, _) {
+        final t = Curves.easeOut.transform(animation.value);
+        return Opacity(
+          opacity: 0.9 + 0.1 * t,
+          child: Transform.scale(
+            scale: 0.985 + 0.015 * t,
+            child: Material(
+              type: MaterialType.transparency,
+              elevation: 0,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: appColors.surfaceRaised,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: colors.outline),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: child,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _editField(
+    _EditSession session,
+    String? id, {
+    String? notebookId,
+    Key? key,
+  }) {
     final resolved = _EditSession(
       id: id,
       target: session.target,
@@ -413,6 +605,7 @@ class _SidebarState extends State<Sidebar> {
       notebookId: notebookId ?? session.notebookId,
     );
     return Padding(
+      key: key,
       padding: EdgeInsets.fromLTRB(
         resolved.target == _EditTarget.notebook ? 10 : 34,
         2,
@@ -571,6 +764,7 @@ class _HeaderBar extends StatelessWidget {
 /// 笔记本行：展开/折叠 + hover 浮现「+ 新建章节」与 ⋯ 操作菜单。
 class _NotebookTile extends StatefulWidget {
   const _NotebookTile({
+    super.key,
     required this.notebook,
     required this.expanded,
     required this.onToggle,
@@ -660,6 +854,7 @@ class _NotebookTileState extends State<_NotebookTile> {
 /// 文档行：选中高亮 + ⋮ 操作菜单（桌面端 hover 行才浮现）。
 class _DocumentTile extends StatefulWidget {
   const _DocumentTile({
+    super.key,
     required this.document,
     required this.selected,
     required this.onTap,
@@ -667,6 +862,7 @@ class _DocumentTile extends StatefulWidget {
     required this.onDelete,
     required this.onMoveUp,
     required this.onMoveDown,
+    this.dragHandle,
   });
 
   final Document document;
@@ -676,6 +872,9 @@ class _DocumentTile extends StatefulWidget {
   final VoidCallback onDelete;
   final VoidCallback onMoveUp;
   final VoidCallback onMoveDown;
+
+  /// 拖拽手柄（桌面端由 ReorderableDragStartListener 包裹；触摸端为纯提示图标）。
+  final Widget? dragHandle;
 
   @override
   State<_DocumentTile> createState() => _DocumentTileState();
@@ -706,15 +905,44 @@ class _DocumentTileState extends State<_DocumentTile> {
           fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w400,
           color: widget.selected ? colors.onSurface : colors.onSurfaceVariant,
         ),
-        trailing: _RowMenu(
-          visible: _hover || !isDesktopPlatform,
-          items: [
-            ('上移', Icons.arrow_upward, widget.onMoveUp),
-            ('下移', Icons.arrow_downward, widget.onMoveDown),
-            ('重命名', Icons.drive_file_rename_outline, widget.onEdit),
-            ('删除', Icons.delete_outline, widget.onDelete),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (widget.dragHandle != null)
+              _HoverReveal(
+                visible: _hover || !isDesktopPlatform,
+                child: widget.dragHandle!,
+              ),
+            _RowMenu(
+              visible: _hover || !isDesktopPlatform,
+              items: [
+                ('上移', Icons.arrow_upward, widget.onMoveUp),
+                ('下移', Icons.arrow_downward, widget.onMoveDown),
+                ('重命名', Icons.drive_file_rename_outline, widget.onEdit),
+                ('删除', Icons.delete_outline, widget.onDelete),
+              ],
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 拖拽排序手柄：桌面端 hover 浮现（ReorderableDragStartListener 包裹，
+/// 仅手柄可拖，行体点击不受影响）；触摸端常显，仅作长按拖拽的提示。
+class _GripIcon extends StatelessWidget {
+  const _GripIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 5),
+      child: Icon(
+        Icons.drag_indicator,
+        size: 15,
+        color: colors.onSurfaceVariant,
       ),
     );
   }
@@ -1017,7 +1245,7 @@ class _RowMenu extends StatelessWidget {
 
 /// 展开笔记本底部的「+ 新建章节」。
 class _NewDocumentButton extends StatefulWidget {
-  const _NewDocumentButton({required this.onPressed});
+  const _NewDocumentButton({super.key, required this.onPressed});
 
   final VoidCallback onPressed;
 

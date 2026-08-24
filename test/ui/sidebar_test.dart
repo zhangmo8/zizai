@@ -135,6 +135,190 @@ void main() {
     });
   });
 
+  group('reorderTarget 拖拽落点映射', () {
+    TreeRowRef nb(String id) => TreeRowRef(notebookId: id, isHeader: true);
+    TreeRowRef doc(String nbId, String docId) =>
+        TreeRowRef(notebookId: nbId, docId: docId);
+    TreeRowRef btn(String nbId) => TreeRowRef(notebookId: nbId);
+
+    // 树：小说[一,二] + 随笔[] → 行：nb小说, 一, 二, new小说, nb随笔, new随笔
+    final refs = [nb('A'), doc('A', 'd1'), doc('A', 'd2'), btn('A'), nb('B'), btn('B')];
+
+    test('同笔记本下移一位', () {
+      expect(reorderTarget(refs, 1, 2), ('A', 1));
+    });
+
+    test('同笔记本落点未变 → null（不写库）', () {
+      expect(reorderTarget(refs, 1, 1), isNull);
+    });
+
+    test('拖到下一笔记本头前 = 当前笔记本末尾', () {
+      expect(reorderTarget(refs, 1, 3), ('A', 1));
+    });
+
+    test('跨笔记本移动到空笔记本开头', () {
+      expect(reorderTarget(refs, 1, 4), ('B', 0));
+    });
+
+    test('跨笔记本移动到列表末尾', () {
+      expect(reorderTarget(refs, 1, refs.length), ('B', 0));
+    });
+
+    test('跨笔记本移动到非空笔记本中间', () {
+      final refs2 = [
+        nb('A'),
+        doc('A', 'd1'),
+        btn('A'),
+        nb('B'),
+        doc('B', 'e1'),
+        doc('B', 'e2'),
+        btn('B'),
+      ];
+      // 把 A 的 d1 拖到 B 的 e1、e2 之间（插入到 e2 前，即 remaining 索引 4）。
+      expect(reorderTarget(refs2, 1, 4), ('B', 1));
+    });
+
+    test('拖到笔记本头前 = 上一笔记本末尾', () {
+      final refs3 = [
+        nb('A'),
+        doc('A', 'd1'),
+        doc('A', 'd2'),
+        btn('A'),
+        nb('B'),
+        doc('B', 'e1'),
+        btn('B'),
+      ];
+      // 把 B 的 e1 拖到 nbB 头前（插入到 nbB 头，即 remaining 索引 4）。
+      expect(reorderTarget(refs3, 5, 4), ('A', 2));
+    });
+
+    test('非文档行（笔记本头/新建按钮）不可拖', () {
+      expect(reorderTarget(refs, 0, 1), isNull);
+      expect(reorderTarget(refs, 3, 1), isNull);
+    });
+  });
+
+  testWidgets('拖拽排序：拖手柄同笔记本内重排', (tester) async {
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
+          ('小说', ['第一章', '第二章']),
+        ],
+      ),
+    ))!;
+    await pumpSidebar(tester, library);
+    final nbId = library.notebooks.first.id;
+    expect(library.documentsOf(nbId).map((d) => d.title), ['第一章', '第二章']);
+
+    // 桌面端手柄 hover 行才浮现：先悬停 → 等 _HoverReveal 淡入 → 按下拖拽。
+    final grip = find.byIcon(Icons.drag_indicator).first;
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.moveTo(tester.getCenter(grip));
+    await tester.pump(const Duration(milliseconds: 120));
+    await gesture.down(tester.getCenter(grip));
+    await tester.pump();
+    // 下移一行（行高 30 + 上下 margin 各 1 = 32）：分步移动让 gap 动画追上手势。
+    await gesture.moveBy(const Offset(0, 18));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, 18));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+    await gesture.removePointer();
+    await settle(tester);
+
+    expect(library.documentsOf(nbId).map((d) => d.title), ['第二章', '第一章']);
+  });
+
+  testWidgets('拖拽排序：跨笔记本移动章节', (tester) async {
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
+          ('小说', ['第一章']),
+          ('随笔集', []),
+        ],
+      ),
+    ))!;
+    await pumpSidebar(tester, library);
+    final aId = library.notebooks[0].id;
+    final bId = library.notebooks[1].id;
+
+    // 第一章的手柄拖到 随笔集 分区内（空笔记本，落点映射为位置 0）。
+    final grip = find.byIcon(Icons.drag_indicator).first;
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.moveTo(tester.getCenter(grip));
+    await tester.pump(const Duration(milliseconds: 120));
+    await gesture.down(tester.getCenter(grip));
+    await tester.pump();
+    // 共下移 96px（≈3 行）：越过 小说 分区与 随笔集 笔记本头，落到分区内。
+    for (var i = 0; i < 4; i++) {
+      await gesture.moveBy(const Offset(0, 24));
+      await tester.pump();
+    }
+    await gesture.up();
+    await tester.pump();
+    await gesture.removePointer();
+    await settle(tester);
+
+    expect(library.documentsOf(aId).map((d) => d.title), isEmpty);
+    expect(library.documentsOf(bId).map((d) => d.title), ['第一章']);
+  });
+
+  testWidgets('点击兼容：行体带轻微移动仍切换文档（不触发拖拽）', (tester) async {
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
+          ('小说', ['第一章', '第二章']),
+        ],
+      ),
+    ))!;
+    await pumpSidebar(tester, library);
+    final nbId = library.notebooks.first.id;
+
+    // 模拟鼠标抖动：按下后移动 3px（仍超出拖拽 slop 之外的常规点击）。
+    final second = find.text('第二章');
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.moveTo(tester.getCenter(second));
+    await gesture.down(tester.getCenter(second));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, 3));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+    await gesture.removePointer();
+    await settle(tester);
+
+    expect(library.currentDocument?.title, '第二章');
+    expect(library.documentsOf(nbId).map((d) => d.title), ['第一章', '第二章']);
+  });
+
+  testWidgets('点击拖拽手柄不切换文档、不重排', (tester) async {
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
+          ('小说', ['第一章', '第二章']),
+        ],
+      ),
+    ))!;
+    await pumpSidebar(tester, library);
+    final nbId = library.notebooks.first.id;
+    expect(library.currentDocument, isNull);
+
+    final grip = find.byIcon(Icons.drag_indicator).at(1); // 第二章的手柄
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.moveTo(tester.getCenter(grip));
+    await tester.pump(const Duration(milliseconds: 120));
+    await gesture.down(tester.getCenter(grip));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+    await gesture.removePointer();
+    await settle(tester);
+
+    expect(library.currentDocument, isNull);
+    expect(library.documentsOf(nbId).map((d) => d.title), ['第一章', '第二章']);
+  });
+
   testWidgets('树渲染：笔记本展开 + 文档 + 当前文档高亮', (tester) async {
     final (library, _) = (await tester.runAsync(
       () => makeApp(
