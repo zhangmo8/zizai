@@ -409,6 +409,7 @@ class _SidebarState extends State<Sidebar> {
           _NotebookTile(
             key: ValueKey('nb-${nb.id}'),
             notebook: nb,
+            documentCount: library.documentsOf(nb.id).length,
             expanded: _expanded.contains(nb.id),
             onToggle: () => setState(() {
               if (!_expanded.add(nb.id)) _expanded.remove(nb.id);
@@ -747,6 +748,7 @@ class _NotebookTile extends StatefulWidget {
   const _NotebookTile({
     super.key,
     required this.notebook,
+    required this.documentCount,
     required this.expanded,
     required this.onToggle,
     required this.onNewDocument,
@@ -757,6 +759,9 @@ class _NotebookTile extends StatefulWidget {
   });
 
   final Notebook notebook;
+
+  /// 本笔记本下的章节数（标题后小字显示，如「3章」）。
+  final int documentCount;
   final bool expanded;
   final VoidCallback onToggle;
   final VoidCallback onNewDocument;
@@ -793,6 +798,17 @@ class _NotebookTileState extends State<_NotebookTile> {
           fontWeight: FontWeight.w600,
           color: colors.onSurface,
         ),
+        // 章节总数小字（空笔记本不显示，保持安静）。
+        titleSuffix: widget.documentCount > 0
+            ? Text(
+                '${widget.documentCount}章',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w400,
+                  color: appColorsOf(context).textTertiary,
+                ),
+              )
+            : null,
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1020,6 +1036,7 @@ class _SidebarRow extends StatelessWidget {
     required this.title,
     required this.titleStyle,
     this.trailing,
+    this.titleSuffix,
   });
 
   final int depth;
@@ -1030,6 +1047,9 @@ class _SidebarRow extends StatelessWidget {
   final String title;
   final TextStyle titleStyle;
   final Widget? trailing;
+
+  /// 标题后的后缀（如笔记本行的「3章」计数），长标题省略时保持常显。
+  final Widget? titleSuffix;
 
   @override
   Widget build(BuildContext context) {
@@ -1058,11 +1078,21 @@ class _SidebarRow extends StatelessWidget {
               SizedBox(width: depth == 0 ? 38 : 18, child: leading),
               const SizedBox(width: 6),
               Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: titleStyle,
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: titleStyle,
+                      ),
+                    ),
+                    if (titleSuffix != null) ...[
+                      const SizedBox(width: 6),
+                      titleSuffix!,
+                    ],
+                  ],
                 ),
               ),
               ?trailing,

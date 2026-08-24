@@ -343,6 +343,21 @@ void main() {
     expect(find.text('新建章节'), findsNWidgets(2)); // 两个笔记本各一个
   });
 
+  testWidgets('笔记本行：标题后显示章节总数（空笔记本不显示）', (tester) async {
+    final (library, _) = (await tester.runAsync(
+      () => makeApp(
+        tree: [
+          ('小说', ['第一章', '第二章', '第三章']),
+          ('随笔集', []),
+        ],
+      ),
+    ))!;
+    await pumpSidebar(tester, library);
+
+    expect(find.text('3章'), findsOneWidget);
+    expect(find.text('0章'), findsNothing); // 空笔记本保持安静
+  });
+
   testWidgets('空态：按钮 → 行内输入 → Enter 创建笔记本', (tester) async {
     final (library, _) = (await tester.runAsync(() => makeApp()))!;
     await pumpSidebar(tester, library);
