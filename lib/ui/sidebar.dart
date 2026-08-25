@@ -861,7 +861,7 @@ class _NotebookLeadingIcon extends StatelessWidget {
       );
     }
     return SizedBox(
-      width: 38,
+      width: 20,
       child: Stack(
         alignment: Alignment.centerLeft,
         children: [
@@ -1076,7 +1076,6 @@ class _SidebarRow extends StatelessWidget {
           child: Row(
             children: [
               SizedBox(width: depth == 0 ? 38 : 18, child: leading),
-              const SizedBox(width: 6),
               Expanded(
                 child: Row(
                   children: [
