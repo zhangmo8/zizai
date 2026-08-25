@@ -213,8 +213,10 @@ class _SettingsViewState extends State<SettingsView> {
       const channel = MethodChannel('dev.zizai/open_path');
       await channel.invokeMethod('openPath', {'path': dir});
     } else if (Platform.isWindows) {
-      final result = await Process.run('explorer', [dir]);
-      if (result.exitCode != 0) throw StateError('文件管理器启动失败');
+      // explorer.exe 是单例 shell：新进程把打开请求转交给已运行的 Explorer
+      // 后立即以退出码 1 退出（无论成功与否），因此不能以退出码判断成败；
+      // 只用 Process.start 触发，启动失败（路径无效等）由异常向上抛出。
+      await Process.start('explorer', [dir]);
     } else if (Platform.isLinux) {
       final result = await Process.run('xdg-open', [dir]);
       if (result.exitCode != 0) throw StateError('文件管理器启动失败');
