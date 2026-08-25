@@ -62,9 +62,10 @@ void main() {
     await tester.pump();
   }
 
-  /// 让真实异步（sqflite / mock http）在 FakeAsync 外完成。
+  /// 让真实异步（sqflite / mock http）在 FakeAsync 外完成（25×40ms≈1s，
+  /// 同 shell_test.settleDatabaseWrite；5 轮在 CI 慢机上偶发未落盘）。
   Future<void> settleAsync(WidgetTester tester) async {
-    for (var i = 0; i < 5; i++) {
+    for (var i = 0; i < 25; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 40)),
       );

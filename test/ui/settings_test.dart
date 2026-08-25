@@ -53,9 +53,10 @@ void main() {
     await tester.pump();
   }
 
-  /// 排空 sqflite 真实异步落库队列。
+  /// 排空 sqflite 真实异步落库队列（25×40ms≈1s，同 shell_test.settleDatabaseWrite；
+  /// 5 轮在 CI 慢机上偶发未落盘，见「恢复默认」注释）。
   Future<void> drain(WidgetTester tester) async {
-    for (var i = 0; i < 5; i++) {
+    for (var i = 0; i < 25; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 40)),
       );
@@ -126,12 +127,7 @@ void main() {
     material.onChanged?.call(before + 2);
     await tester.pump();
     // 让真实异步写库完成（sqflite 事务在 FakeAsync 内不会自行结束）
-    for (var i = 0; i < 5; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 40)),
-      );
-      await tester.pump();
-    }
+    await drain(tester);
     expect(settings.settings.fontSize, greaterThan(before));
 
     // 预览文本应用了字号
@@ -211,12 +207,7 @@ void main() {
     await tester.tap(dimSwitch);
     await tester.pump();
     // 让真实异步写库完成（sqflite 事务在 FakeAsync 内不会自行结束）
-    for (var i = 0; i < 5; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 40)),
-      );
-      await tester.pump();
-    }
+    await drain(tester);
     expect(settings.settings.focusDim, isTrue);
     // 持久化：重新加载
     await tester.runAsync(() => settings.load());
@@ -318,12 +309,7 @@ void main() {
     await tester.tap(find.text('恢复默认').last);
     await tester.pumpAndSettle();
     // 让真实异步写库完成（sqflite 事务在 FakeAsync 内不会自行结束）
-    for (var i = 0; i < 5; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 40)),
-      );
-      await tester.pump();
-    }
+    await drain(tester);
     expect(settings.settings.theme, 'system');
     // 文档仍在
     expect(library.notebooks, hasLength(1));
@@ -332,12 +318,7 @@ void main() {
     // 落库经 txnSynchronized 会挂 10s 超时定时器；先多轮推进真实 I/O，再
     // load() 排队等待之前的事务完成，避免测试结束时仍残留定时器
     // （!timersPending flake，CI 慢机偶发）。
-    for (var i = 0; i < 5; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 40)),
-      );
-      await tester.pump();
-    }
+    await drain(tester);
     await tester.runAsync(() => settings.load());
   });
 
