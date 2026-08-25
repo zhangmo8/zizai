@@ -600,7 +600,7 @@ void main() {
     await tester.runAsync(() => db.close());
   });
 
-  testWidgets('打字机滚动：开启后光标移到末尾行自动滚动到视口中部', (tester) async {
+  testWidgets('打字机滚动：焦点暗淡开启后光标移到末尾行自动滚动到视口中部', (tester) async {
     final (library, settings, db, _, docId) = (await tester.runAsync(
       () => makeApp(),
     ))!;
@@ -619,8 +619,9 @@ void main() {
         writtenWords: 0,
       ),
     );
+    // 打字机滚动跟随「暗淡非当前行」联动：开启 focusDim 即生效。
     await tester.runAsync(
-      () => settings.setTypewriterScroll(true),
+      () => settings.update(settings.settings.copyWith(focusDim: true)),
     );
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
     await tester.pump();

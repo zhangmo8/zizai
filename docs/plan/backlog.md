@@ -2,7 +2,7 @@
 
 | # | 来源 | 内容 | 状态 |
 |---|---|---|---|
-| 1 | requirements.md F4.3 | 打字机滚动（当前行居中） | 已完成（写作区设置 typewriterScroll 默认关：光标行 120ms 平滑滚动到视口中部，与 flutter_quill showCaretOnScreen 协调） |
+| 1 | requirements.md F4.3 | 打字机滚动（当前行居中） | 已完成（跟随「暗淡非当前行」联动，无独立开关：focusDim 开启时光标行 120ms 平滑滚动到视口中部，与 flutter_quill showCaretOnScreen 协调） |
 | 2 | requirements.md 范围 | 导出整库为 Markdown 文件集 | 已完成（exportBookMarkdownFiles + 导出对话框「Markdown · 每章一个文件」，export_dialog_test 覆盖） |
 | 3 | requirements.md F2.4 | 图片粘贴（富文本内嵌图片） | 待处理 |
 | 4 | requirements.md 范围 | 全文搜索 | 已完成（全书搜索 + 替换预览） |

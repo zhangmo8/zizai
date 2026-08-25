@@ -814,7 +814,7 @@ class _EditorViewState extends State<EditorView> {
     _typewriterScroll();
   }
 
-  /// 打字机滚动（写作辅助，settings 键 typewriterScroll）：光标所在行平滑
+  /// 打字机滚动（跟随「焦点暗淡」联动，无独立开关）：光标所在行平滑
   /// 滚动到视口中部，写长文时视线始终跟随光标。
   ///
   /// flutter_quill 在选区变化时会自动滚动（showCaretOnScreen）把光标带到
@@ -824,7 +824,8 @@ class _EditorViewState extends State<EditorView> {
   bool _typewriterArmed = false;
 
   void _typewriterScroll() {
-    if (!widget.settings.typewriterScroll || _typewriterArmed) return;
+    // 与焦点暗淡（暗淡非当前行）联动：focusDim 开启时打字机滚动生效。
+    if (!widget.settings.settings.focusDim || _typewriterArmed) return;
     // 双重 post-frame：flutter_quill 的 showCaretOnScreen 在本帧 post-frame
     // 才启动自动滚动（animateTo），第一帧注册的第二帧回调晚于它，此时才能
     // 看到真实滚动状态——进行中则等结束再居中，未滚动则直接居中。
