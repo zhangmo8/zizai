@@ -194,9 +194,6 @@ class _EditorViewState extends State<EditorView> {
   /// 行首缩进的防递归闸（前置「　　」会再次触发 change）。
   bool _indentBusy = false;
 
-  /// IME 组合开始时的输入起点（组合结束判断是否从行首输入）。
-  int? _imeInputStart;
-
   /// 上次观察到的「当前笔记本行首缩进」开关值（hybrid 开关切换用）。
   bool _indentSetting = false;
 
@@ -421,20 +418,11 @@ class _EditorViewState extends State<EditorView> {
   void _onComposingChanged() {
     final state = _editorKey.currentState;
     final range = state?.composingRange.value;
-    final composing = range != null && range.isValid && !range.isCollapsed;
-    if (!imeComposing.value && composing) {
-      // 组合开始：记录输入起点，用于组合结束后判断是否「从行首输入」。
-      _imeInputStart = _quill.selection.isValid
-          ? _quill.selection.baseOffset
-          : null;
-    }
-    if (imeComposing.value && !composing) {
-      // 组合结束（IME 确认文字）：起点在段落行首则补塞缩进。
-      final start = _imeInputStart;
-      _imeInputStart = null;
-      if (start != null) _ensureIndentAtLineStart(start);
-    }
-    imeComposing.value = composing;
+    // 只在组合阶段更新状态，绝不在此改 document——组合结束（IME 确认）时
+    // flutter_quill 的提交流程仍在进行，插入/删除会破坏提交（如拼音残留
+    // 「没有ou」）。确认后的缩进由 _handleParagraphIndent 在 document 变更
+    // 稳定后处理；行首已在回车时自动塞好缩进。
+    imeComposing.value = range != null && range.isValid && !range.isCollapsed;
   }
 
   // ── 文档装载 ──────────────────────────────────────────────
@@ -1038,23 +1026,6 @@ class _EditorViewState extends State<EditorView> {
       );
     } finally {
       _indentBusy = false;
-    }
-  }
-
-  /// IME 组合结束（中文确认）后：若输入起点在段落行首，补塞缩进。兜底「光标
-  /// 移到行首直接打中文」的场景；常规回车换行已由 [_handleParagraphIndent]
-  /// 自动塞缩进覆盖。
-  void _ensureIndentAtLineStart(int start) {
-    final doc = widget.library.currentDocument;
-    if (doc == null || !widget.settings.indentForNotebook(doc.notebookId)) {
-      return;
-    }
-    final text = _quill.document.toPlainText();
-    if (start > 0 && text[start - 1] != '\n') return; // 非行首输入
-    final sel = _quill.selection;
-    if (!sel.isValid) return;
-    if (_shouldIndentLine(text, start)) {
-      _insertIndent(start, sel.baseOffset + 2);
     }
   }
 
