@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:zi_zai/app.dart';
 import 'package:zi_zai/core/db.dart';
 import 'package:zi_zai/core/update.dart';
 import 'package:zi_zai/main.dart' show StartupErrorView;
@@ -139,6 +140,39 @@ void main() {
     expect(checker.status.value, UpdateStatus.ready);
     expect(find.text('v1.1.0 已下载并通过校验'), findsOneWidget);
     await tester.pump(const Duration(seconds: 3));
+    await tester.runAsync(() => db.close());
+  });
+
+  testWidgets('启动自动检查发现新版 → 自动 toast 提示 + 管理页设置图标角标', (tester) async {
+    final db = (await tester.runAsync(() => Db.open('${tempDir.path}/t.db')))!;
+    final checker = makeChecker();
+    // 模拟启动异步检查已完成：状态直接置为 available（main.dart 启动检查等价物）。
+    checker.status.value = UpdateStatus.available;
+    checker.availableVersion.value = '1.1.0';
+    final settings = SettingsController(db);
+    final library = LibraryController(db);
+    await tester.runAsync(() async {
+      await settings.load();
+      await library.restore();
+    });
+    await tester.pumpWidget(
+      ZiZaiApp(library: library, settings: settings, updateChecker: checker),
+    );
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pump(); // 首帧 → post-frame 触发 toast
+    await tester.pump(); // 渲染 toast 浮层
+
+    // 无需手动触发检查：启动即提示。
+    expect(find.text('发现新版本 v1.1.0，可在「设置」中更新'), findsOneWidget);
+    // 管理页设置图标带角标（持久可见信号）。
+    expect(find.byTooltip('设置'), findsOneWidget);
+    expect(find.byKey(const ValueKey('zz-icon-badge')), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 2500)); // toast 自动消退
+    await tester.pumpAndSettle();
     await tester.runAsync(() => db.close());
   });
 

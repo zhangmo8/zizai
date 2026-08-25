@@ -15,6 +15,7 @@ import 'state/library_controller.dart';
 import 'state/settings_controller.dart';
 import 'ui/library_home.dart';
 import 'ui/shell.dart';
+import 'ui/zz.dart' show showZzToast;
 
 /// Design Tokens（单源；UI 层尽量从 Theme / AppColors 获取，避免硬编码）。
 abstract final class AppTokens {
@@ -56,7 +57,11 @@ abstract final class AppTokens {
 /// 进入/退出工作区是声明式的（LibraryController.currentNotebook 驱动），
 /// 不做 Navigator 栈：点书 openNotebook → 门控切到 Shell；返回 closeNotebook
 /// → 门控切回 LibraryHome。
-class _AppGate extends StatelessWidget {
+///
+/// 同时承载启动自动更新检查的可见化：main.dart 启动后异步 check() 一次，
+/// 发现新版时状态切到 available —— 这里监听该状态，弹一次 toast 提示，
+/// 用户无需手动进设置点「检查更新」。
+class _AppGate extends StatefulWidget {
   const _AppGate({
     required this.library,
     required this.settings,
@@ -76,28 +81,63 @@ class _AppGate extends StatelessWidget {
   final SnapshotHistory? snapshots;
 
   @override
+  State<_AppGate> createState() => _AppGateState();
+}
+
+class _AppGateState extends State<_AppGate> {
+  /// 本次启动已提示过新版（避免监听器重复弹）。
+  bool _updateToastShown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.updateChecker?.status.addListener(_maybeNotifyUpdate);
+    // 启动检查可能先于首帧完成，挂载时直接兜底一次。
+    _maybeNotifyUpdate();
+  }
+
+  @override
+  void dispose() {
+    widget.updateChecker?.status.removeListener(_maybeNotifyUpdate);
+    super.dispose();
+  }
+
+  /// 发现新版（available 态）→ 弹一次 toast，无需用户手动触发检查。
+  void _maybeNotifyUpdate() {
+    final checker = widget.updateChecker;
+    if (checker == null || _updateToastShown) return;
+    if (checker.status.value != UpdateStatus.available) return;
+    _updateToastShown = true;
+    final version = checker.availableVersion.value ?? '';
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showZzToast(context, '发现新版本 v$version，可在「设置」中更新');
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: library,
+      listenable: widget.library,
       builder: (context, _) {
-        if (library.currentNotebook != null) {
+        if (widget.library.currentNotebook != null) {
           return Shell(
-            library: library,
-            settings: settings,
-            journal: journal,
-            logger: logger,
-            backup: backup,
-            updateChecker: updateChecker,
-            snapshots: snapshots,
+            library: widget.library,
+            settings: widget.settings,
+            journal: widget.journal,
+            logger: widget.logger,
+            backup: widget.backup,
+            updateChecker: widget.updateChecker,
+            snapshots: widget.snapshots,
           );
         }
         return LibraryHome(
-          library: library,
-          settings: settings,
-          journal: journal,
-          logger: logger,
-          backup: backup,
-          updateChecker: updateChecker,
+          library: widget.library,
+          settings: widget.settings,
+          journal: widget.journal,
+          logger: widget.logger,
+          backup: widget.backup,
+          updateChecker: widget.updateChecker,
         );
       },
     );

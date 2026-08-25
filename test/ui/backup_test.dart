@@ -62,13 +62,6 @@ void main() {
     await tester.pump();
   }
 
-  Future<void> openBackupSection(WidgetTester tester) async {
-    await tester.tap(find.byTooltip('设置'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('备份').first);
-    await tester.pumpAndSettle();
-  }
-
   /// 让真实异步（sqflite / mock http）在 FakeAsync 外完成。
   Future<void> settleAsync(WidgetTester tester) async {
     for (var i = 0; i < 5; i++) {
@@ -77,6 +70,27 @@ void main() {
       );
       await tester.pump();
     }
+  }
+
+  Future<void> openBackupSection(WidgetTester tester) async {
+    // 已配置 → 走状态栏备份指示（留在单书工作区，指示与当前文档状态保持）；
+    // 未配置（指示隐藏）→ 回管理页顶栏打开全局设置。
+    final indicator = find.byTooltip('未备份');
+    if (indicator.evaluate().isNotEmpty) {
+      await tester.tap(indicator);
+      await tester.pumpAndSettle();
+      return;
+    }
+    final back = find.byTooltip('返回笔记本管理');
+    if (back.evaluate().isNotEmpty) {
+      await tester.tap(back);
+      // closeNotebook 先 await 编辑器 beforeSwitchSave（真实写库），多轮推进后切回管理页。
+      await settleAsync(tester);
+    }
+    await tester.tap(find.byTooltip('设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('备份').first);
+    await tester.pumpAndSettle();
   }
 
   testWidgets('未配置凭据：操作按钮禁用 + 引导文案，状态栏指示隐藏', (tester) async {

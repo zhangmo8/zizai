@@ -1,13 +1,18 @@
+/// 单书侧边栏预览（静态重建：分卷开启、当前章节高亮）。
+///
+/// 查看：`flutter widget-preview start`
+library;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/widget_previews.dart';
 
 import '../../app.dart';
 
-@Preview(name: 'Sidebar', group: 'Zizai', size: Size(280, 620))
+@Preview(name: 'Sidebar', group: '页面', size: Size(280, 620))
 Widget sidebarPreview() {
   return MaterialApp(
     debugShowCheckedModeBanner: false,
-    theme: AppTheme.dark(),
+    theme: AppTheme.light(),
     home: const _StaticSidebar(),
   );
 }
@@ -17,7 +22,6 @@ class _StaticSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     final appColors = appColorsOf(context);
     return ColoredBox(
       color: appColors.sidebar,
@@ -26,81 +30,51 @@ class _StaticSidebar extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // 顶栏：返回 + 书名 + 搜索 + 本书设置
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
+              padding: const EdgeInsets.fromLTRB(6, 8, 8, 6),
               child: Row(
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: Image.asset(
-                      'assets/logo.png',
-                      width: 32,
-                      height: 32,
-                      fit: BoxFit.cover,
-                      semanticLabel: '字在',
+                  _PreviewIconButton(tooltip: '返回笔记本管理', icon: Icons.arrow_back),
+                  const SizedBox(width: 4),
+                  const Expanded(
+                    child: Text(
+                      '我的小说',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF37352F),
+                      ),
                     ),
                   ),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: () {},
-                    tooltip: '全书搜索',
-                    icon: Icon(Icons.search, color: colors.onSurfaceVariant),
-                  ),
-                  IconButton(
-                    onPressed: () {},
-                    tooltip: '新建笔记本',
-                    icon: Icon(Icons.add, color: colors.onSurfaceVariant),
-                  ),
+                  _PreviewIconButton(tooltip: '全书搜索', icon: Icons.search),
+                  _PreviewIconButton(tooltip: '这本书的设置', icon: Icons.settings_outlined),
                 ],
               ),
             ),
-            const _PreviewNotebook(
-              name: '我的写作',
-              count: '3章',
-              documents: ['序章：在字里相遇', '第一章：开始写作', '第二章：保持诚实'],
-              selectedIndex: 1,
-            ),
-            const SizedBox(height: 4),
-            const _PreviewNotebook(
-              name: '灵感收集',
-              count: '2章',
-              documents: ['关于生活的片段', '还没想好标题'],
-            ),
-            const Spacer(),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: colors.outline)),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: SizedBox(
-                  height: 32,
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.settings_outlined,
-                        size: 17,
-                        color: colors.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 9),
-                      Text(
-                        '设置',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: colors.onSurfaceVariant,
-                        ),
-                      ),
-                      const Spacer(),
-                      Icon(
-                        Icons.chevron_right,
-                        size: 14,
-                        color: appColors.textTertiary,
-                      ),
-                    ],
-                  ),
+            const Divider(height: 1, color: Color(0xFFE6E4DF)),
+            // 分卷标题 + 章节
+            const _PreviewVolume(number: '第一卷'),
+            const _PreviewDocument(title: '第 1 章', selected: true),
+            const _PreviewDocument(title: '第 2 章'),
+            const _PreviewDocument(title: '第 3 章'),
+            const _PreviewVolume(number: '第二卷'),
+            const _PreviewDocument(title: '第 4 章'),
+            const _PreviewDocument(title: '第 5 章'),
+            // 新建章节
+            const Padding(
+              padding: EdgeInsets.only(left: 34, top: 4, bottom: 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '+ 新建章节',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF787774)),
                 ),
               ),
             ),
+            const Spacer(),
           ],
         ),
       ),
@@ -108,92 +82,68 @@ class _StaticSidebar extends StatelessWidget {
   }
 }
 
-class _PreviewNotebook extends StatelessWidget {
-  const _PreviewNotebook({
-    required this.name,
-    required this.count,
-    required this.documents,
-    this.selectedIndex,
-  });
+class _PreviewIconButton extends StatelessWidget {
+  const _PreviewIconButton({required this.tooltip, required this.icon});
 
-  final String name;
-  final String count;
-  final List<String> documents;
-  final int? selectedIndex;
+  final String tooltip;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          child: SizedBox(
-            height: 30,
-            child: Row(
-              children: [
-                Icon(
-                  Icons.keyboard_arrow_down,
-                  size: 16,
-                  color: colors.onSurfaceVariant,
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: colors.onSurface,
-                    ),
-                  ),
-                ),
-                Text(
-                  count,
-                  style: TextStyle(fontSize: 11, color: appColors.textTertiary),
-                ),
-                const SizedBox(width: 4),
-                Icon(Icons.more_horiz, size: 16, color: appColors.textTertiary),
-              ],
-            ),
-          ),
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: () {},
+        child: SizedBox(
+          width: 28,
+          height: 28,
+          child: Icon(icon, size: 18, color: const Color(0xFF787774)),
         ),
-        for (var i = 0; i < documents.length; i++)
-          _PreviewDocument(title: documents[i], selected: i == selectedIndex),
-        Padding(
-          padding: const EdgeInsets.only(left: 34, top: 2, bottom: 4),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              '+ 新建章节',
-              style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
-            ),
-          ),
+      ),
+    );
+  }
+}
+
+class _PreviewVolume extends StatelessWidget {
+  const _PreviewVolume({required this.number});
+
+  final String number;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 28,
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      alignment: Alignment.centerLeft,
+      child: Text(
+        number,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 1,
+          color: Color(0xFF9B9A97),
         ),
-      ],
+      ),
     );
   }
 }
 
 class _PreviewDocument extends StatelessWidget {
-  const _PreviewDocument({required this.title, required this.selected});
+  const _PreviewDocument({required this.title, this.selected = false});
 
   final String title;
   final bool selected;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
     return Container(
       height: 30,
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
       padding: const EdgeInsets.only(left: 28, right: 6),
       decoration: BoxDecoration(
-        color: selected ? appColors.rowSelected : Colors.transparent,
+        color: selected ? const Color(0x0F37352F) : Colors.transparent,
         borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
@@ -201,7 +151,7 @@ class _PreviewDocument extends StatelessWidget {
           Icon(
             Icons.description_outlined,
             size: 15,
-            color: selected ? colors.onSurface : colors.onSurfaceVariant,
+            color: selected ? const Color(0xFF37352F) : const Color(0xFF787774),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -212,12 +162,12 @@ class _PreviewDocument extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                color: selected ? colors.onSurface : colors.onSurfaceVariant,
+                color: selected ? const Color(0xFF37352F) : const Color(0xFF787774),
               ),
             ),
           ),
           if (selected)
-            Icon(Icons.more_horiz, size: 16, color: appColors.textTertiary),
+            const Icon(Icons.more_horiz, size: 16, color: Color(0xFF9B9A97)),
         ],
       ),
     );

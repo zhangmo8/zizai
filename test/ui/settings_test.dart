@@ -53,7 +53,24 @@ void main() {
     await tester.pump();
   }
 
+  /// 排空 sqflite 真实异步落库队列。
+  Future<void> drain(WidgetTester tester) async {
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pump();
+    }
+  }
+
   Future<void> openSettings(WidgetTester tester) async {
+    // 全局设置入口已移到笔记本管理页顶栏：单书工作区内先返回管理层再打开。
+    final back = find.byTooltip('返回笔记本管理');
+    if (back.evaluate().isNotEmpty) {
+      await tester.tap(back);
+      // closeNotebook 先 await 编辑器 beforeSwitchSave（真实写库），多轮推进后切回管理页。
+      await drain(tester);
+    }
     await tester.tap(find.byTooltip('设置'));
     await tester.pumpAndSettle();
   }
@@ -69,17 +86,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// 排空 sqflite 真实异步落库队列。
-  Future<void> drain(WidgetTester tester) async {
-    for (var i = 0; i < 5; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 40)),
-      );
-      await tester.pump();
-    }
-  }
-
-  testWidgets('侧边栏设置入口 → 对话框出现，含各区块', (tester) async {
+  testWidgets('全局设置入口（管理页顶栏）→ 对话框出现，含各区块', (tester) async {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
     await openSettings(tester);

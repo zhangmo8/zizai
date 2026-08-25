@@ -105,6 +105,12 @@ class UpdateChecker {
   /// 发现的新版本号（available 态展示）。
   final ValueNotifier<String?> availableVersion = ValueNotifier(null);
 
+  /// 有待处理的新版本（available / downloading / ready）→ 设置入口显示角标。
+  bool get hasPendingUpdate =>
+      status.value == UpdateStatus.available ||
+      status.value == UpdateStatus.downloading ||
+      status.value == UpdateStatus.ready;
+
   /// 拉取清单：有新版本（语义化 > 当前）且 minDbSchema <= 本地 → 可更新。
   Future<UpdateManifest?> fetchManifest() async {
     if (updateUrl.trim().isEmpty) {

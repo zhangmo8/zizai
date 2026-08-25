@@ -98,7 +98,11 @@ class LibraryHome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: library,
+      // 角标随更新状态联动（启动自动检查发现新版 → 设置图标亮角标）。
+      listenable: Listenable.merge([
+        library,
+        if (updateChecker != null) updateChecker!.status,
+      ]),
       builder: (context, _) => _Home(
         library: library,
         onOpenNotebook: _openNotebook,
@@ -106,6 +110,7 @@ class LibraryHome extends StatelessWidget {
         onRename: (nb) => _renameNotebook(context, nb),
         onDelete: (nb) => _deleteNotebook(context, nb),
         onOpenSettings: () => _openSettings(context),
+        showUpdateBadge: updateChecker?.hasPendingUpdate ?? false,
       ),
     );
   }
@@ -121,6 +126,7 @@ class _Home extends StatefulWidget {
     required this.onRename,
     required this.onDelete,
     required this.onOpenSettings,
+    required this.showUpdateBadge,
   });
 
   final LibraryController library;
@@ -129,6 +135,9 @@ class _Home extends StatefulWidget {
   final ValueChanged<Notebook> onRename;
   final ValueChanged<Notebook> onDelete;
   final VoidCallback onOpenSettings;
+
+  /// 有待处理的新版本 → 设置图标右上亮 accent 角标（自动检查结果可见化）。
+  final bool showUpdateBadge;
 
   @override
   State<_Home> createState() => _HomeState();
@@ -177,6 +186,7 @@ class _HomeState extends State<_Home> {
                     tooltip: '设置',
                     icon: Icons.settings_outlined,
                     onPressed: widget.onOpenSettings,
+                    badge: widget.showUpdateBadge,
                   ),
                 ],
               ),

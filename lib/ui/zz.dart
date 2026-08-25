@@ -615,12 +615,16 @@ class ZzIconButton extends StatefulWidget {
     required this.icon,
     required this.onPressed,
     this.size = 18,
+    this.badge = false,
   });
 
   final String tooltip;
   final IconData icon;
   final VoidCallback? onPressed;
   final double size;
+
+  /// 右上角 accent 小圆点角标（如更新可用提示）。
+  final bool badge;
 
   @override
   State<ZzIconButton> createState() => _ZzIconButtonState();
@@ -666,10 +670,33 @@ class _ZzIconButtonState extends State<ZzIconButton> {
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(4),
             ),
-            child: Icon(
-              widget.icon,
-              size: widget.size,
-              color: _hover ? colors.onSurface : colors.onSurfaceVariant,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  widget.icon,
+                  size: widget.size,
+                  color: _hover ? colors.onSurface : colors.onSurfaceVariant,
+                ),
+                if (widget.badge)
+                  Positioned(
+                    top: -2,
+                    right: -2,
+                    child: Container(
+                      key: const ValueKey('zz-icon-badge'),
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: colors.primary,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: appColors.surfaceRaised,
+                          width: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),

@@ -229,7 +229,6 @@ class Sidebar extends StatefulWidget {
     required this.library,
     required this.settings,
     this.onBack,
-    this.onOpenSettings,
     this.onOpenBookSearch,
   });
 
@@ -238,8 +237,6 @@ class Sidebar extends StatefulWidget {
 
   /// 返回笔记本管理页（null = 未接线，如测试；顶栏隐藏返回键）。
   final VoidCallback? onBack;
-
-  final VoidCallback? onOpenSettings;
 
   /// 全书搜索入口（null = 未接线，如测试；顶栏隐藏搜索按钮）。
   final VoidCallback? onOpenBookSearch;
@@ -366,8 +363,6 @@ class _SidebarState extends State<Sidebar> {
                   ? const _LoadingSkeleton()
                   : _buildTree(nb),
             ),
-            if (widget.onOpenSettings != null)
-              _SidebarFooter(onOpenSettings: widget.onOpenSettings!),
           ],
         ),
       ),
@@ -558,103 +553,6 @@ class _SidebarState extends State<Sidebar> {
         validate: (v) => _validateName(resolved, v),
         onSubmit: _commitEdit,
         onCancel: _cancelEdit,
-      ),
-    );
-  }
-}
-
-/// 固定在侧边栏底部的设置入口，与文档树分层。
-class _SidebarFooter extends StatefulWidget {
-  const _SidebarFooter({required this.onOpenSettings});
-
-  final VoidCallback onOpenSettings;
-
-  @override
-  State<_SidebarFooter> createState() => _SidebarFooterState();
-}
-
-class _SidebarFooterState extends State<_SidebarFooter> {
-  bool _hovered = false;
-  bool _pressed = false;
-
-  void _open() {
-    final scaffold = Scaffold.maybeOf(context);
-    if (scaffold?.isDrawerOpen ?? false) {
-      Navigator.of(context).pop();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        widget.onOpenSettings();
-      });
-      return;
-    }
-    widget.onOpenSettings();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: colors.outline)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Tooltip(
-          message: '设置',
-          child: MouseRegion(
-            cursor: SystemMouseCursors.click,
-            onEnter: (_) => setState(() => _hovered = true),
-            onExit: (_) => setState(() {
-              _hovered = false;
-              _pressed = false;
-            }),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapDown: (_) => setState(() => _pressed = true),
-              onTapCancel: () => setState(() => _pressed = false),
-              onTapUp: (_) => setState(() => _pressed = false),
-              onTap: _open,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 100),
-                curve: Curves.easeOut,
-                height: 32,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                decoration: BoxDecoration(
-                  color: _pressed
-                      ? appColors.rowSelected
-                      : _hovered
-                      ? appColors.surfaceHover
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.settings_outlined,
-                      size: 17,
-                      color: colors.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 9),
-                    Expanded(
-                      child: Text(
-                        '设置',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: colors.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                    Icon(
-                      Icons.chevron_right,
-                      size: 14,
-                      color: appColors.textTertiary,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }
