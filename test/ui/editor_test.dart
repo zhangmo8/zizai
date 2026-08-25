@@ -600,6 +600,185 @@ void main() {
     await tester.runAsync(() => db.close());
   });
 
+  testWidgets('行首缩进：回车换行新段落自动缩进，直接输入即可', (tester) async {
+    final (library, settings, db, _, docId) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    await tester.runAsync(
+      () => settings.setIndentForNotebook(library.notebooks.single.id, true),
+    );
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    final controller = editor.controller;
+    controller.replaceText(
+      0,
+      controller.document.length - 1,
+      '',
+      const TextSelection.collapsed(offset: 0),
+    );
+    await tester.pump();
+
+    await insertAtCursor(tester, '你好');
+    expect(controller.document.toPlainText(), '\u3000\u3000你好\n');
+
+    // 回车 → 新段落自动塞缩进（Word/WPS 式），光标落在缩进后。
+    await insertAtCursor(tester, '\n');
+    expect(
+      controller.document.toPlainText(),
+      '\u3000\u3000你好\n\u3000\u3000\n',
+    );
+
+    // 直接输入，无需按空格，光标已在缩进后。
+    await insertAtCursor(tester, '世界');
+    expect(
+      controller.document.toPlainText(),
+      '\u3000\u3000你好\n\u3000\u3000世界\n',
+    );
+
+    await tester.runAsync(() => db.close());
+  });
+
+  testWidgets('行首缩进：回车后输入 markdown 触发词 → 缩进回退，块格式顶格', (tester) async {
+    final (library, settings, db, _, docId) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    await tester.runAsync(
+      () => settings.setIndentForNotebook(library.notebooks.single.id, true),
+    );
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    final controller = editor.controller;
+    controller.replaceText(
+      0,
+      controller.document.length - 1,
+      '',
+      const TextSelection.collapsed(offset: 0),
+    );
+    await tester.pump();
+
+    await insertAtCursor(tester, '正文');
+    // 回车 → 新段落自动缩进
+    await insertAtCursor(tester, '\n');
+    expect(
+      controller.document.toPlainText(),
+      '\u3000\u3000正文\n\u3000\u3000\n',
+    );
+    // 输入标题触发词 # → 回退删除刚塞的缩进，# 顶格（markdown 快捷不受影响）
+    await insertAtCursor(tester, '#');
+    expect(
+      controller.document.toPlainText(),
+      '\u3000\u3000正文\n#\n',
+    );
+
+    await tester.runAsync(() => db.close());
+  });
+
+  testWidgets('行首缩进：输入数字 1 也缩进（有序列表触发词不再误伤正文）', (tester) async {
+    final (library, settings, db, _, docId) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    await tester.runAsync(
+      () => settings.setIndentForNotebook(library.notebooks.single.id, true),
+    );
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    final controller = editor.controller;
+    controller.replaceText(
+      0,
+      controller.document.length - 1,
+      '',
+      const TextSelection.collapsed(offset: 0),
+    );
+    await tester.pump();
+
+    await insertAtCursor(tester, '1');
+    expect(controller.document.toPlainText(), '\u3000\u30001\n');
+
+    await tester.runAsync(() => db.close());
+  });
+
+  testWidgets('hybrid：编辑内存带缩进，落库剥离干净，重载重新注入', (tester) async {
+    final (library, settings, db, _, docId) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    await tester.runAsync(
+      () => settings.setIndentForNotebook(library.notebooks.single.id, true),
+    );
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    final controller = editor.controller;
+    controller.replaceText(
+      0,
+      controller.document.length - 1,
+      '',
+      const TextSelection.collapsed(offset: 0),
+    );
+    await tester.pump();
+
+    await insertAtCursor(tester, '你好');
+    await insertAtCursor(tester, '\n');
+    await insertAtCursor(tester, '世界');
+    // 内存（编辑会话）带缩进
+    expect(
+      controller.document.toPlainText(),
+      '\u3000\u3000你好\n\u3000\u3000世界\n',
+    );
+
+    // 保存 → 落库剥离，原文干净（无 U+3000）
+    await press(tester, [modifierKey(), LogicalKeyboardKey.keyS]);
+    await settle(tester);
+    final saved = await tester.runAsync(() => db.getDocument(docId));
+    // deltaToPlainText 会剥掉文档末尾的 \n
+    expect(deltaToPlainText(saved!.content), '你好\n世界');
+
+    // 保存后内存仍带缩进（会话内体验不中断）
+    expect(
+      controller.document.toPlainText(),
+      '\u3000\u3000你好\n\u3000\u3000世界\n',
+    );
+
+    // 切换文档再切回 → 重新加载 → 内存重新注入（加载干净原文 + 注入）
+    final second = (await tester.runAsync(
+      () => library.createDocument(library.notebooks.single.id, title: '第二章'),
+    ))!;
+    await tester.runAsync(
+      () => library.saveDocument(
+        documentId: second.id,
+        title: '第二章',
+        content: '[{"insert":"另一章\\n"}]',
+        writtenWords: 0,
+      ),
+    );
+    // 切到第二章（同笔记本已开缩进 → 干净原文 + 注入）
+    await tester.runAsync(() => library.switchDocument(second.id));
+    await tester.pump();
+    await settle(tester);
+    expect(library.currentDocument?.id, second.id);
+    final editor2 = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    expect(editor2.controller.document.toPlainText(), '\u3000\u3000另一章\n');
+
+    // 切回第一章 → 重新加载干净原文并注入缩进
+    await tester.runAsync(() => library.switchDocument(docId));
+    await tester.pump();
+    await settle(tester);
+    expect(library.currentDocument?.id, docId);
+    final editor3 = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    expect(
+      editor3.controller.document.toPlainText(),
+      '\u3000\u3000你好\n\u3000\u3000世界\n',
+    );
+
+    await tester.runAsync(() => db.close());
+  });
+
   testWidgets('打字机滚动：焦点暗淡开启后光标移到末尾行自动滚动到视口中部', (tester) async {
     final (library, settings, db, _, docId) = (await tester.runAsync(
       () => makeApp(),

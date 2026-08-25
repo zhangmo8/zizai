@@ -68,9 +68,10 @@ const Set<String> _bracketClosing = {'）', '】', '”', '"', '」', '}'};
 final Set<String> _bracketChars = {..._bracketPairs.keys, ..._bracketClosing};
 
 /// 行首输入这些字符时不自动缩进：它们是 markdown 块格式触发词
-/// （`#`/`-`/`*`/`1.`/`>`/`[]`/`[x]`/`` ``` ``），
-/// 前置缩进会让快捷语法失效。
-const Set<String> _blockTriggerChars = {'#', '-', '*', '1', '>', '[', '`'};
+/// （`#`/`##`/`###`、`-`、`*`、`>`、`[]`/`[x]`、`` ``` ``），
+/// 前置缩进会让快捷语法失效。`1`（有序列表 `1.`）不在此列——网文正文
+/// 经常以数字开头，输入 `1` 也应缩进，为此牺牲 `1.` 列表快捷。
+const Set<String> _blockTriggerChars = {'#', '-', '*', '>', '[', '`'};
 
 /// 标点配对修正（纯函数，便于单测）：把 [typed] 插入 [before] 的 [pos] 处后
 /// 应得到的 (文本, 光标位置)；无需修正返回 null。
@@ -193,6 +194,12 @@ class _EditorViewState extends State<EditorView> {
   /// 行首缩进的防递归闸（前置「　　」会再次触发 change）。
   bool _indentBusy = false;
 
+  /// IME 组合开始时的输入起点（组合结束判断是否从行首输入）。
+  int? _imeInputStart;
+
+  /// 上次观察到的「当前笔记本行首缩进」开关值（hybrid 开关切换用）。
+  bool _indentSetting = false;
+
   /// 上次成功保存的内容（Delta JSON），避免空保存。
   String _lastSavedContent = '';
 
@@ -250,6 +257,8 @@ class _EditorViewState extends State<EditorView> {
     _scroll.addListener(_onEditorScrolled);
     _focusNode.addListener(_onFocusChanged);
     widget.library.addListener(_onLibraryChanged);
+    widget.settings.addListener(_onSettingsChanged);
+    _indentSetting = _indentEnabled();
     widget.toolbarDismissTick?.addListener(_onDismissToolbar);
     widget.saveTick?.addListener(_onSaveTick);
     widget.findTick?.addListener(_onFindTick);
@@ -269,6 +278,7 @@ class _EditorViewState extends State<EditorView> {
   /// 库状态变化 → 当前文档 id 与已装载不一致时重载编辑器内容。
   void _onLibraryChanged() {
     final doc = widget.library.currentDocument;
+    _indentSetting = _indentEnabled();
     if (doc?.id == _loadedDocumentId) return;
     if (doc != null) {
       _loadDocument(doc);
@@ -287,6 +297,26 @@ class _EditorViewState extends State<EditorView> {
       _closeFind(refocusEditor: false);
       _refreshOutline();
     }
+  }
+
+  /// 设置变化：行首缩进开关翻转时，内存文档整体注入/剥离缩进。
+  ///
+  /// 直接替换 document（不经 compose），不进 undo 栈；替换后重新订阅
+  /// changes 并尽量恢复光标位置。
+  void _onSettingsChanged() {
+    final enabled = _indentEnabled();
+    if (enabled == _indentSetting) return;
+    _indentSetting = enabled;
+    final rawOps = _quill.document.toDelta().toJson();
+    final ops = enabled ? _injectIndentOps(rawOps) : _stripIndentOps(rawOps);
+    final sel = _quill.selection;
+    _changesSub?.cancel();
+    _quill.document = q.Document.fromJson(ops);
+    _changesSub = _quill.document.changes.listen(_onDocChange);
+    if (sel.isValid) {
+      _quill.updateSelection(sel, q.ChangeSource.local);
+    }
+    _refreshOutline();
   }
 
   @override
@@ -341,6 +371,7 @@ class _EditorViewState extends State<EditorView> {
     }
     _scroll.dispose();
     widget.library.removeListener(_onLibraryChanged);
+    widget.settings.removeListener(_onSettingsChanged);
     _saveDebounce.cancel();
     _journalDebounce.cancel();
     _outlineDebounce.cancel();
@@ -390,7 +421,20 @@ class _EditorViewState extends State<EditorView> {
   void _onComposingChanged() {
     final state = _editorKey.currentState;
     final range = state?.composingRange.value;
-    imeComposing.value = range != null && range.isValid && !range.isCollapsed;
+    final composing = range != null && range.isValid && !range.isCollapsed;
+    if (!imeComposing.value && composing) {
+      // 组合开始：记录输入起点，用于组合结束后判断是否「从行首输入」。
+      _imeInputStart = _quill.selection.isValid
+          ? _quill.selection.baseOffset
+          : null;
+    }
+    if (imeComposing.value && !composing) {
+      // 组合结束（IME 确认文字）：起点在段落行首则补塞缩进。
+      final start = _imeInputStart;
+      _imeInputStart = null;
+      if (start != null) _ensureIndentAtLineStart(start);
+    }
+    imeComposing.value = composing;
   }
 
   // ── 文档装载 ──────────────────────────────────────────────
@@ -398,7 +442,7 @@ class _EditorViewState extends State<EditorView> {
   q.Document _documentFromCurrent() {
     final doc = widget.library.currentDocument;
     if (doc == null) return q.Document();
-    return _documentFromJson(doc.content);
+    return _loadContent(doc.content);
   }
 
   q.Document _documentFromJson(String json) {
@@ -412,6 +456,87 @@ class _EditorViewState extends State<EditorView> {
     }
   }
 
+  /// 当前笔记本是否开启「行首自动缩进」。
+  bool _indentEnabled() {
+    final nb = widget.library.currentDocument?.notebookId;
+    return nb != null && widget.settings.indentForNotebook(nb);
+  }
+
+  /// 把干净 Delta JSON 装载进编辑器内存文档（hybrid）：
+  /// 笔记本开启缩进时注入行首全角空格，否则原样装载。
+  /// 注入的是真实字符（渲染/光标与文档一致），但落库/导出时由
+  /// [_stripIndentOps] 剥离，磁盘原文保持干净。
+  q.Document _loadContent(String json) {
+    if (json.isEmpty || json == emptyDeltaJson) return _documentFromJson(json);
+    try {
+      final ops = parseDeltaOps(json);
+      if (ops.isEmpty) return _documentFromJson(json);
+      final effective = _indentEnabled() ? _injectIndentOps(ops) : ops;
+      return q.Document.fromJson(effective);
+    } on FormatException {
+      return _documentFromJson(json);
+    }
+  }
+
+  /// 给每行行首补两个全角空格（跳过已是全角空格/空行/markdown 触发词开头的行）。
+  static List<Map<String, dynamic>> _injectIndentOps(
+    List<Map<String, dynamic>> ops,
+  ) {
+    final result = <Map<String, dynamic>>[];
+    for (final op in ops) {
+      final insert = op['insert'];
+      if (insert is! String || insert.isEmpty) {
+        result.add(op);
+        continue;
+      }
+      final sb = StringBuffer();
+      var atLineStart = true;
+      for (final rune in insert.runes) {
+        final ch = String.fromCharCode(rune);
+        if (atLineStart) {
+          if (ch != '\u3000' && ch != '\n' && !_blockTriggerChars.contains(ch)) {
+            sb.write('\u3000\u3000');
+          }
+          atLineStart = false;
+        }
+        sb.write(ch);
+        if (ch == '\n') atLineStart = true;
+      }
+      result.add({...op, 'insert': sb.toString()});
+    }
+    return result;
+  }
+
+  /// 剥离每行行首的全角空格（hybrid：落库/导出时还原干净原文）。
+  static List<Map<String, dynamic>> _stripIndentOps(
+    List<Map<String, dynamic>> ops,
+  ) {
+    final result = <Map<String, dynamic>>[];
+    for (final op in ops) {
+      final insert = op['insert'];
+      if (insert is! String || insert.isEmpty) {
+        result.add(op);
+        continue;
+      }
+      final sb = StringBuffer();
+      var atLineStart = true;
+      for (final rune in insert.runes) {
+        final ch = String.fromCharCode(rune);
+        if (atLineStart && ch == '\u3000') {
+          continue; // 行首全角空格（缩进）不写入干净文本
+        }
+        sb.write(ch);
+        if (ch == '\n') {
+          atLineStart = true;
+        } else {
+          atLineStart = false;
+        }
+      }
+      result.add({...op, 'insert': sb.toString()});
+    }
+    return result;
+  }
+
   void _loadDocument(m.Document doc) {
     _loadedDocumentId = doc.id;
     _saveDebounce.cancel();
@@ -419,7 +544,7 @@ class _EditorViewState extends State<EditorView> {
     _notesDebounce.cancel();
     _closeSlash();
     _changesSub?.cancel();
-    _quill.document = _documentFromJson(doc.content);
+    _quill.document = _loadContent(doc.content);
     _quill.updateSelection(
       const TextSelection.collapsed(offset: 0),
       q.ChangeSource.local,
@@ -481,7 +606,10 @@ class _EditorViewState extends State<EditorView> {
     final cur = widget.library.currentDocument;
     final documentId = _loadedDocumentId;
     if (cur == null || documentId == null || cur.id != documentId) return;
-    final content = jsonEncode(_quill.document.toDelta().toJson());
+    // hybrid：内存含注入的缩进，落库前剥离行首全角空格，原文保持干净。
+    final content = _indentEnabled()
+        ? jsonEncode(_stripIndentOps(_quill.document.toDelta().toJson()))
+        : jsonEncode(_quill.document.toDelta().toJson());
     final writtenWords = _pendingWrittenWords;
     if (content == _lastSavedContent && writtenWords == 0) return;
 
@@ -545,7 +673,10 @@ class _EditorViewState extends State<EditorView> {
     final journal = widget.journal;
     final cur = widget.library.currentDocument;
     if (journal == null || cur == null) return;
-    final content = jsonEncode(_quill.document.toDelta().toJson());
+    // 与落库一致：崩溃日志也存干净文本，恢复时经 _loadContent 重新注入。
+    final content = _indentEnabled()
+        ? jsonEncode(_stripIndentOps(_quill.document.toDelta().toJson()))
+        : jsonEncode(_quill.document.toDelta().toJson());
     await journal.write(
       CrashJournalEntry(
         documentId: cur.id,
@@ -575,7 +706,7 @@ class _EditorViewState extends State<EditorView> {
     final entry = _pendingRecover;
     if (entry == null) return;
     _changesSub?.cancel();
-    _quill.document = _documentFromJson(entry.content);
+    _quill.document = _loadContent(entry.content);
     _changesSub = _quill.document.changes.listen(_onDocChange);
     _lastSavedContent = entry.content; // 已是最新缓冲
     setState(() => _pendingRecover = null);
@@ -653,8 +784,12 @@ class _EditorViewState extends State<EditorView> {
     if (request.documentId != _loadedDocumentId) return;
     notifier.value = null;
     final length = _quill.document.length;
-    final start = request.offset.clamp(0, math.max(0, length - 1)).toInt();
-    final end = (request.offset + request.length)
+    // hybrid：全书搜索基于干净文本（DB），编辑器内存注入缩进后偏移已变化，
+    // 需把干净 offset 映射到内存 offset。
+    final start = _mapSearchOffsetToMemory(request.offset)
+        .clamp(0, math.max(0, length - 1))
+        .toInt();
+    final end = (start + request.length)
         .clamp(start, math.max(start, length - 1))
         .toInt();
     _quill.updateSelection(
@@ -663,6 +798,30 @@ class _EditorViewState extends State<EditorView> {
     );
     _revealOffset(start);
     _focusNode.requestFocus();
+  }
+
+  /// 把基于干净文本的 offset 映射到编辑器内存（注入缩进后）的 offset。
+  ///
+  /// 干净文本 = 内存文本去掉每行行首的全角空格；映射时行首全角空格不计数。
+  /// 未开缩进时内存即干净文本，本函数自然退化为恒等。
+  int _mapSearchOffsetToMemory(int cleanOffset) {
+    final text = _quill.document.toPlainText();
+    if (cleanOffset <= 0 || text.isEmpty) return cleanOffset;
+    var mem = 0;
+    var clean = 0;
+    var atLineStart = true;
+    final n = text.length;
+    while (mem < n && clean < cleanOffset) {
+      final ch = text.codeUnitAt(mem);
+      if (atLineStart && ch == 0x3000) {
+        mem++; // 行首全角空格在干净文本中不存在，不计数
+        continue;
+      }
+      clean++;
+      mem++;
+      atLineStart = ch == 0x0A;
+    }
+    return mem;
   }
 
   // ── Markdown 快捷语法（行首触发词 + 空格 → 块格式）──────────
@@ -779,18 +938,21 @@ class _EditorViewState extends State<EditorView> {
     }
   }
 
-  /// 行首自动缩进（中文排版首行空两格）：开启的笔记本里，在段落行首输入
-  /// 字符时前置两个全角空格，光标保持在输入字符之后。
+  /// 行首自动缩进（中文排版首行空两格）：开启的笔记本里，自动给段落行首
+  /// 前置两个全角空格，光标保持在输入字符之后。
   ///
-  /// 与标点配对一样经 document.changes 监听（兼容 IME）。块格式触发词
-  /// （`#`/`-`/`1.` 等）不缩进，保证 markdown 快捷照常生效；[beforePos]
-  /// 为插入前光标位置，仅当它紧邻换行（或文档开头）时才是行首输入。
+  /// 经 document.changes 监听（兼容 IME）。规则：
+  /// - 回车换行 → 新段落自动塞缩进（Word/WPS 式体验，光标直接落在缩进后）；
+  /// - 行首输入普通字符 → 塞缩进；
+  /// - 行首输入 markdown 触发词（`#`/`-`/`*`/`>` 等）→ 不塞，且若回车刚塞过
+  ///   的缩进会被回退删除，保证块格式快捷照常生效；
+  /// - Backspace 在行首可逐个删掉全角空格（手动去缩进）。
   ///
   /// 为什么用文本插入而非纯样式：Flutter 的 RenderParagraph 不支持 CSS
   /// text-indent，任何加到 InlineSpan 的额外内容（WidgetSpan→\uFFFC、
   /// 空格字符）都会让渲染扁平文本与文档偏移不一致，导致光标错位。全角空格
   /// U+3000 在文档中与渲染中一致，光标定位正确；字数统计已排除 U+3000，
-  /// 导出投稿格式时已有空格的段落不重复补。
+  /// hybrid 方案下落库/导出时会剥离行首全角空格，原文保持干净。
   void _handleParagraphIndent(q.DocChange change) {
     if (_indentBusy) return;
     final doc = widget.library.currentDocument;
@@ -799,23 +961,100 @@ class _EditorViewState extends State<EditorView> {
     }
     final inserted = _insertedText(change);
     if (inserted == null || inserted.isEmpty) return;
-    if (_blockTriggerChars.contains(inserted[0])) return;
     final sel = _quill.selection;
     if (!sel.isValid || !sel.isCollapsed) return;
     final beforePos = sel.baseOffset - inserted.length;
     if (beforePos < 0) return;
     final text = _quill.document.toPlainText();
-    if (beforePos > 0 && text[beforePos - 1] != '\n') return;
+
+    // 回车换行：给新段落自动塞缩进（Word/WPS 式，新段落哪怕当前是空行也
+    // 先塞，光标直接落在缩进后，不用等输入）。已有缩进/超出文档则不塞。
+    if (inserted == '\n') {
+      final newLineStart = beforePos + 1;
+      if (newLineStart < text.length && text[newLineStart] != '\u3000') {
+        _insertIndent(newLineStart, sel.baseOffset + 2);
+      }
+      return;
+    }
+
+    // 输入 markdown 触发词：不缩进，且回退删除回车刚塞的缩进。
+    if (_blockTriggerChars.contains(inserted[0])) {
+      final lineStart = _lineStart(text, beforePos);
+      if (text.startsWith('\u3000\u3000', lineStart)) {
+        _removeIndent(lineStart, sel.baseOffset - 2);
+      }
+      return;
+    }
+
+    // 普通字符行首输入 → 塞缩进。
+    final isLineStart =
+        beforePos == 0 || (beforePos > 0 && text[beforePos - 1] == '\n');
+    if (isLineStart && _shouldIndentLine(text, beforePos)) {
+      _insertIndent(beforePos, sel.baseOffset + 2);
+    }
+  }
+
+  /// [pos] 所在段落行首（`\n` 之后的字符位置）。
+  static int _lineStart(String text, int pos) {
+    var i = pos;
+    while (i > 0 && text[i - 1] != '\n') {
+      i--;
+    }
+    return i;
+  }
+
+  /// 该行行首是否应塞缩进：非已有全角空格、非空行、非 markdown 触发词。
+  static bool _shouldIndentLine(String text, int lineStart) {
+    if (lineStart < 0 || lineStart >= text.length) return false;
+    if (text[lineStart] == '\u3000' || text[lineStart] == '\n') return false;
+    if (_blockTriggerChars.contains(text[lineStart])) return false;
+    return true;
+  }
+
+  /// 在 [pos] 插入两个全角空格，光标移到 [cursor]。
+  void _insertIndent(int pos, int cursor) {
     _indentBusy = true;
     try {
       _quill.replaceText(
-        beforePos,
+        pos,
         0,
         '\u3000\u3000', // 两个全角空格
-        TextSelection.collapsed(offset: sel.baseOffset + 2),
+        TextSelection.collapsed(offset: cursor),
       );
     } finally {
       _indentBusy = false;
+    }
+  }
+
+  /// 删除 [lineStart] 处行首的两个全角空格（回车自动缩进的回退），光标到 [cursor]。
+  void _removeIndent(int lineStart, int cursor) {
+    _indentBusy = true;
+    try {
+      _quill.replaceText(
+        lineStart,
+        2,
+        '',
+        TextSelection.collapsed(offset: cursor),
+      );
+    } finally {
+      _indentBusy = false;
+    }
+  }
+
+  /// IME 组合结束（中文确认）后：若输入起点在段落行首，补塞缩进。兜底「光标
+  /// 移到行首直接打中文」的场景；常规回车换行已由 [_handleParagraphIndent]
+  /// 自动塞缩进覆盖。
+  void _ensureIndentAtLineStart(int start) {
+    final doc = widget.library.currentDocument;
+    if (doc == null || !widget.settings.indentForNotebook(doc.notebookId)) {
+      return;
+    }
+    final text = _quill.document.toPlainText();
+    if (start > 0 && text[start - 1] != '\n') return; // 非行首输入
+    final sel = _quill.selection;
+    if (!sel.isValid) return;
+    if (_shouldIndentLine(text, start)) {
+      _insertIndent(start, sel.baseOffset + 2);
     }
   }
 
