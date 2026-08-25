@@ -1104,12 +1104,19 @@ class _EditorViewState extends State<EditorView> {
       TextPosition(offset: sel.baseOffset),
     );
     final viewportH = scroll.position.viewportDimension;
-    // 光标行在滚动内容中的 y（renderEditor 本地 = 内容坐标），居中目标
-    // 与当前滚动位置无关。
+    // 用全局坐标算光标中心相对滚动视口的真实偏差：不依赖
+    // getLocalRectForCaret 与滚动坐标的内部换算假设（该假设在部分布局下
+    // 会让光标停在视口中心偏下，沉浸模式更明显）。
+    final viewport = scroll.position.context.storageContext.findRenderObject()!
+        as RenderBox;
+    final caretCenterY = state.renderEditor
+        .localToGlobal(Offset(caret.center.dx, caret.center.dy))
+        .dy;
+    final viewportTopY = viewport.localToGlobal(Offset.zero).dy;
+    final delta = caretCenterY - viewportTopY - viewportH / 2;
+    if (delta.abs() < 1) return;
     final target =
-        (caret.top - viewportH / 2 + caret.height / 2)
-            .clamp(0.0, scroll.position.maxScrollExtent);
-    if ((target - scroll.offset).abs() < 1) return;
+        (scroll.offset + delta).clamp(0.0, scroll.position.maxScrollExtent);
     scroll.animateTo(
       target,
       duration: const Duration(milliseconds: 120),
