@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 
 import '../app.dart' show appColorsOf;
 import '../core/book_search.dart';
+import '../core/models.dart' show Notebook;
 import '../state/library_controller.dart';
 import '../util/debounce.dart';
 import 'zz.dart';
@@ -18,21 +19,33 @@ Future<void> showBookSearchDialog(
   BuildContext context, {
   required LibraryController library,
   required void Function(BookSearchHit hit) onOpen,
+  String? scopeNotebookId,
 }) {
   return showDialog<void>(
     context: context,
     builder: (context) => Dialog(
       alignment: const Alignment(0, -0.4),
-      child: _BookSearchPanel(library: library, onOpen: onOpen),
+      child: _BookSearchPanel(
+        library: library,
+        onOpen: onOpen,
+        scopeNotebookId: scopeNotebookId,
+      ),
     ),
   );
 }
 
 class _BookSearchPanel extends StatefulWidget {
-  const _BookSearchPanel({required this.library, required this.onOpen});
+  const _BookSearchPanel({
+    required this.library,
+    required this.onOpen,
+    this.scopeNotebookId,
+  });
 
   final LibraryController library;
   final void Function(BookSearchHit hit) onOpen;
+
+  /// 非 null 时只搜索该书（单书工作区）；null = 全书搜索。
+  final String? scopeNotebookId;
 
   @override
   State<_BookSearchPanel> createState() => _BookSearchPanelState();
@@ -83,9 +96,11 @@ class _BookSearchPanelState extends State<_BookSearchPanel> {
       return;
     }
     setState(() => _searching = true);
+    final scope = widget.scopeNotebookId;
     final groups = await searchBook(
-      notebooks: widget.library.notebooks,
-      documentsOf: widget.library.documentsOf,
+      notebooks: _scopeNotebooks(),
+      documentsOf: (id) =>
+          scope != null && id != scope ? const [] : widget.library.documentsOf(id),
       query: query,
     );
     if (!mounted || seq != _searchSeq) return; // 已有更新的查询在跑
@@ -94,6 +109,16 @@ class _BookSearchPanelState extends State<_BookSearchPanel> {
       _searchedQuery = query;
       _searching = false;
     });
+  }
+
+  /// 限定在单书工作区时只搜索当前书。
+  List<Notebook> _scopeNotebooks() {
+    final scope = widget.scopeNotebookId;
+    if (scope == null) return widget.library.notebooks;
+    return [
+      for (final nb in widget.library.notebooks)
+        if (nb.id == scope) nb,
+    ];
   }
 
   void _open(BookSearchHit hit) {
@@ -106,9 +131,11 @@ class _BookSearchPanelState extends State<_BookSearchPanel> {
     final query = _query.text.trim();
     if (query.isEmpty) return;
     setState(() => _previewing = true);
+    final scope = widget.scopeNotebookId;
     final previews = await previewReplaceInBook(
-      notebooks: widget.library.notebooks,
-      documentsOf: widget.library.documentsOf,
+      notebooks: _scopeNotebooks(),
+      documentsOf: (id) =>
+          scope != null && id != scope ? const [] : widget.library.documentsOf(id),
       query: query,
       replacement: _replacement.text,
     );
@@ -124,10 +151,12 @@ class _BookSearchPanelState extends State<_BookSearchPanel> {
     final query = _query.text.trim();
     if (query.isEmpty) return;
     setState(() => _replacing = true);
+    final scope = widget.scopeNotebookId;
     try {
       final total = await replaceAllInBook(
-        notebooks: widget.library.notebooks,
-        documentsOf: widget.library.documentsOf,
+        notebooks: _scopeNotebooks(),
+        documentsOf: (id) =>
+            scope != null && id != scope ? const [] : widget.library.documentsOf(id),
         query: query,
         replacement: _replacement.text,
         saveDocument: ({

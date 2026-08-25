@@ -13,6 +13,7 @@ import 'core/snapshot_history.dart';
 import 'core/update.dart';
 import 'state/library_controller.dart';
 import 'state/settings_controller.dart';
+import 'ui/library_home.dart';
 import 'ui/shell.dart';
 
 /// Design Tokens（单源；UI 层尽量从 Theme / AppColors 获取，避免硬编码）。
@@ -48,6 +49,59 @@ abstract final class AppTokens {
   static const darkSuccess = Color(0xFF6BAA7F);
   static const darkDanger = Color(0xFFFF7369);
   static const darkCallout = Color(0xFF242424);
+}
+
+/// 应用门控：有当前笔记本 → 单书工作区 Shell；否则 → 笔记本管理层 LibraryHome。
+///
+/// 进入/退出工作区是声明式的（LibraryController.currentNotebook 驱动），
+/// 不做 Navigator 栈：点书 openNotebook → 门控切到 Shell；返回 closeNotebook
+/// → 门控切回 LibraryHome。
+class _AppGate extends StatelessWidget {
+  const _AppGate({
+    required this.library,
+    required this.settings,
+    this.journal,
+    this.logger,
+    this.backup,
+    this.updateChecker,
+    this.snapshots,
+  });
+
+  final LibraryController library;
+  final SettingsController settings;
+  final CrashJournal? journal;
+  final AppLogger? logger;
+  final BackupManager? backup;
+  final UpdateChecker? updateChecker;
+  final SnapshotHistory? snapshots;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: library,
+      builder: (context, _) {
+        if (library.currentNotebook != null) {
+          return Shell(
+            library: library,
+            settings: settings,
+            journal: journal,
+            logger: logger,
+            backup: backup,
+            updateChecker: updateChecker,
+            snapshots: snapshots,
+          );
+        }
+        return LibraryHome(
+          library: library,
+          settings: settings,
+          journal: journal,
+          logger: logger,
+          backup: backup,
+          updateChecker: updateChecker,
+        );
+      },
+    );
+  }
 }
 
 /// 超出 ColorScheme 承载范围的 token（单源 AppTokens，经 ThemeExtension 下发）。
@@ -322,7 +376,7 @@ class ZiZaiApp extends StatelessWidget {
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: settings.themeMode,
-          home: Shell(
+          home: _AppGate(
             library: library,
             settings: settings,
             journal: journal,

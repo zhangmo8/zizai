@@ -12,10 +12,12 @@ import 'package:flutter/services.dart';
 import '../app.dart' show AppColors, appColorsOf;
 import '../core/models.dart';
 import '../state/library_controller.dart';
+import '../state/settings_controller.dart';
 import '../util/platform.dart';
+import 'book_settings.dart';
 import 'zz.dart';
 
-enum _EditTarget { notebook, document }
+enum _EditTarget { document }
 
 class _EditSession {
   const _EditSession({
@@ -30,7 +32,7 @@ class _EditSession {
   final _EditTarget target;
   final String initial;
 
-  /// 文档所属笔记本（仅 document 目标需要）。
+  /// 文档所属笔记本（document 目标需要）。
   final String? notebookId;
 }
 
@@ -225,11 +227,18 @@ class Sidebar extends StatefulWidget {
   const Sidebar({
     super.key,
     required this.library,
+    required this.settings,
+    this.onBack,
     this.onOpenSettings,
     this.onOpenBookSearch,
   });
 
   final LibraryController library;
+  final SettingsController settings;
+
+  /// 返回笔记本管理页（null = 未接线，如测试；顶栏隐藏返回键）。
+  final VoidCallback? onBack;
+
   final VoidCallback? onOpenSettings;
 
   /// 全书搜索入口（null = 未接线，如测试；顶栏隐藏搜索按钮）。
@@ -240,17 +249,16 @@ class Sidebar extends StatefulWidget {
 }
 
 class _SidebarState extends State<Sidebar> {
-  final Set<String> _expanded = {};
-  bool _seededExpansion = false;
   _EditSession? _editing;
 
-  /// 最近一次构建的行引用（拖拽落点时把扁平索引映射回笔记本/位置）。
+  /// 最近一次构建的行引用（拖拽落点时把扁平索引映射回位置）。
   List<TreeRowRef> _rowRefs = const [];
 
   @override
   void initState() {
     super.initState();
     widget.library.addListener(_onLibraryChanged);
+    widget.settings.addListener(_onLibraryChanged);
   }
 
   @override
@@ -260,11 +268,16 @@ class _SidebarState extends State<Sidebar> {
       oldWidget.library.removeListener(_onLibraryChanged);
       widget.library.addListener(_onLibraryChanged);
     }
+    if (oldWidget.settings != widget.settings) {
+      oldWidget.settings.removeListener(_onLibraryChanged);
+      widget.settings.addListener(_onLibraryChanged);
+    }
   }
 
   @override
   void dispose() {
     widget.library.removeListener(_onLibraryChanged);
+    widget.settings.removeListener(_onLibraryChanged);
     super.dispose();
   }
 
@@ -273,26 +286,18 @@ class _SidebarState extends State<Sidebar> {
     if (mounted) setState(() {});
   }
 
-  bool get _editingNewNotebook =>
-      _editing?.target == _EditTarget.notebook && _editing?.id == null;
-
-  bool _isEditingNotebook(String id) =>
-      _editing?.target == _EditTarget.notebook && _editing?.id == id;
-
   bool _isEditingDocument(String id) =>
       _editing?.target == _EditTarget.document && _editing?.id == id;
 
-  /// 校验：空名 / 非法字符 / 同名冲突（文档仅限同笔记本内）。
+  /// 校验：空名 / 非法字符 / 同名冲突（限当前书内）。
   String? _validateName(_EditSession session, String value) {
     final name = value.trim();
     if (name.isEmpty) return '名称不能为空';
     if (name.contains('/') || name.contains('\\')) return '名称不能包含 / 或 \\';
     final library = widget.library;
-    final dup = session.target == _EditTarget.notebook
-        ? library.notebooks.any((n) => n.name == name && n.id != session.id)
-        : library
-              .documentsOf(session.notebookId ?? '')
-              .any((d) => d.title == name && d.id != session.id);
+    final dup = library
+        .documentsOf(session.notebookId ?? '')
+        .any((d) => d.title == name && d.id != session.id);
     return dup ? '同名已存在' : null;
   }
 
@@ -301,30 +306,14 @@ class _SidebarState extends State<Sidebar> {
     if (session == null) return;
     if (_validateName(session, rawValue) != null) return; // 错误态由输入框持有
     final name = rawValue.trim();
-    if (session.target == _EditTarget.notebook) {
-      if (session.id == null) {
-        final nb = await widget.library.createNotebook(name);
-        // 保留编辑行直到写库完成，避免列表先塌缩再插入新行造成高度闪烁。
-        if (mounted) {
-          setState(() {
-            _expanded.add(nb.id);
-            _editing = null;
-          });
-        }
-      } else {
-        await widget.library.renameNotebook(session.id!, name);
-        if (mounted) setState(() => _editing = null);
-      }
+    final notebookId = session.notebookId;
+    if (notebookId == null) return;
+    if (session.id == null) {
+      await widget.library.createDocument(notebookId, title: name);
     } else {
-      final notebookId = session.notebookId;
-      if (notebookId == null) return;
-      if (session.id == null) {
-        await widget.library.createDocument(notebookId, title: name);
-      } else {
-        await widget.library.renameDocument(session.id!, name);
-      }
-      if (mounted) setState(() => _editing = null);
+      await widget.library.renameDocument(session.id!, name);
     }
+    if (mounted) setState(() => _editing = null);
   }
 
   void _cancelEdit() => setState(() => _editing = null);
@@ -340,14 +329,23 @@ class _SidebarState extends State<Sidebar> {
     await widget.library.createDocument(notebookId, title: title);
   }
 
+  /// 打开「针对这本书的设置」对话框。
+  void _openBookSettings() {
+    final nb = widget.library.currentNotebook;
+    if (nb == null) return;
+    showDialog<void>(
+      context: context,
+      builder: (_) => BookSettingsDialog(
+        notebook: nb,
+        library: widget.library,
+        settings: widget.settings,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final library = widget.library;
-    // 默认展开全部笔记本（首次加载后）。
-    if (!_seededExpansion && library.notebooks.isNotEmpty) {
-      _seededExpansion = true;
-      _expanded.addAll(library.notebooks.map((n) => n.id));
-    }
+    final nb = widget.library.currentNotebook;
     return ColoredBox(
       color: appColorsOf(context).sidebar,
       child: SafeArea(
@@ -355,28 +353,18 @@ class _SidebarState extends State<Sidebar> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _HeaderBar(
+            _BookHeader(
+              title: nb?.name ?? '',
+              onBack: widget.onBack,
+              onOpenBookSettings: _openBookSettings,
               onOpenBookSearch: widget.onOpenBookSearch,
-              onNewNotebook: () => _startEdit(
-                const _EditSession(
-                  target: _EditTarget.notebook,
-                  initial: '新笔记本',
-                ),
-              ),
             ),
             Expanded(
-              child: library.loading
+              child: nb == null
+                  ? const SizedBox.shrink()
+                  : widget.library.loading
                   ? const _LoadingSkeleton()
-                  : library.notebooks.isEmpty && !_editingNewNotebook
-                  ? _EmptyState(
-                      onCreate: () => _startEdit(
-                        const _EditSession(
-                          target: _EditTarget.notebook,
-                          initial: '新笔记本',
-                        ),
-                      ),
-                    )
-                  : _buildTree(),
+                  : _buildTree(nb),
             ),
             if (widget.onOpenSettings != null)
               _SidebarFooter(onOpenSettings: widget.onOpenSettings!),
@@ -386,7 +374,8 @@ class _SidebarState extends State<Sidebar> {
     );
   }
 
-  Widget _buildTree() {
+  /// 单书章节树：分卷开启时按每卷章数插入「第 N 卷」分组标题。
+  Widget _buildTree(Notebook nb) {
     final library = widget.library;
     final colors = Theme.of(context).colorScheme;
     final appColors = appColorsOf(context);
@@ -398,82 +387,56 @@ class _SidebarState extends State<Sidebar> {
       refs.add(ref);
     }
 
-    for (final nb in library.notebooks) {
-      if (_isEditingNotebook(nb.id)) {
+    final docs = library.documentsOf(nb.id);
+    final volume = widget.settings.volumeForNotebook(nb.id);
+
+    var docIndex = 0;
+    var volumeNumber = 1;
+    for (final doc in docs) {
+      if (volume.enabled && docIndex % volume.chapters == 0) {
         add(
-          _editField(_editing!, nb.id, key: ValueKey('edit-nb-${nb.id}')),
-          TreeRowRef(notebookId: nb.id),
-        );
-      } else {
-        add(
-          _NotebookTile(
-            key: ValueKey('nb-${nb.id}'),
-            notebook: nb,
-            documentCount: library.documentsOf(nb.id).length,
-            expanded: _expanded.contains(nb.id),
-            onToggle: () => setState(() {
-              if (!_expanded.add(nb.id)) _expanded.remove(nb.id);
-            }),
-            onNewDocument: () {
-              // 直接创建，不进入命名：suggestedChapterTitle 顺着章节自动编号
-              //（已有 3 章 → 第 4 章），想改名用 ⋮ → 重命名。
-              setState(() => _expanded.add(nb.id));
-              _createDocumentDirect(nb.id);
-            },
-            onEdit: () => _startEdit(
-              _EditSession(
-                id: nb.id,
-                target: _EditTarget.notebook,
-                initial: nb.name,
-              ),
-            ),
-            onDelete: () => library.requestDelete(
-              kind: DeletionKind.notebook,
-              id: nb.id,
-              name: nb.name,
-            ),
-            onMoveUp: () => library.moveNotebook(nb.id, up: true),
-            onMoveDown: () => library.moveNotebook(nb.id, up: false),
+          _VolumeHeader(
+            key: ValueKey('vol-${nb.id}-$volumeNumber'),
+            volumeNumber: volumeNumber++,
           ),
           TreeRowRef(notebookId: nb.id, isHeader: true),
         );
       }
-      if (_expanded.contains(nb.id)) {
-        for (final doc in library.documentsOf(nb.id)) {
-          if (_isEditingDocument(doc.id)) {
-            add(
-              _editField(
-                _editing!,
-                doc.id,
-                notebookId: nb.id,
-                key: ValueKey('edit-doc-${doc.id}'),
-              ),
-              TreeRowRef(notebookId: nb.id, docId: doc.id),
-            );
-          } else {
-            final index = children.length;
-            add(
-              _documentRow(nb, doc, index),
-              TreeRowRef(notebookId: nb.id, docId: doc.id),
-            );
-          }
-        }
+      if (_isEditingDocument(doc.id)) {
         add(
-          _NewDocumentButton(
-            key: ValueKey('new-doc-${nb.id}'),
-            onPressed: () => _createDocumentDirect(nb.id),
+          _editField(
+            _editing!,
+            doc.id,
+            notebookId: nb.id,
+            key: ValueKey('edit-doc-${doc.id}'),
           ),
-          TreeRowRef(notebookId: nb.id),
+          TreeRowRef(notebookId: nb.id, docId: doc.id),
+        );
+      } else {
+        final index = children.length;
+        add(
+          _documentRow(nb, doc, index),
+          TreeRowRef(notebookId: nb.id, docId: doc.id),
         );
       }
+      docIndex++;
     }
-    if (_editingNewNotebook) {
+    if (docs.isNotEmpty) {
       add(
-        _editField(_editing!, null, key: const ValueKey('edit-nb-new')),
-        const TreeRowRef(),
+        _NewDocumentButton(
+          key: ValueKey('new-doc-${nb.id}'),
+          onPressed: () => _createDocumentDirect(nb.id),
+        ),
+        TreeRowRef(notebookId: nb.id),
       );
     }
     _rowRefs = refs;
+
+    if (docs.isEmpty) {
+      return _ChapterEmptyState(
+        onCreate: () => _createDocumentDirect(nb.id),
+      );
+    }
 
     return ReorderableListView(
       buildDefaultDragHandles: false,
@@ -588,12 +551,7 @@ class _SidebarState extends State<Sidebar> {
     );
     return Padding(
       key: key,
-      padding: EdgeInsets.fromLTRB(
-        resolved.target == _EditTarget.notebook ? 10 : 34,
-        2,
-        4,
-        2,
-      ),
+      padding: const EdgeInsets.fromLTRB(34, 2, 4, 2),
       child: _InlineEditField(
         key: ValueKey('edit-${resolved.target}-${resolved.id ?? 'new'}'),
         initial: resolved.initial,
@@ -702,180 +660,120 @@ class _SidebarFooterState extends State<_SidebarFooter> {
   }
 }
 
-/// 顶栏：品牌 Logo + 全书搜索 + 新建笔记本按钮。
-class _HeaderBar extends StatelessWidget {
-  const _HeaderBar({required this.onNewNotebook, this.onOpenBookSearch});
+/// 单书工作区顶栏：返回 + 书名 + 全书搜索 + 本书设置。
+class _BookHeader extends StatelessWidget {
+  const _BookHeader({
+    required this.title,
+    this.onBack,
+    this.onOpenBookSettings,
+    this.onOpenBookSearch,
+  });
 
-  final VoidCallback onNewNotebook;
+  final String title;
+  final VoidCallback? onBack;
+  final VoidCallback? onOpenBookSettings;
   final VoidCallback? onOpenBookSearch;
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
+      padding: const EdgeInsets.fromLTRB(6, 8, 8, 6),
       child: Row(
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: Image.asset(
-              'assets/logo.png',
-              width: 32,
-              height: 32,
-              fit: BoxFit.cover,
-              semanticLabel: '字在',
+          if (onBack != null)
+            _TinyIconButton(
+              tooltip: '返回笔记本管理',
+              icon: Icons.arrow_back,
+              onPressed: onBack!,
+            ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: colors.onSurface,
+                ),
+              ),
             ),
           ),
-          const Spacer(),
           if (onOpenBookSearch != null)
             _TinyIconButton(
               tooltip: '全书搜索 (${isMacOS ? '⌘' : 'Ctrl'}+P)',
               icon: Icons.search,
               onPressed: onOpenBookSearch!,
             ),
-          _TinyIconButton(
-            tooltip: '新建笔记本',
-            icon: Icons.add,
-            onPressed: onNewNotebook,
-          ),
+          if (onOpenBookSettings != null)
+            _TinyIconButton(
+              tooltip: '这本书的设置',
+              icon: Icons.settings_outlined,
+              onPressed: onOpenBookSettings!,
+            ),
         ],
       ),
     );
   }
 }
 
-/// 笔记本行：展开/折叠 + hover 浮现「+ 新建章节」与 ⋯ 操作菜单。
-class _NotebookTile extends StatefulWidget {
-  const _NotebookTile({
-    super.key,
-    required this.notebook,
-    required this.documentCount,
-    required this.expanded,
-    required this.onToggle,
-    required this.onNewDocument,
-    required this.onEdit,
-    required this.onDelete,
-    required this.onMoveUp,
-    required this.onMoveDown,
-  });
+/// 分卷分组标题：单书工作区按每卷章数插入「第 N 卷」，非交互行。
+class _VolumeHeader extends StatelessWidget {
+  const _VolumeHeader({super.key, required this.volumeNumber});
 
-  final Notebook notebook;
-
-  /// 本笔记本下的章节数（标题后小字显示，如「3章」）。
-  final int documentCount;
-  final bool expanded;
-  final VoidCallback onToggle;
-  final VoidCallback onNewDocument;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-  final VoidCallback onMoveUp;
-  final VoidCallback onMoveDown;
+  final int volumeNumber;
 
   @override
-  State<_NotebookTile> createState() => _NotebookTileState();
+  Widget build(BuildContext context) {
+    final appColors = appColorsOf(context);
+    return Container(
+      height: 28,
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      alignment: Alignment.centerLeft,
+      child: Text(
+        '第${_toChineseNumber(volumeNumber)}卷',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 1,
+          color: appColors.textTertiary,
+        ),
+      ),
+    );
+  }
 }
 
-class _NotebookTileState extends State<_NotebookTile> {
-  bool _hover = false;
+/// 空章节引导（单书工作区）。
+class _ChapterEmptyState extends StatelessWidget {
+  const _ChapterEmptyState({required this.onCreate});
+
+  final VoidCallback onCreate;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: _SidebarRow(
-        depth: 0,
-        hover: _hover,
-        selected: false,
-        onTap: widget.onToggle,
-        leading: _NotebookLeadingIcon(
-          expanded: widget.expanded,
-          hover: _hover,
-        ),
-        title: widget.notebook.name,
-        titleStyle: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: colors.onSurface,
-        ),
-        // 章节总数小字（空笔记本不显示，保持安静）。
-        titleSuffix: widget.documentCount > 0
-            ? Text(
-                '${widget.documentCount}章',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w400,
-                  color: appColorsOf(context).textTertiary,
-                ),
-              )
-            : null,
-        trailing: Row(
+    final appColors = appColorsOf(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _HoverReveal(
-              visible: _hover || !isDesktopPlatform,
-              child: _QuickAddButton(onPressed: widget.onNewDocument),
+            Icon(Icons.description_outlined,
+                size: 32, color: appColors.textTertiary),
+            const SizedBox(height: 8),
+            Text(
+              '这本书还没有章节',
+              style: TextStyle(fontSize: 13, color: colors.onSurfaceVariant),
             ),
-            _RowMenu(
-              visible: _hover || !isDesktopPlatform,
-              items: [
-                ('上移', Icons.arrow_upward, widget.onMoveUp),
-                ('下移', Icons.arrow_downward, widget.onMoveDown),
-                ('重命名', Icons.drive_file_rename_outline, widget.onEdit),
-                ('删除', Icons.delete_outline, widget.onDelete),
-              ],
-            ),
+            const SizedBox(height: 12),
+            ZzButton.primary(label: '新建第一章', onPressed: onCreate),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// 笔记本行前置图标：桌面端平时是文件夹，hover 切换为箭头（旋转指示
-/// 展开方向），避免「箭头 + 文件夹」双 icon 重复；触摸端无 hover，保留
-/// 箭头 + 文件夹（折叠状态必须常显）。
-class _NotebookLeadingIcon extends StatelessWidget {
-  const _NotebookLeadingIcon({required this.expanded, required this.hover});
-
-  final bool expanded;
-  final bool hover;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final color = colors.onSurfaceVariant;
-    final arrow = AnimatedRotation(
-      duration: const Duration(milliseconds: 120),
-      turns: expanded ? 0.25 : 0,
-      child: Icon(Icons.chevron_right, size: 16, color: color),
-    );
-    if (!isDesktopPlatform) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          arrow,
-          const SizedBox(width: 5),
-          Icon(Icons.folder_outlined, size: 16, color: color),
-        ],
-      );
-    }
-    return SizedBox(
-      width: 20,
-      child: Stack(
-        alignment: Alignment.centerLeft,
-        children: [
-          AnimatedOpacity(
-            duration: const Duration(milliseconds: 90),
-            opacity: hover ? 0 : 1,
-            child: Icon(Icons.folder_outlined, size: 16, color: color),
-          ),
-          AnimatedOpacity(
-            duration: const Duration(milliseconds: 90),
-            opacity: hover ? 1 : 0,
-            child: arrow,
-          ),
-        ],
       ),
     );
   }
@@ -991,41 +889,6 @@ class _DocumentTileState extends State<_DocumentTile> {
   }
 }
 
-/// hover 才浮现的轻量容器（桌面端低打扰 chrome）。
-class _HoverReveal extends StatelessWidget {
-  const _HoverReveal({required this.visible, required this.child});
-
-  final bool visible;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedOpacity(
-      duration: const Duration(milliseconds: 90),
-      opacity: visible ? 1 : 0,
-      child: IgnorePointer(ignoring: !visible, child: child),
-    );
-  }
-}
-
-/// 笔记本行的快捷「+」：新建章节。
-class _QuickAddButton extends StatelessWidget {
-  const _QuickAddButton({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return IconButton(
-      tooltip: '新建章节',
-      visualDensity: VisualDensity.compact,
-      onPressed: onPressed,
-      icon: Icon(Icons.add, size: 16, color: colors.onSurfaceVariant),
-    );
-  }
-}
-
 class _SidebarRow extends StatelessWidget {
   const _SidebarRow({
     required this.depth,
@@ -1036,7 +899,6 @@ class _SidebarRow extends StatelessWidget {
     required this.title,
     required this.titleStyle,
     this.trailing,
-    this.titleSuffix,
   });
 
   final int depth;
@@ -1047,9 +909,6 @@ class _SidebarRow extends StatelessWidget {
   final String title;
   final TextStyle titleStyle;
   final Widget? trailing;
-
-  /// 标题后的后缀（如笔记本行的「3章」计数），长标题省略时保持常显。
-  final Widget? titleSuffix;
 
   @override
   Widget build(BuildContext context) {
@@ -1077,21 +936,11 @@ class _SidebarRow extends StatelessWidget {
             children: [
               SizedBox(width: depth == 0 ? 38 : 18, child: leading),
               Expanded(
-                child: Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: titleStyle,
-                      ),
-                    ),
-                    if (titleSuffix != null) ...[
-                      const SizedBox(width: 6),
-                      titleSuffix!,
-                    ],
-                  ],
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: titleStyle,
                 ),
               ),
               ?trailing,
@@ -1382,56 +1231,6 @@ class _LoadingSkeleton extends StatelessWidget {
   }
 }
 
-/// 空库引导。
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.onCreate});
-
-  final VoidCallback onCreate;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: appColors.rowSelected,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: colors.outline),
-              ),
-              child: Icon(
-                Icons.menu_book_outlined,
-                size: 22,
-                color: colors.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '新建一本笔记本，开始写',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.4,
-                color: colors.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
-            _NotionButton(onPressed: onCreate, child: const Text('新建笔记本')),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _TinyIconButton extends StatelessWidget {
   const _TinyIconButton({
     required this.tooltip,
@@ -1454,31 +1253,3 @@ class _TinyIconButton extends StatelessWidget {
   }
 }
 
-class _NotionButton extends StatelessWidget {
-  const _NotionButton({required this.onPressed, required this.child});
-
-  final VoidCallback onPressed;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
-    return TextButton(
-      onPressed: onPressed,
-      style: TextButton.styleFrom(
-        foregroundColor: colors.onSurface,
-        backgroundColor: appColors.surfaceRaised,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(4),
-          side: BorderSide(color: colors.outline),
-        ),
-      ),
-      child: DefaultTextStyle.merge(
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-        child: child,
-      ),
-    );
-  }
-}

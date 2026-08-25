@@ -46,6 +46,26 @@ class LibraryController extends ChangeNotifier {
   Document? _currentDocument;
   Document? get currentDocument => _currentDocument;
 
+  /// 当前打开的笔记本（单书工作区；null = 处于笔记本管理页）。
+  Notebook? _currentNotebook;
+  Notebook? get currentNotebook => _currentNotebook;
+
+  Notebook? notebookById(String id) {
+    for (final nb in _notebooks) {
+      if (nb.id == id) return nb;
+    }
+    return null;
+  }
+
+  /// 某笔记本的总字数（章节 words 之和，卡片展示用）。
+  int wordsOf(String notebookId) {
+    var total = 0;
+    for (final doc in documentsOf(notebookId)) {
+      total += doc.words;
+    }
+    return total;
+  }
+
   int _todayDelta = 0;
   int get todayDelta => _todayDelta;
 
@@ -78,7 +98,8 @@ class LibraryController extends ChangeNotifier {
   /// edit-003 注入：切换文档 / 退出前先保存当前缓冲（防丢）。
   Future<void> Function()? beforeSwitchSave;
 
-  /// 启动恢复：目录树 + 今日增量 + 按 last_open 打开上次文档。
+  /// 启动恢复：目录树 + 今日增量 + 恢复上次打开的笔记本（resume 进工作区；
+  /// 无记录或书已不存在则停在笔记本管理页）。
   Future<void> restore() async {
     _loading = true;
     _error = null;
@@ -86,10 +107,12 @@ class LibraryController extends ChangeNotifier {
     try {
       await _reloadTree();
       final lastOpen = await _db.loadLastOpen();
-      if (lastOpen?.documentId != null) {
-        _currentDocument = await _db.getDocument(lastOpen!.documentId!);
+      if (lastOpen?.notebookId != null &&
+          notebookById(lastOpen!.notebookId!) != null) {
+        await openNotebook(lastOpen.notebookId!);
+      } else {
+        await _refreshTodayDelta();
       }
-      await _refreshTodayDelta();
     } catch (e) {
       _error = '加载失败: $e';
     } finally {
@@ -113,6 +136,54 @@ class LibraryController extends ChangeNotifier {
       documentId: doc.id,
       words: doc.words,
     );
+    notifyListeners();
+  }
+
+  /// 进入某本书（单书工作区）：设置当前笔记本，并打开该书上次的章节
+  /// （无记录则打开第一章；无章节则保持无文档）。
+  Future<void> openNotebook(String notebookId) async {
+    if (beforeSwitchSave != null) {
+      await beforeSwitchSave!();
+    }
+    final nb = notebookById(notebookId);
+    if (nb == null) return;
+    _currentNotebook = nb;
+    // 优先恢复该书上次打开的章节；否则第一章节。
+    final docs = documentsOf(notebookId);
+    final lastOpen = await _db.loadLastOpen();
+    String? docId;
+    if (lastOpen?.notebookId == notebookId && lastOpen?.documentId != null) {
+      docId = lastOpen!.documentId;
+    } else if (docs.isNotEmpty) {
+      docId = docs.first.id;
+    }
+    if (docId != null) {
+      final doc = await _db.getDocument(docId);
+      if (doc != null) {
+        _currentDocument = doc;
+        await _db.saveLastOpen(
+          notebookId: doc.notebookId,
+          documentId: doc.id,
+          words: doc.words,
+        );
+      }
+    } else {
+      _currentDocument = null;
+    }
+    await _refreshTodayDelta();
+    session.reset();
+    notifyListeners();
+  }
+
+  /// 退出单书工作区回到笔记本管理页：清空当前笔记本与文档。
+  Future<void> closeNotebook() async {
+    if (beforeSwitchSave != null) {
+      await beforeSwitchSave!();
+    }
+    _currentNotebook = null;
+    _currentDocument = null;
+    liveWords.value = null;
+    session.reset();
     notifyListeners();
   }
 

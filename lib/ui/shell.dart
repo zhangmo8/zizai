@@ -21,6 +21,7 @@ import '../state/settings_controller.dart';
 import '../util/ime_state.dart';
 import '../util/platform.dart';
 import 'book_search_dialog.dart';
+import 'book_settings.dart';
 import 'editor.dart';
 import 'glass.dart';
 import 'settings_view.dart';
@@ -166,6 +167,7 @@ class _ShellState extends State<Shell> {
   ///
   /// 切换文档会因 EditorView 的 key 换新编辑器实例，请求须在切换前就位，
   /// 由新实例 initState 消费；同文档跳转则由现编辑器的 listener 消费。
+  /// 单书工作区只搜索当前书（scopeNotebookId）。
   Future<void> _openBookSearch() async {
     if (_bookSearchOpen) return;
     _bookSearchOpen = true;
@@ -173,6 +175,7 @@ class _ShellState extends State<Shell> {
       await showBookSearchDialog(
         context,
         library: widget.library,
+        scopeNotebookId: widget.library.currentNotebook?.id,
         onOpen: (BookSearchHit hit) async {
           _jumpRequest.value = EditorJumpRequest(
             documentId: hit.documentId,
@@ -189,8 +192,29 @@ class _ShellState extends State<Shell> {
     }
   }
 
-  /// 设置的唯一打开出口：侧边栏底部、状态栏的定向入口共用。
+  /// 返回笔记本管理页：先落盘当前缓冲，再关闭当前书；门控据此切回 LibraryHome。
+  Future<void> _goBack() async {
+    await widget.library.closeNotebook();
+  }
+
+  /// 全局设置的唯一打开出口：侧边栏底部、状态栏备份入口共用。
+  /// 状态栏「今日进度」点击（focusDailyGoal）→ 打开「这本书的设置」（写作目标已迁入）。
   void _openSettings({bool focusDailyGoal = false, bool focusBackup = false}) {
+    if (focusDailyGoal) {
+      final nb = widget.library.currentNotebook;
+      if (nb != null) {
+        showDialog<void>(
+          context: context,
+          builder: (_) => BookSettingsDialog(
+            notebook: nb,
+            library: widget.library,
+            settings: widget.settings,
+            autoFocusGoal: true,
+          ),
+        );
+      }
+      return;
+    }
     final view = SettingsView(
       settings: widget.settings,
       library: widget.library,
@@ -198,7 +222,6 @@ class _ShellState extends State<Shell> {
       logger: widget.logger,
       updateChecker: widget.updateChecker,
       dbSchemaVersion: widget.updateChecker?.dbSchemaVersion,
-      autoFocusDailyGoal: focusDailyGoal,
       autoFocusBackup: focusBackup,
     );
     if (isAndroidPlatform) {
@@ -250,6 +273,8 @@ class _ShellState extends State<Shell> {
             );
             final sidebar = Sidebar(
               library: widget.library,
+              settings: widget.settings,
+              onBack: _goBack,
               onOpenSettings: _openSettings,
               onOpenBookSearch: _openBookSearch,
             );

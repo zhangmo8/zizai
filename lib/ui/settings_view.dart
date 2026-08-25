@@ -42,7 +42,7 @@ const List<String> kFontChoices = [
 /// 导出实现签名（桌面保存对话框 / Android 分享；测试可注入）。
 typedef ExportHandler = Future<void> Function(Document doc, String plainText);
 
-enum _SettingsCategory { appearance, writing, backup, data, about }
+enum _SettingsCategory { appearance, backup, data, about }
 
 class SettingsView extends StatefulWidget {
   const SettingsView({
@@ -54,7 +54,6 @@ class SettingsView extends StatefulWidget {
     this.updateChecker,
     this.dbSchemaVersion,
     this.exporter,
-    this.autoFocusDailyGoal = false,
     this.autoFocusBackup = false,
   });
 
@@ -76,9 +75,6 @@ class SettingsView extends StatefulWidget {
   /// 导出实现（null = 默认：桌面 getSaveLocation 写 .txt / Android 分享）。
   final ExportHandler? exporter;
 
-  /// 打开时聚焦「每日目标字数」（状态栏今日进度点击入口）。
-  final bool autoFocusDailyGoal;
-
   /// 打开时定位「备份」区（状态栏备份指示点击入口）。
   final bool autoFocusBackup;
 
@@ -89,30 +85,17 @@ class SettingsView extends StatefulWidget {
 class _SettingsViewState extends State<SettingsView> {
   bool _exporting = false;
   bool _checkingUpdate = false;
-  final FocusNode _goalFocus = FocusNode();
-  final TextEditingController _goalController = TextEditingController();
-  String? _goalNotebookId;
 
   Settings get _s => widget.settings.settings;
 
-  late _SettingsCategory _category = widget.autoFocusDailyGoal
-      ? _SettingsCategory.writing
-      : widget.autoFocusBackup && widget.backup != null
+  late _SettingsCategory _category =
+      widget.autoFocusBackup && widget.backup != null
       ? _SettingsCategory.backup
       : _SettingsCategory.appearance;
 
   @override
   void initState() {
     super.initState();
-    _goalNotebookId =
-        widget.library.currentDocument?.notebookId ??
-        widget.library.notebooks.firstOrNull?.id;
-    _syncGoalController();
-    if (widget.autoFocusDailyGoal && _goalNotebookId != null) {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _goalFocus.requestFocus(),
-      );
-    }
     // 回填已保存的备份凭据（仅本地 settings 表；备份区未接线时跳过）。
     if (widget.backup != null) {
       final db = widget.settings.db;
@@ -133,8 +116,6 @@ class _SettingsViewState extends State<SettingsView> {
 
   @override
   void dispose() {
-    _goalFocus.dispose();
-    _goalController.dispose();
     _backupAccountController.dispose();
     _backupBucketController.dispose();
     _backupAccessController.dispose();
@@ -279,7 +260,6 @@ class _SettingsViewState extends State<SettingsView> {
 
   List<_SettingsCategory> get _availableCategories => [
     _SettingsCategory.appearance,
-    _SettingsCategory.writing,
     if (widget.backup != null) _SettingsCategory.backup,
     _SettingsCategory.data,
     // 关于常驻：版本/更新组随 UpdateChecker 接线显隐，帮助组（快捷键）始终可用。
@@ -295,20 +275,17 @@ class _SettingsViewState extends State<SettingsView> {
     final confirmed = await zzConfirm(
       context,
       title: '恢复默认设置？',
-      message: '主题、字体、字号、行距和每日目标会恢复为默认值；不会删除文档或备份。',
+      message: '主题、字体、字号、行距会恢复为默认值；不会删除文档或备份。',
       confirmLabel: '恢复默认',
       danger: true,
     );
     if (confirmed) {
       await widget.settings.update(const Settings());
-      await widget.settings.resetNotebookGoals();
-      _syncGoalController();
     }
   }
 
   Widget _buildCategoryPage() => switch (_category) {
     _SettingsCategory.appearance => _appearancePage(),
-    _SettingsCategory.writing => _writingPage(),
     _SettingsCategory.backup => _backupPage(),
     _SettingsCategory.data => _dataPage(),
     _SettingsCategory.about => _aboutPage(),
@@ -348,118 +325,34 @@ class _SettingsViewState extends State<SettingsView> {
           _preview(),
         ],
       ),
+      _SettingsGroup(
+        label: '字数统计',
+        children: [
+          _row(
+            '标点计入字数',
+            ZzSwitch(
+              value: _s.countPunctuation,
+              onChanged: (v) => _update(_s.copyWith(countPunctuation: v)),
+            ),
+            description: '开启后中文标点（。，！？等）也计入字数',
+          ),
+        ],
+      ),
+      _SettingsGroup(
+        label: '焦点暗淡',
+        children: [
+          _row(
+            '暗淡非当前行',
+            ZzSwitch(
+              value: _s.focusDim,
+              onChanged: (v) => _update(_s.copyWith(focusDim: v)),
+            ),
+            description: '仅高亮光标所在段落，其余变暗（编辑器顶栏可快速切换）；同时开启打字机滚动，光标行保持视口中部',
+          ),
+        ],
+      ),
     ],
   );
-
-  Widget _writingPage() {
-    final notebooks = widget.library.notebooks;
-    final notebookId = _goalNotebookId;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (notebooks.isEmpty || notebookId == null)
-          _SettingsGroup(
-            label: '写作目标',
-            children: [
-              Text(
-                '新建笔记本后即可设定独立的每日目标',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          )
-        else ...[
-          () {
-            final goal = widget.settings.goalForNotebook(notebookId);
-            return _SettingsGroup(
-              label: '写作目标',
-              children: [
-                _row(
-                  '笔记本',
-                  ZzSelect<String>(
-                    value: notebookId,
-                    display:
-                        notebooks.firstWhere((n) => n.id == notebookId).name,
-                    options: [
-                      for (final n in notebooks) (label: n.name, value: n.id),
-                    ],
-                    onChanged: (id) {
-                      setState(() {
-                        _goalNotebookId = id;
-                        _syncGoalController();
-                      });
-                    },
-                  ),
-                  description: '每本书独立计算今日进度',
-                ),
-                _row(
-                  '启用今日目标',
-                  ZzSwitch(
-                    value: goal.enabled,
-                    onChanged: (enabled) => widget.settings.updateNotebookGoal(
-                      notebookId,
-                      enabled: enabled,
-                    ),
-                  ),
-                  description: '关闭后不在状态栏和沉浸模式显示',
-                ),
-                if (goal.enabled)
-                  _row(
-                    '每日目标字数',
-                    _goalField(notebookId),
-                    description: '只计入该笔记本今天新增的文字',
-                  ),
-              ],
-            );
-          }(),
-        ],
-        if (notebooks.isNotEmpty && notebookId != null)
-          _SettingsGroup(
-            label: '段落缩进',
-            children: [
-              _row(
-                '行首自动缩进',
-                ZzSwitch(
-                  value: widget.settings.indentForNotebook(notebookId),
-                  onChanged: (v) =>
-                      widget.settings.setIndentForNotebook(notebookId, v),
-                ),
-                description: '针对「写作目标」选中的笔记本：新段落行首自动空两个全角空格',
-              ),
-            ],
-          ),
-        _SettingsGroup(
-          label: '字数统计',
-          children: [
-            _row(
-              '标点计入字数',
-              ZzSwitch(
-                value: _s.countPunctuation,
-                onChanged: (v) =>
-                    _update(_s.copyWith(countPunctuation: v)),
-              ),
-              description: '开启后中文标点（。，！？等）也计入字数',
-            ),
-          ],
-        ),
-        _SettingsGroup(
-          label: '焦点暗淡',
-          children: [
-            _row(
-              '暗淡非当前行',
-              ZzSwitch(
-                value: _s.focusDim,
-                onChanged: (v) => _update(_s.copyWith(focusDim: v)),
-              ),
-              description: '仅高亮光标所在段落，其余变暗（编辑器顶栏可快速切换）；同时开启打字机滚动，光标行保持视口中部',
-            ),
-          ],
-        ),
-      ],
-    );
-  }
 
   Widget _backupPage() => _SettingsGroup(
     label: 'R2 备份',
@@ -634,32 +527,6 @@ class _SettingsViewState extends State<SettingsView> {
           fontFamily: s.fontFamily.isEmpty ? null : s.fontFamily,
         ),
       ),
-    );
-  }
-
-  void _syncGoalController() {
-    final current = widget.settings.goalForNotebook(_goalNotebookId).words;
-    _goalController.text = current.toString();
-  }
-
-  Widget _goalField(String notebookId) {
-    final current = widget.settings
-        .goalForNotebook(notebookId)
-        .words
-        .toString();
-    if (!_goalFocus.hasFocus && _goalController.text != current) {
-      _goalController.text = current;
-    }
-    return _notionField(
-      controller: _goalController,
-      hint: '100–50000',
-      keyboardType: TextInputType.number,
-      focusNode: _goalFocus,
-      onSubmitted: (v) {
-        final n = int.tryParse(v.trim());
-        if (n == null || n < 100 || n > 50000) return;
-        widget.settings.updateNotebookGoal(notebookId, words: n);
-      },
     );
   }
 
@@ -1149,7 +1016,6 @@ class _Header extends StatelessWidget {
 extension on _SettingsCategory {
   String get label => switch (this) {
     _SettingsCategory.appearance => '外观',
-    _SettingsCategory.writing => '写作',
     _SettingsCategory.backup => '备份',
     _SettingsCategory.data => '数据',
     _SettingsCategory.about => '关于',
@@ -1157,7 +1023,6 @@ extension on _SettingsCategory {
 
   String get description => switch (this) {
     _SettingsCategory.appearance => '自定义阅读与编辑体验',
-    _SettingsCategory.writing => '管理每日写作目标',
     _SettingsCategory.backup => '安全备份你的作品',
     _SettingsCategory.data => '导出与管理本地数据',
     _SettingsCategory.about => '版本信息与软件更新',
@@ -1165,7 +1030,6 @@ extension on _SettingsCategory {
 
   IconData get icon => switch (this) {
     _SettingsCategory.appearance => Icons.palette_outlined,
-    _SettingsCategory.writing => Icons.edit_note_outlined,
     _SettingsCategory.backup => Icons.cloud_outlined,
     _SettingsCategory.data => Icons.folder_outlined,
     _SettingsCategory.about => Icons.info_outline,

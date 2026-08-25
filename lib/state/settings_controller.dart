@@ -47,6 +47,36 @@ class SettingsController extends ChangeNotifier {
     );
   }
 
+  /// 笔记本分卷配置（settings 键 `volume.<notebookId>.enabled/.chapters`，
+  /// 默认关闭、每卷 20 章）。
+  Map<String, VolumeCfg> _volumes = const {};
+
+  /// 该笔记本的分卷配置（未配置返回默认：关闭）。
+  VolumeCfg volumeForNotebook(String? notebookId) {
+    if (notebookId == null) return const VolumeCfg();
+    return _volumes[notebookId] ?? const VolumeCfg();
+  }
+
+  Future<void> setVolumeForNotebook(
+    String notebookId, {
+    bool? enabled,
+    int? chapters,
+  }) async {
+    final next = volumeForNotebook(
+      notebookId,
+    ).copyWith(enabled: enabled, chapters: chapters);
+    _volumes = {..._volumes, notebookId: next};
+    notifyListeners();
+    await _db.setSetting(
+      'volume.$notebookId.enabled',
+      next.enabled.toString(),
+    );
+    await _db.setSetting(
+      'volume.$notebookId.chapters',
+      next.chapters.toString(),
+    );
+  }
+
   /// 主题三态：system / light / dark。
   ThemeMode get themeMode => switch (_settings.theme) {
     'light' => ThemeMode.light,
@@ -119,6 +149,26 @@ class SettingsController extends ChangeNotifier {
       indents[notebookId] = entry.value != 'false';
     }
     _paragraphIndents = indents;
+    final volumes = <String, VolumeCfg>{};
+    for (final entry in values.entries) {
+      const prefix = 'volume.';
+      if (!entry.key.startsWith(prefix)) continue;
+      final suffix = entry.key.substring(prefix.length);
+      final split = suffix.lastIndexOf('.');
+      if (split <= 0) continue;
+      final notebookId = suffix.substring(0, split);
+      final field = suffix.substring(split + 1);
+      final current =
+          volumes[notebookId] ?? const VolumeCfg();
+      if (field == 'enabled') {
+        volumes[notebookId] = current.copyWith(enabled: entry.value != 'false');
+      } else if (field == 'chapters') {
+        volumes[notebookId] = current.copyWith(
+          chapters: int.tryParse(entry.value) ?? 20,
+        );
+      }
+    }
+    _volumes = volumes;
     _outlineOpen = values['outline.open'] == 'true';
     _notesOpen = values['notes.open'] == 'true';
     _loaded = true;

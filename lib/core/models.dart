@@ -268,6 +268,21 @@ class NotebookGoal {
   );
 }
 
+/// 单个笔记本的分卷配置（写作设置里的「分卷」）。
+class VolumeCfg {
+  const VolumeCfg({this.enabled = false, this.chapters = 20});
+
+  final bool enabled;
+
+  /// 每卷章数（1–500）。
+  final int chapters;
+
+  VolumeCfg copyWith({bool? enabled, int? chapters}) => VolumeCfg(
+    enabled: enabled ?? this.enabled,
+    chapters: (chapters ?? this.chapters).clamp(1, 500),
+  );
+}
+
 /// last_open 表记录（启动恢复用）。
 class LastOpen {
   const LastOpen({this.notebookId, this.documentId, required this.words});
