@@ -9,6 +9,7 @@ import 'package:zi_zai/app.dart';
 import 'package:zi_zai/core/db.dart';
 import 'package:zi_zai/state/library_controller.dart';
 import 'package:zi_zai/state/settings_controller.dart';
+import 'package:zi_zai/ui/library_home.dart';
 import 'package:zi_zai/ui/sidebar.dart';
 
 void main() {
@@ -33,6 +34,8 @@ void main() {
         title: doc.title,
         content: '[{"insert":"正文一二三"}]',
       );
+      // 恢复进工作区依赖 last_open（与真实启动一致）。
+      await db.saveLastOpen(notebookId: nb.id, documentId: doc.id, words: 0);
     }
     final settings = SettingsController(db);
     await settings.load();
@@ -58,45 +61,21 @@ void main() {
     }
   }
 
-  testWidgets('桌面尺寸：渲染侧边栏 + 空态引导 + 状态栏', (tester) async {
+  testWidgets('空库：进入笔记本管理页（无工作区）', (tester) async {
     await pumpAtSize(tester, const Size(1200, 800));
-    // FFI 数据库是真实异步，须在 runAsync 中完成（FakeAsync 不推进真实 I/O）。
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
     await tester.pump();
 
-    // 侧边栏空库引导
-    expect(find.text('新建一本笔记本，开始写'), findsOneWidget);
+    // 空库 → 笔记本管理页空态，无编辑器
+    expect(find.byType(LibraryHome), findsOneWidget);
+    expect(find.text('还没有笔记本'), findsOneWidget);
     expect(find.text('新建笔记本'), findsOneWidget);
-    // 编辑器区空态 = Quill 编辑器（占位「从这里开始写…」由编辑器渲染）
-    expect(find.byType(q.QuillEditor), findsOneWidget);
-    // 无当前笔记本时不显示目标，仅保留本文字数。
-    expect(find.textContaining('今日'), findsNothing);
-    expect(find.text('本文 0 字'), findsOneWidget);
-    // 桌面形态无 Drawer
-    expect(find.byType(Drawer), findsNothing);
+    expect(find.byType(q.QuillEditor), findsNothing);
+    expect(find.byType(Sidebar), findsNothing);
   });
 
-  testWidgets('手机尺寸：Drawer 形态 + 状态栏', (tester) async {
-    await pumpAtSize(tester, const Size(390, 844));
-    final (library, settings) = (await tester.runAsync(() => makeApp()))!;
-    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
-    await tester.pump();
-
-    // Scaffold 挂载 Drawer（左滑入形态）
-    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
-    expect(scaffold.drawer, isNotNull);
-    // 左边缘右滑打开 Drawer → 空库引导可见
-    await tester.dragFrom(const Offset(5, 400), const Offset(350, 0));
-    await tester.pumpAndSettle();
-    expect(find.text('还没有笔记本'), findsNothing);
-    expect(find.text('新建笔记本'), findsOneWidget);
-    // 编辑器全宽显示 Quill 编辑器
-    expect(find.byType(q.QuillEditor), findsOneWidget);
-    expect(find.textContaining('今日'), findsNothing);
-  });
-
-  testWidgets('空库点「新建笔记本」→ 侧边栏出现笔记本', (tester) async {
+  testWidgets('空库点「新建笔记本」→ 命名对话框 → 管理页出现卡片', (tester) async {
     await pumpAtSize(tester, const Size(1200, 800));
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
@@ -104,15 +83,15 @@ void main() {
 
     await tester.tap(find.text('新建笔记本'));
     await tester.pump();
-    // 空态按钮 → 行内编辑（默认名「新笔记本」），Enter 确认
+    await tester.enterText(find.byType(TextField), '我的小说');
     await tester.testTextInput.receiveAction(TextInputAction.done);
-    // 行内提交等待真实 FFI 数据库写入；多轮推进异步 continuation 后刷新 UI。
     await settleDatabaseWrite(tester);
-    expect(find.text('新笔记本'), findsOneWidget);
-    expect(find.text('新建一本笔记本，开始写'), findsNothing);
+
+    expect(find.text('我的小说'), findsOneWidget);
+    expect(find.text('还没有笔记本'), findsNothing);
   });
 
-  testWidgets('有数据：状态栏渲染今日进度与文档字数', (tester) async {
+  testWidgets('有书且 last_open：恢复进单书工作区，状态栏渲染今日进度与字数', (tester) async {
     await pumpAtSize(tester, const Size(1200, 800));
     final (library, settings) = (await tester.runAsync(
       () => makeApp(seed: true),
@@ -120,12 +99,30 @@ void main() {
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
     await tester.pump();
 
+    expect(find.byType(LibraryHome), findsNothing);
+    expect(find.byType(Sidebar), findsOneWidget);
     // 创建时含「正文」2 字；保存「正文一二三」5 字 → 今日增量 3
     expect(find.text('今日 3/2000'), findsOneWidget);
-    // 本文显示快照字数
     expect(find.text('本文 5 字'), findsOneWidget);
     // 当前文档标题：侧边栏树行 + 编辑器区各一处
     expect(find.text('第一章'), findsNWidgets(2));
+  });
+
+  testWidgets('单书工作区：顶栏返回 → 回到笔记本管理页', (tester) async {
+    await pumpAtSize(tester, const Size(1200, 800));
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(seed: true),
+    ))!;
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    expect(find.byType(Sidebar), findsOneWidget);
+    await tester.tap(find.byTooltip('返回笔记本管理'));
+    // closeNotebook 先 await 编辑器 beforeSwitchSave（真实写库），多轮推进后切回管理页。
+    await settleDatabaseWrite(tester);
+    expect(find.byType(LibraryHome), findsOneWidget);
+    expect(find.byType(Sidebar), findsNothing);
+    expect(library.currentNotebook, isNull);
   });
 
   testWidgets('Ctrl/Cmd+B 切换侧边栏显隐（桌面）', (tester) async {
@@ -136,7 +133,6 @@ void main() {
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
     await tester.pump();
 
-    // 初始：侧边栏可见（「小说」同时在侧边栏树与顶栏 breadcrumb，故用 Sidebar 组件判定）
     expect(find.byType(Sidebar), findsOneWidget);
 
     final mod = Platform.isMacOS
@@ -150,9 +146,9 @@ void main() {
     }
 
     await pressB();
-    expect(find.byType(Sidebar), findsNothing); // 侧边栏隐藏，编辑器区占满
+    expect(find.byType(Sidebar), findsNothing);
     await pressB();
-    expect(find.byType(Sidebar), findsOneWidget); // 再次按下恢复
+    expect(find.byType(Sidebar), findsOneWidget);
   });
 
   testWidgets('顶栏侧边栏按钮切换侧边栏显隐（桌面）', (tester) async {
@@ -163,13 +159,11 @@ void main() {
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
     await tester.pump();
 
-    // 初始：侧边栏可见，按钮为「收起」态。
     expect(find.byType(Sidebar), findsOneWidget);
     final mod = Platform.isMacOS ? '⌘' : 'Ctrl';
     await tester.tap(find.byTooltip('收起侧边栏 ($mod+B)'));
     await tester.pump();
     expect(find.byType(Sidebar), findsNothing);
-    // 按钮仍可见（EditorHeader 常驻），tooltip 切为「展开」态。
     await tester.tap(find.byTooltip('展开侧边栏 ($mod+B)'));
     await tester.pump();
     expect(find.byType(Sidebar), findsOneWidget);

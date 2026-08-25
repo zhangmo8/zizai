@@ -63,6 +63,22 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// 打开侧边栏顶栏的「这本书的设置」对话框。
+  Future<void> openBookSettings(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('这本书的设置'));
+    await tester.pumpAndSettle();
+  }
+
+  /// 排空 sqflite 真实异步落库队列。
+  Future<void> drain(WidgetTester tester) async {
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pump();
+    }
+  }
+
   testWidgets('侧边栏设置入口 → 对话框出现，含各区块', (tester) async {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
@@ -70,7 +86,6 @@ void main() {
 
     expect(find.text('设置'), findsWidgets);
     expect(find.text('外观'), findsWidgets);
-    expect(find.text('写作'), findsOneWidget);
     expect(find.text('数据'), findsOneWidget);
     expect(find.text('恢复默认'), findsOneWidget);
     expect(find.text('关闭'), findsNothing); // 桌面端仅保留右上角关闭按钮
@@ -122,22 +137,16 @@ void main() {
   testWidgets('每日目标输入 → 状态栏进度即时刷新', (tester) async {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
-    await openSettings(tester);
-    await openCategory(tester, '写作');
+    await openBookSettings(tester);
 
-    await tester.enterText(
-      find.descendant(
-        of: find.byType(SettingsView),
-        matching: find.byType(TextField),
-      ),
-      '3000',
-    );
+    await tester.enterText(find.byType(TextField).first, '3000');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
+    await drain(tester);
 
-    final notebookId = library.currentDocument!.notebookId;
+    final notebookId = library.currentNotebook!.id;
     expect(settings.goalForNotebook(notebookId).words, 3000);
-    // 关闭设置后状态栏反映新目标
+    // 关闭对话框后状态栏反映新目标
     await tester.tap(find.byTooltip('关闭'));
     await tester.pumpAndSettle();
     expect(find.text('今日 0/3000'), findsOneWidget);
@@ -146,31 +155,24 @@ void main() {
   testWidgets('非法目标输入不生效', (tester) async {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
-    await openSettings(tester);
-    await openCategory(tester, '写作');
+    await openBookSettings(tester);
 
-    await tester.enterText(
-      find.descendant(
-        of: find.byType(SettingsView),
-        matching: find.byType(TextField),
-      ),
-      '50',
-    ); // 低于下限
+    await tester.enterText(find.byType(TextField).first, '50'); // 低于下限
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
-    final notebookId = library.currentDocument!.notebookId;
+    final notebookId = library.currentNotebook!.id;
     expect(settings.goalForNotebook(notebookId).words, 2000); // 不变
   });
 
   testWidgets('笔记本目标可关闭，关闭后状态栏隐藏进度', (tester) async {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
-    await openSettings(tester);
-    await openCategory(tester, '写作');
+    await openBookSettings(tester);
 
-    await tester.tap(find.byType(ZzSwitch).first);
+    await tester.tap(find.byType(ZzSwitch).first); // 启用今日目标
     await tester.pump();
-    final notebookId = library.currentDocument!.notebookId;
+    await drain(tester);
+    final notebookId = library.currentNotebook!.id;
     expect(settings.goalForNotebook(notebookId).enabled, isFalse);
 
     await tester.tap(find.byTooltip('关闭'));
@@ -182,7 +184,7 @@ void main() {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
     await openSettings(tester);
-    await openCategory(tester, '写作');
+    await openCategory(tester, '外观');
 
     expect(settings.settings.focusDim, isFalse);
 
@@ -247,8 +249,14 @@ void main() {
     final (library, settings) = (await tester.runAsync(
       () => makeApp(seed: false),
     ))!;
-    await pumpApp(tester, library, settings);
-    await openSettings(tester);
+    // 无文档时工作区不可达（进管理页），直接渲染设置视图验证数据区。
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(body: SettingsView(settings: settings, library: library)),
+      ),
+    );
+    await tester.pump();
     await openCategory(tester, '数据');
 
     expect(find.text('先打开一个文档'), findsOneWidget);
@@ -330,16 +338,16 @@ void main() {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
     await openSettings(tester);
-    expect(find.text('写作'), findsOneWidget);
+    expect(find.text('恢复默认'), findsOneWidget);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
 
-    expect(find.text('写作'), findsNothing);
-    expect(find.text('每日目标字数'), findsNothing);
+    expect(find.text('恢复默认'), findsNothing);
+    expect(find.text('外观'), findsNothing);
   });
 
-  testWidgets('状态栏今日进度点击 → 打开设置并聚焦每日目标', (tester) async {
+  testWidgets('状态栏今日进度点击 → 打开这本书的设置并聚焦每日目标', (tester) async {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
     expect(find.text('今日 0/2000'), findsOneWidget);
@@ -347,7 +355,8 @@ void main() {
     await tester.tap(find.text('今日 0/2000'));
     await tester.pumpAndSettle();
 
-    // 设置对话框打开并定位到「写作」分类，每日目标输入框获得焦点
+    // 「这本书的设置」对话框打开，每日目标输入框获得焦点
+    expect(find.textContaining('这本书的设置'), findsOneWidget);
     expect(find.text('每日目标字数'), findsOneWidget);
     final goalField = tester.widget<TextField>(find.byType(TextField).first);
     expect(goalField.focusNode?.hasFocus, isTrue);
@@ -355,11 +364,10 @@ void main() {
     await tester.runAsync(() => settings.load());
   });
 
-  testWidgets('写作区：行首自动缩进开关即改即存并持久化', (tester) async {
+  testWidgets('这本书的设置：行首自动缩进开关即改即存并持久化', (tester) async {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
-    await openSettings(tester);
-    await openCategory(tester, '写作');
+    await openBookSettings(tester);
 
     final nbId = library.notebooks.single.id;
     expect(settings.indentForNotebook(nbId), isFalse);
@@ -378,13 +386,7 @@ void main() {
 
     await tester.tap(indentSwitch);
     await tester.pump();
-    // 让真实异步写库完成。
-    for (var i = 0; i < 5; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 40)),
-      );
-      await tester.pump();
-    }
+    await drain(tester);
     expect(settings.indentForNotebook(nbId), isTrue);
     // 持久化：重新加载。
     await tester.runAsync(() => settings.load());
