@@ -174,6 +174,7 @@ update_checker ──(异步)──► update.json（GitHub Releases）  # 见 d
 | 沉浸模式 | `Ctrl/Cmd+Shift+F` 进入；`Esc`/顶缘悬停条退出 | 系统返回手势/返回键退出；顶部 48px 热区兜底（点按弹「退出+字数」条、下滑直接退） |
 | 删除确认 | 右键菜单 + 确认条 | 长按 + 确认条 |
 | 导出 | 系统保存对话框选路径 | 系统分享（分享为文本） |
+| 粘贴 | 桌面：Windows 按纯文本粘贴（flutter_quill 的富文本粘贴在 Windows 调 quill_native_bridge 读剪贴板 HTML 会崩溃，已关外部富文本粘贴）；macOS 保留富文本粘贴 | 系统剪贴板文本粘贴 |
 | 窗口 | 可调大小，最小宽 800px | 竖屏优先 |
 
 ## 9. 关键设计决策（ADR）

@@ -18,6 +18,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' as q;
+// flutter_quill 未公开导出 QuillControllerConfig/QuillClipboardConfig，
+// 但 Windows 富文本粘贴崩溃必须在此配置关闭，故直接引用内部文件。
+// ignore: implementation_imports
+import 'package:flutter_quill/src/controller/quill_controller_config.dart'
+    as quill_config;
 
 import '../app.dart' show appColorsOf;
 import '../core/app_logger.dart';
@@ -245,6 +250,16 @@ class _EditorViewState extends State<EditorView> {
     _quill = q.QuillController(
       document: _documentFromCurrent(),
       selection: const TextSelection.collapsed(offset: 0),
+      config: quill_config.QuillControllerConfig(
+        // Windows 富文本粘贴会调 quill_native_bridge_windows 读剪贴板 HTML，
+        // 该实现遇 nullptr 直接抛「Unsupported operation: toDartString not
+        // allowed on a 'nullptr'」，导致每次 Ctrl+V 静默失败（日志已证实）。
+        // 写作应用按纯文本粘贴即可（与 fleather fork 默认行为一致）：
+        // 关闭外部富文本粘贴后走系统剪贴板纯文本路径，规避崩溃；macOS 不受影响。
+        clipboardConfig: quill_config.QuillClipboardConfig(
+          enableExternalRichPaste: !isWindows,
+        ),
+      ),
     );
     _loadedDocumentId = widget.library.currentDocument?.id;
     _lastSavedContent = widget.library.currentDocument?.content ?? '';

@@ -12,5 +12,8 @@ bool get isDesktopPlatform =>
 /// 是否为 macOS。
 bool get isMacOS => !kIsWeb && Platform.isMacOS;
 
+/// 是否为 Windows。
+bool get isWindows => !kIsWeb && Platform.isWindows;
+
 /// 是否为 Android。
 bool get isAndroidPlatform => !kIsWeb && Platform.isAndroid;
