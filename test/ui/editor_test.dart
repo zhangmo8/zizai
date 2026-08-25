@@ -631,9 +631,10 @@ void main() {
     final scroll = editor.scrollController;
     expect(scroll.offset, 0); // 初始在顶部
 
-    // 光标跳到文档末尾（第 30 行）→ 打字机滚动拉回到视口中部。
+    // 光标跳到文档中部（约第 15 行，无 maxScroll 限制）→ 打字机滚动把该行
+    // 精确滚动到视口垂直中心。
     controller.updateSelection(
-      TextSelection.collapsed(offset: controller.document.length - 1),
+      TextSelection.collapsed(offset: controller.document.length ~/ 2),
       q.ChangeSource.local,
     );
     await tester.pump();
@@ -641,8 +642,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(scroll.offset, greaterThan(0));
-    // 光标行应处于视口中部（顶部 1/4 到 3/4 之间）——区别于 flutter_quill
-    // 自带 bringIntoView 的「滚到视口底部边缘」。
     final rawState = tester.state<q.QuillRawEditorState>(
       find.byType(q.QuillRawEditor),
     );
@@ -660,8 +659,80 @@ void main() {
     // 全局坐标已含滚动偏移：光标相对视口位置 = 光标全局 y - 视口顶部全局 y。
     final caretInViewport = caretGlobalY - viewportGlobalY;
     final viewportH = scroll.position.viewportDimension;
-    expect(caretInViewport, greaterThan(viewportH * 0.25));
-    expect(caretInViewport, lessThan(viewportH * 0.75));
+    // 行中心（行顶 + 行高/2）应对准视口垂直中心。
+    expect(
+      (caretInViewport + caret.height / 2 - viewportH / 2).abs(),
+      lessThan(20),
+    );
+
+    await tester.runAsync(() => db.close());
+  });
+
+  testWidgets('打字机滚动：窗口 resize 后自动重新居中', (tester) async {
+    final (library, settings, db, _, docId) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    final longContent = List.generate(40, (i) => '第${i + 1}行内容\n').join();
+    await tester.runAsync(
+      () => library.saveDocument(
+        documentId: docId,
+        title: '第一章',
+        content: jsonEncode([
+          {'insert': longContent},
+        ]),
+        writtenWords: 0,
+      ),
+    );
+    await tester.runAsync(
+      () => settings.update(settings.settings.copyWith(focusDim: true)),
+    );
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    final controller = editor.controller;
+    final scroll = editor.scrollController;
+
+    // 光标到文档中部 → 首次居中。
+    controller.updateSelection(
+      TextSelection.collapsed(offset: controller.document.length ~/ 2),
+      q.ChangeSource.local,
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    // 光标行中心相对视口中心的偏差（px）。
+    double centeredOffset() {
+      final rawState = tester.state<q.QuillRawEditorState>(
+        find.byType(q.QuillRawEditor),
+      );
+      final caret = rawState.renderEditor.getLocalRectForCaret(
+        TextPosition(offset: controller.selection.baseOffset),
+      );
+      final caretGlobalY = rawState.renderEditor
+          .localToGlobal(caret.topLeft)
+          .dy;
+      final viewportGlobalY =
+          (scroll.position.context.storageContext.findRenderObject()!
+                  as RenderBox)
+              .localToGlobal(Offset.zero)
+              .dy;
+      final caretInViewport = caretGlobalY - viewportGlobalY;
+      final viewportH = scroll.position.viewportDimension;
+      return (caretInViewport + caret.height / 2 - viewportH / 2).abs();
+    }
+
+    expect(centeredOffset(), lessThan(20)); // 首次居中
+
+    // resize 窗口（视口高度变化）→ 打字机滚动应自动重新居中。
+    tester.view.physicalSize = const Size(1500, 1100);
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(centeredOffset(), lessThan(20)); // resize 后仍居中
 
     await tester.runAsync(() => db.close());
   });

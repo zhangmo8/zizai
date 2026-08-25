@@ -290,8 +290,35 @@ class _EditorViewState extends State<EditorView> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final size = MediaQuery.sizeOf(context);
+    if (_lastLayoutSize != null && size != _lastLayoutSize) {
+      // 窗口尺寸变化（resize）→ 布局稳定后重新执行打字机滚动。
+      _scheduleTypewriterRecenter();
+    }
+    _lastLayoutSize = size;
+  }
+
+  /// 布局/视口变化（resize、沉浸模式进出）后一帧重新居中光标行。
+  ///
+  /// 不经过 [_typewriterScroll] 的双重 post-frame：那是为输入时与
+  /// flutter_quill 的 showCaretOnScreen 自动滚动协调设计的；这里没有
+  /// 自动滚动竞争，一帧后直接居中即可。
+  void _scheduleTypewriterRecenter() {
+    if (!widget.settings.settings.focusDim) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _typewriterScrollPostFrame();
+    });
+  }
+
+  @override
   void didUpdateWidget(covariant EditorView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // 沉浸模式进出（视口尺寸变化）→ 重新居中光标行。
+    if (oldWidget.focusMode != widget.focusMode) {
+      _scheduleTypewriterRecenter();
+    }
     // 从沉浸退出（Esc / 悬浮工具栏 / Android 返回）后把焦点交还编辑器。
     if (oldWidget.focusMode && !widget.focusMode) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -823,8 +850,14 @@ class _EditorViewState extends State<EditorView> {
   /// 居中——保证光标行居中总是最终状态。120ms easeOut 平滑跟随。
   bool _typewriterArmed = false;
 
+  /// 上一次布局的窗口逻辑尺寸（resize 检测用；null = 尚未布局）。
+  ///
+  /// 窗口尺寸变化（resize / 沉浸模式进出）时 ScrollController 不会通知
+  /// listeners（applyViewportDimension 只置标志），因此走 didChangeDependencies
+  /// 的 MediaQuery 尺寸比对来触发重新居中。
+  Size? _lastLayoutSize;
+
   void _typewriterScroll() {
-    // 与焦点暗淡（暗淡非当前行）联动：focusDim 开启时打字机滚动生效。
     if (!widget.settings.settings.focusDim || _typewriterArmed) return;
     // 双重 post-frame：flutter_quill 的 showCaretOnScreen 在本帧 post-frame
     // 才启动自动滚动（animateTo），第一帧注册的第二帧回调晚于它，此时才能
