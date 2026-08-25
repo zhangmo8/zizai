@@ -96,14 +96,14 @@ class _BookSettingsDialogState extends State<BookSettingsDialog> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 15,
+                            fontSize: 14,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
-                      IconButton(
+                      ZzIconButton(
                         tooltip: '关闭',
-                        icon: const Icon(Icons.close, size: 18),
+                        icon: Icons.close,
                         onPressed: () => Navigator.of(context).maybePop(),
                       ),
                     ],
@@ -134,16 +134,22 @@ class _BookSettingsDialogState extends State<BookSettingsDialog> {
                             if (goal.enabled)
                               _row(
                                 '每日目标字数',
-                                _numberField(
-                                  controller: _goalController,
-                                  focusNode: _goalFocus,
-                                  hint: '100–50000',
-                                  onSubmit: (v) {
-                                    final n = int.tryParse(v.trim());
-                                    if (n != null && n >= 100 && n <= 50000) {
-                                      _setGoal(n);
-                                    }
-                                  },
+                                SizedBox(
+                                  width: 140,
+                                  child: ZzTextField(
+                                    controller: _goalController,
+                                    focusNode: _goalFocus,
+                                    hint: '100–50000',
+                                    keyboardType: TextInputType.number,
+                                    onSubmitted: (v) {
+                                      final n = int.tryParse(v.trim());
+                                      if (n != null &&
+                                          n >= 100 &&
+                                          n <= 50000) {
+                                        _setGoal(n);
+                                      }
+                                    },
+                                  ),
                                 ),
                                 description: '只计入这本书今天新增的文字',
                               ),
@@ -182,16 +188,20 @@ class _BookSettingsDialogState extends State<BookSettingsDialog> {
                             if (volume.enabled)
                               _row(
                                 '每卷章数',
-                                _numberField(
-                                  controller: _volumeController,
-                                  focusNode: _volumeFocus,
-                                  hint: '1–500',
-                                  onSubmit: (v) {
-                                    final n = int.tryParse(v.trim());
-                                    if (n != null && n >= 1 && n <= 500) {
-                                      _setVolumeChapters(n);
-                                    }
-                                  },
+                                SizedBox(
+                                  width: 140,
+                                  child: ZzTextField(
+                                    controller: _volumeController,
+                                    focusNode: _volumeFocus,
+                                    hint: '1–500',
+                                    keyboardType: TextInputType.number,
+                                    onSubmitted: (v) {
+                                      final n = int.tryParse(v.trim());
+                                      if (n != null && n >= 1 && n <= 500) {
+                                        _setVolumeChapters(n);
+                                      }
+                                    },
+                                  ),
                                 ),
                                 description: '第 1~N 章为第一卷，之后每 N 章一卷',
                               ),
@@ -243,43 +253,6 @@ class _BookSettingsDialogState extends State<BookSettingsDialog> {
               ),
             ),
         ],
-      ),
-    );
-  }
-
-  Widget _numberField({
-    required TextEditingController controller,
-    required FocusNode focusNode,
-    required String hint,
-    required ValueChanged<String> onSubmit,
-  }) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
-    return SizedBox(
-      width: 140,
-      child: TextField(
-        controller: controller,
-        focusNode: focusNode,
-        keyboardType: TextInputType.number,
-        textAlign: TextAlign.right,
-        style: const TextStyle(fontSize: 13),
-        decoration: InputDecoration(
-          isDense: true,
-          hintText: hint,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          filled: true,
-          fillColor: appColors.callout,
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(4),
-            borderSide: BorderSide(color: colors.outline),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(4),
-            borderSide: BorderSide(color: colors.primary),
-          ),
-        ),
-        onSubmitted: onSubmit,
       ),
     );
   }

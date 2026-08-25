@@ -157,7 +157,7 @@ class _HomeState extends State<_Home> {
                   Text(
                     '笔记本',
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 15,
                       fontWeight: FontWeight.w600,
                       color: colors.onSurface,
                     ),
@@ -168,14 +168,14 @@ class _HomeState extends State<_Home> {
                     onChanged: (v) => setState(() => _view = v),
                   ),
                   const SizedBox(width: 4),
-                  IconButton(
+                  ZzIconButton(
                     tooltip: '新建笔记本',
-                    icon: const Icon(Icons.add),
+                    icon: Icons.add,
                     onPressed: widget.onNewNotebook,
                   ),
-                  IconButton(
+                  ZzIconButton(
                     tooltip: '设置',
-                    icon: const Icon(Icons.settings_outlined),
+                    icon: Icons.settings_outlined,
                     onPressed: widget.onOpenSettings,
                   ),
                 ],
@@ -212,7 +212,7 @@ class _HomeState extends State<_Home> {
   }
 }
 
-/// 右上角视图切换（grid / list，锚定下拉菜单）。
+/// 右上角视图切换（grid / list，Notion 分段：active = bg-active 灰底）。
 class _ViewToggle extends StatelessWidget {
   const _ViewToggle({required this.view, required this.onChanged});
 
@@ -227,7 +227,7 @@ class _ViewToggle extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         border: Border.all(color: colors.outline),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -282,7 +282,7 @@ class _ToggleIcon extends StatelessWidget {
           child: Icon(
             icon,
             size: 16,
-            color: active ? colors.primary : appColors.textTertiary,
+            color: active ? colors.onSurfaceVariant : appColors.textTertiary,
           ),
         ),
       ),
@@ -374,7 +374,8 @@ class _ListHome extends StatelessWidget {
   }
 }
 
-/// 新建/重命名笔记本的命名对话框（自身持有 controller，随退场动画安全销毁）。
+/// 新建/重命名笔记本的命名对话框（Notion 弹层：6px 圆角、14 semibold 标题、
+/// 右对齐文字按钮；自身持有 controller，随退场动画安全销毁）。
 class _NameDialog extends StatefulWidget {
   const _NameDialog({required this.title, required this.initial});
 
@@ -388,37 +389,77 @@ class _NameDialog extends StatefulWidget {
 class _NameDialogState extends State<_NameDialog> {
   late final TextEditingController _controller =
       TextEditingController(text: widget.initial);
+  final FocusNode _focus = FocusNode();
 
   @override
   void dispose() {
     _controller.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: SizedBox(
+    final colors = Theme.of(context).colorScheme;
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(24),
+      child: Container(
         width: 320,
-        child: TextField(
-          controller: _controller,
-          autofocus: true,
-          style: const TextStyle(fontSize: 14),
-          decoration: const InputDecoration(isDense: true),
-          onSubmitted: (_) => Navigator.of(context).pop(_controller.text),
+        decoration: BoxDecoration(
+          color: appColorsOf(context).surfaceRaised,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: colors.outline),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x1A000000),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              widget.title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 14),
+            ZzTextField(
+              controller: _controller,
+              focusNode: _focus,
+              hint: '笔记本名称',
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => Navigator.of(context).pop(_controller.text),
+            ),
+            const SizedBox(height: 14),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ZzButton.link(
+                    label: '取消',
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                  const SizedBox(width: 4),
+                  ZzButton.primary(
+                    label: '确定',
+                    onPressed: () => Navigator.of(context).pop(_controller.text),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        ZzButton.primary(
-          label: '确定',
-          onPressed: () => Navigator.of(context).pop(_controller.text),
-        ),
-      ],
     );
   }
 }
@@ -591,19 +632,21 @@ class _HoverCardState extends State<_HoverCard> {
           duration: const Duration(milliseconds: 100),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
+            // Notion 灰阶（design.md §2/§3）：hover 轻背景 + divider 描边 +
+            // 0 4px 12px rgba(0,0,0,0.1) 阴影；不用 accent 描边。
             color: _pressed
                 ? appColors.rowSelected
+                : _hover
+                ? appColors.surfaceHover
                 : appColors.surfaceRaised,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: _hover ? colors.primary : colors.outline,
-            ),
+            border: Border.all(color: colors.outline),
             boxShadow: _hover
-                ? [
+                ? const [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
+                      color: Color(0x1A000000), // rgba(0,0,0,0.1)
                       blurRadius: 12,
-                      offset: const Offset(0, 4),
+                      offset: Offset(0, 4),
                     ),
                   ]
                 : null,
@@ -632,7 +675,6 @@ class _HoverRowState extends State<_HoverRow> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     final appColors = appColorsOf(context);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -648,14 +690,12 @@ class _HoverRowState extends State<_HoverRow> {
           duration: const Duration(milliseconds: 100),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           decoration: BoxDecoration(
-            color: _pressed ? appColors.rowSelected : Colors.transparent,
+            color: _pressed
+                ? appColors.rowSelected
+                : _hover
+                ? appColors.surfaceHover
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(6),
-            border: Border(
-              left: BorderSide(
-                color: _hover ? colors.primary : Colors.transparent,
-                width: 2,
-              ),
-            ),
           ),
           child: widget.child,
         ),

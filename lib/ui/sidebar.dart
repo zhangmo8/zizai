@@ -682,7 +682,7 @@ class _BookHeader extends StatelessWidget {
       child: Row(
         children: [
           if (onBack != null)
-            _TinyIconButton(
+            ZzIconButton(
               tooltip: '返回笔记本管理',
               icon: Icons.arrow_back,
               onPressed: onBack!,
@@ -703,13 +703,13 @@ class _BookHeader extends StatelessWidget {
             ),
           ),
           if (onOpenBookSearch != null)
-            _TinyIconButton(
+            ZzIconButton(
               tooltip: '全书搜索 (${isMacOS ? '⌘' : 'Ctrl'}+P)',
               icon: Icons.search,
               onPressed: onOpenBookSearch!,
             ),
           if (onOpenBookSettings != null)
-            _TinyIconButton(
+            ZzIconButton(
               tooltip: '这本书的设置',
               icon: Icons.settings_outlined,
               onPressed: onOpenBookSettings!,
@@ -737,7 +737,7 @@ class _VolumeHeader extends StatelessWidget {
       child: Text(
         '第${_toChineseNumber(volumeNumber)}卷',
         style: TextStyle(
-          fontSize: 11,
+          fontSize: 12,
           fontWeight: FontWeight.w600,
           letterSpacing: 1,
           color: appColors.textTertiary,
@@ -1227,28 +1227,6 @@ class _LoadingSkeleton extends StatelessWidget {
             ),
         ],
       ),
-    );
-  }
-}
-
-class _TinyIconButton extends StatelessWidget {
-  const _TinyIconButton({
-    required this.tooltip,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return IconButton(
-      onPressed: onPressed,
-      tooltip: tooltip,
-      icon: Icon(icon, size: 18, color: colors.onSurfaceVariant),
     );
   }
 }

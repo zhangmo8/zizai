@@ -604,6 +604,80 @@ void showZzToast(BuildContext context, String message, {bool error = false}) {
   });
 }
 
+// ── 图标按钮 ─────────────────────────────────────────────────
+
+/// 图标按钮（Notion chrome）：28×28、4px 圆角，tertiary icon（hover 转
+/// primary 文字色），hover/pressed 背景反馈；**必须带 tooltip**（§4/§5.4）。
+class ZzIconButton extends StatefulWidget {
+  const ZzIconButton({
+    super.key,
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+    this.size = 18,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final double size;
+
+  @override
+  State<ZzIconButton> createState() => _ZzIconButtonState();
+}
+
+class _ZzIconButtonState extends State<ZzIconButton> {
+  bool _hover = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final appColors = appColorsOf(context);
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: widget.onPressed != null
+            ? SystemMouseCursors.click
+            : MouseCursor.defer,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: widget.onPressed == null
+              ? null
+              : (_) => setState(() => _pressed = true),
+          onTapUp: widget.onPressed == null
+              ? null
+              : (_) => setState(() => _pressed = false),
+          onTapCancel: widget.onPressed == null
+              ? null
+              : () => setState(() => _pressed = false),
+          onTap: widget.onPressed,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 100),
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: _pressed
+                  ? appColors.rowSelected
+                  : _hover
+                  ? appColors.surfaceHover
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Icon(
+              widget.icon,
+              size: widget.size,
+              color: _hover ? colors.onSurface : colors.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ── 内部：hover 反馈容器 ─────────────────────────────────────
 
 class _HoverBox extends StatefulWidget {
