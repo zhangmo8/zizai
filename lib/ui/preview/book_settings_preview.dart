@@ -88,6 +88,16 @@ class _StaticBookSettings extends StatelessWidget {
                     ],
                   ),
                   _Group(
+                    label: '目录',
+                    children: [
+                      _Row(
+                        label: '章节排序',
+                        control: _SelectPreview(text: '正序（旧章在上）'),
+                        description: '章节很多时倒序浏览最新章节更方便',
+                      ),
+                    ],
+                  ),
+                  _Group(
                     label: '分卷',
                     children: [
                       _Row(

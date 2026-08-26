@@ -33,6 +33,10 @@ void main() {
     await tester.runAsync(() => settings.load());
     final library = LibraryController(db);
     await tester.runAsync(() => library.restore());
+    // 状态栏「今日/本文」依赖当前文档：进入该书（同旧启动行为）。
+    await tester.runAsync(
+      () => library.openNotebook(library.notebooks.first.id),
+    );
     // 本次写作有增量 → 会话 chip 出现（状态栏最宽的组合之一）。
     library.session.onWordsWritten(100);
 

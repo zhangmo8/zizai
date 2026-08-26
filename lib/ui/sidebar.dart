@@ -13,7 +13,7 @@ import '../app.dart' show AppColors, appColorsOf;
 import '../core/models.dart';
 import '../state/library_controller.dart';
 import '../state/settings_controller.dart';
-import '../util/chinese.dart' show toChineseNumber, toHalfWidthDigits;
+import '../util/chinese.dart' show toChineseNumber;
 import '../util/platform.dart';
 import 'book_settings.dart';
 import 'zz.dart';
@@ -204,86 +204,12 @@ int _volumeIndexIn(List<TreeRowRef> refs, int index) {
   return count;
 }
 
-/// 「第 N 章/回/节/卷」式编号标题检测（与 export.dart 的 `_numberedTitle` 同源）。
-final RegExp _numberedChapterTitle = RegExp(
-  r'^\s*第\s*[0-9０-９一二三四五六七八九十百千万零两]+\s*[章回节卷]',
-);
-
-/// 从「第 N 章」式标题中抽取 (序号, 是否阿拉伯数字)；无法解析返回 null。
-final RegExp _chapterNumber = RegExp(
-  r'第\s*([0-9０-９一二三四五六七八九十百千万零两]+)\s*[章回节卷]',
-);
-final RegExp _arabicDigits = RegExp(r'^[0-9０-９]+$');
-
-(int, bool)? _chapterNumberOf(String title) {
-  final m = _chapterNumber.firstMatch(title);
-  if (m == null) return null;
-  final raw = m.group(1)!;
-  if (_arabicDigits.hasMatch(raw)) {
-    final n = int.tryParse(toHalfWidthDigits(raw));
-    return n == null ? null : (n, true);
-  }
-  final n = _parseChineseNumber(raw);
-  return n < 0 ? null : (n, false);
-}
-
-/// 根据已有章节推断新章节默认标题。
+/// 根据已有章节数量推断新章节默认标题：直接按「整本章节数 + 1」编号。
 ///
-/// 已有章节均符合「第 N 章」模式时按最大序号 +1 自动递增，并沿用原数字
-/// 风格（纯中文 → 中文，纯阿拉伯/混用 → 阿拉伯）；任意章节不符合模式则
-/// 返回 '新章节'，不强制编号。空笔记本返回 '第 1 章'。
-String suggestedChapterTitle(List<Document> existingDocs) {
-  if (existingDocs.isEmpty) return '第 1 章';
-  // 任意章节不符合编号模式 → 不强制编号，沿用默认名。
-  if (!existingDocs.every((d) => _numberedChapterTitle.hasMatch(d.title))) {
-    return '新章节';
-  }
-  var maxNumber = 0;
-  var allChinese = true;
-  for (final doc in existingDocs) {
-    final parsed = _chapterNumberOf(doc.title);
-    if (parsed == null) {
-      // 全部命中模式但有不可解析序号 → 回退为序号计数 +1。
-      return '第 ${existingDocs.length + 1} 章';
-    }
-    final (n, isArabic) = parsed;
-    if (isArabic) allChinese = false;
-    if (n > maxNumber) maxNumber = n;
-  }
-  final next = maxNumber + 1;
-  return allChinese ? '第${toChineseNumber(next)}章' : '第 $next 章';
-}
-
-/// 中文数字串 → int；无法解析返回 -1。
-int _parseChineseNumber(String s) {
-  const digits = {
-    '零': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4,
-    '五': 5, '六': 6, '七': 7, '八': 8, '九': 9,
-  };
-  const units = {'十': 10, '百': 100, '千': 1000, '万': 10000};
-  var total = 0;
-  var section = 0;
-  var number = 0;
-  for (final ch in s.split('')) {
-    if (digits.containsKey(ch)) {
-      number = digits[ch]!;
-    } else if (units.containsKey(ch)) {
-      final unit = units[ch]!;
-      if (ch == '万') {
-        section = (section + number) * unit;
-        total += section;
-        section = 0;
-        number = 0;
-      } else {
-        section += (number == 0 ? 1 : number) * unit;
-        number = 0;
-      }
-    } else {
-      return -1;
-    }
-  }
-  return total + section + number;
-}
+/// 不管现有标题是否含数字（「序章」「楔子」等混合标题也照算），
+/// 空笔记本返回「第 1 章」。新增：3 章 → 第 4 章。
+String suggestedChapterTitle(List<Document> existingDocs) =>
+    '第 ${existingDocs.length + 1} 章';
 
 class Sidebar extends StatefulWidget {
   const Sidebar({
@@ -556,6 +482,8 @@ class _SidebarState extends State<Sidebar> {
   /// - 分卷关闭 / 视图「平铺展示」→ 平铺章节列表。
   /// - 自动分卷 → 按每卷章数插入「第 N 卷」分组标题（纯推导，不写库，可重命名）。
   /// - 手动分卷 → 按 volumes 表真实分组；卷头可新建/重命名/删除，章节可移动。
+  /// - 章节排序（设置 → 目录 → 章节排序）：倒序时最新章在上，
+  ///   「+ 新建章节」按钮随「序列末尾端」移动（正序在最下，倒序在最上）。
   Widget _buildTree(Notebook nb) {
     final library = widget.library;
     final colors = Theme.of(context).colorScheme;
@@ -568,18 +496,20 @@ class _SidebarState extends State<Sidebar> {
       refs.add(ref);
     }
 
+    final ascending = widget.settings.docsAscending(nb.id);
     final docs = library.documentsOf(nb.id);
+    final orderedDocs = ascending ? docs : docs.reversed.toList();
     final volume = widget.settings.volumeForNotebook(nb.id);
     final grouped = volume.enabled && widget.settings.volumeViewGrouped;
     final manual = grouped && volume.mode == VolumeMode.manual;
     final volumes = library.volumesOf(nb.id);
 
     if (manual) {
-      _buildManualTree(nb, docs, volumes, add);
+      _buildManualTree(nb, orderedDocs, volumes, add);
     } else {
       var docIndex = 0;
       var volumeNumber = 1;
-      for (final doc in docs) {
+      for (final doc in orderedDocs) {
         if (grouped && docIndex % volume.chapters == 0) {
           final number = volumeNumber; // 捕获当前值（闭包内不能引用循环变量）
           if (_isEditingVolume('$number')) {
@@ -597,7 +527,7 @@ class _SidebarState extends State<Sidebar> {
               _VolumeHeader(
                 key: ValueKey('vol-${nb.id}-$number'),
                 title: widget.settings.autoVolumeName(nb.id, number),
-                count: '${volume.chapters.clamp(0, docs.length - docIndex)} 章',
+                count: '${volume.chapters.clamp(0, orderedDocs.length - docIndex)} 章',
                 menuItems: [
                   _MenuEntry(
                     '重命名',
@@ -642,14 +572,19 @@ class _SidebarState extends State<Sidebar> {
       }
     }
 
+    // 「+ 新建章节」跟随序列末尾端：正序在树末，倒序在树顶（与最新章节相邻）。
     if (docs.isNotEmpty) {
-      add(
-        _NewDocumentButton(
-          key: ValueKey('new-doc-${nb.id}'),
-          onPressed: () => _createDocumentDirect(nb.id),
-        ),
-        TreeRowRef(notebookId: nb.id),
+      final newButton = _NewDocumentButton(
+        key: ValueKey('new-doc-${nb.id}'),
+        onPressed: () => _createDocumentDirect(nb.id),
       );
+      final ref = TreeRowRef(notebookId: nb.id);
+      if (ascending) {
+        add(newButton, ref);
+      } else {
+        children.insert(0, newButton);
+        refs.insert(0, ref);
+      }
     }
     _rowRefs = refs;
 
@@ -669,26 +604,35 @@ class _SidebarState extends State<Sidebar> {
     );
   }
 
-  /// 手动分卷树：卷序 → 卷内章节；底部「+ 新建章节」。
+  /// 手动分卷树：卷序 → 卷内章节。
   /// 无「未归卷」概念——章节永远属于某卷（新章节自动落卷；脏数据卷 id 回退最后一卷）。
+  /// 排序：倒序时卷与卷内章节都反转（最后一卷、最新章在最上）。
   void _buildManualTree(
     Notebook nb,
     List<Document> docs,
     List<Volume> volumes,
     void Function(Widget child, TreeRowRef ref) add,
   ) {
-    // 分桶：卷序 → 章节（position 序）。
+    // 分桶：卷序 → 章节（docs 已按展示序传入，桶内保持该顺序）。
     final buckets = <String, List<Document>>{
       for (final vol in volumes) vol.id: <Document>[],
     };
+    // 兜底桶：无任何卷但残留章节（如旧版删卷只清归属、卷全删光后遗留的脏数据），
+    // 平铺渲染不崩溃；用户建卷后用「移动到分卷」归章。
+    final orphan = <Document>[];
     for (final doc in docs) {
-      final key = buckets.containsKey(doc.volumeId) && volumes.isNotEmpty
-          ? doc.volumeId!
-          : volumes.last.id; // 脏数据（指向已删卷/无卷）→ 最后一卷
-      buckets[key]!.add(doc);
+      if (volumes.isNotEmpty && buckets.containsKey(doc.volumeId)) {
+        buckets[doc.volumeId!]!.add(doc);
+      } else if (volumes.isNotEmpty) {
+        buckets[volumes.last.id]!.add(doc); // 脏数据（指向已删卷）→ 最后一卷
+      } else {
+        orphan.add(doc);
+      }
     }
+    final ascending = widget.settings.docsAscending(nb.id);
+    final orderedVolumes = ascending ? volumes : volumes.reversed.toList();
 
-    for (final vol in volumes) {
+    for (final vol in orderedVolumes) {
       final bucket = buckets[vol.id] ?? const <Document>[];
       if (_isEditingVolume(vol.id)) {
         add(
@@ -742,6 +686,10 @@ class _SidebarState extends State<Sidebar> {
       for (final doc in bucket) {
         _addManualDocRow(nb, doc, add);
       }
+    }
+    // 兜底：无卷残留章节平铺在卷列表末尾（不崩溃，建卷后可用「移动到分卷」归章）。
+    for (final doc in orphan) {
+      _addManualDocRow(nb, doc, add);
     }
   }
 
@@ -804,8 +752,13 @@ class _SidebarState extends State<Sidebar> {
         id: doc.id,
         name: doc.title,
       ),
-      onMoveUp: () => library.moveDocument(doc.id, up: true),
-      onMoveDown: () => library.moveDocument(doc.id, up: false),
+      // 章节排序方向：正序时「上移」= 数据上移；倒序时展示上移 = 数据下移。
+      onMoveUp: () =>
+          library.moveDocument(doc.id, up: widget.settings.docsAscending(nb.id)),
+      onMoveDown: () => library.moveDocument(
+        doc.id,
+        up: !widget.settings.docsAscending(nb.id),
+      ),
       moveVolumeItems: moveItems,
     );
     if (!isDesktopPlatform) {

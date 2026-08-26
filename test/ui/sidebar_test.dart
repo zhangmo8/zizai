@@ -136,31 +136,41 @@ void main() {
       expect(suggestedChapterTitle(const <Document>[]), '第 1 章');
     });
 
-    test('全部阿拉伯编号 → 递增', () {
+    test('按整本章节数 +1（阿拉伯编号书）', () {
       expect(
         suggestedChapterTitle([doc('第 1 章'), doc('第 2 章')]),
         '第 3 章',
       );
+      expect(
+        suggestedChapterTitle([
+          for (var i = 1; i <= 1008; i++) doc('第 $i 章'),
+        ]),
+        '第 1009 章',
+      );
     });
 
-    test('混入自定义名 → 新章节', () {
+    test('标题不含数字也照算（不再出现「新章节」）', () {
       expect(
         suggestedChapterTitle([doc('第 1 章'), doc('序章')]),
-        '新章节',
+        '第 3 章',
+      );
+      expect(
+        suggestedChapterTitle([doc('楔子'), doc('回归'), doc('下册开篇')]),
+        '第 4 章',
       );
     });
 
-    test('中文编号 → 中文递增', () {
+    test('中文编号书 → 仍按整本章节数 +1（阿拉伯）', () {
       expect(
         suggestedChapterTitle([doc('第一章'), doc('第二章')]),
-        '第三章',
+        '第 3 章',
       );
     });
 
-    test('非连续编号 → 取最大值 +1', () {
+    test('非连续编号 → 数量 +1 而非最大序号 +1', () {
       expect(
         suggestedChapterTitle([doc('第 1 章'), doc('第 5 章')]),
-        '第 6 章',
+        '第 3 章',
       );
     });
   });
@@ -599,7 +609,7 @@ void main() {
     await tester.tap(find.text('新建章节'));
     await settle(tester);
     final newDoc = library.documentsOf(nbId).last;
-    expect(newDoc.title, '第四章');
+    expect(newDoc.title, '第 4 章');
     expect(newDoc.volumeId, library.volumesOf(nbId).first.id);
   });
 
@@ -700,6 +710,38 @@ void main() {
     expect(library.documentsOf(nbId).single.volumeId, library.volumesOf(nbId).single.id);
   });
 
+  testWidgets('手动分卷：卷全删光但章节残留（旧版脏数据）不白屏', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['第一章', '第二章'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    // 自动 → 手动建卷后，用旧版删卷（deleteVolume 只清归属、保留章节）
+    // 把卷全部删光 → 模拟 v1.9.0 遗留脏数据：零卷 + 章节 volume_id = null。
+    await tester.runAsync(
+      () => settings.setVolumeForNotebook(nbId, enabled: true, chapters: 1),
+    );
+    await tester.runAsync(
+      () => settings.setVolumeForNotebook(nbId, mode: VolumeMode.manual),
+    );
+    await tester.runAsync(() => library.refreshTree()); // 装载 ensureAutoVolumes 建的卷
+    await tester.runAsync(() async {
+      for (final vol in library.volumesOf(nbId).toList()) {
+        await settings.db.deleteVolume(vol.id);
+      }
+    });
+    await tester.runAsync(() => library.refreshTree());
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+
+    // 零卷 + 残留章节 → 平铺渲染，不崩溃，章节可见
+    expect(tester.takeException(), isNull);
+    expect(library.volumesOf(nbId), isEmpty);
+    expect(library.documentsOf(nbId), hasLength(2));
+    expect(find.text('第一章'), findsOneWidget);
+    expect(find.text('第二章'), findsOneWidget);
+    // 顶栏仍有「新建分卷」可建卷恢复
+    expect(find.byTooltip('新建分卷'), findsOneWidget);
+  });
+
   testWidgets('视图切换：分卷展示 ↔ 平铺展示（顶栏图标 + tooltip）', (tester) async {
     final (library, settings) = (await tester.runAsync(
       () => makeApp(tree: [('小说', ['第一章', '第二章'])]),
@@ -772,5 +814,75 @@ void main() {
       await tester.pump();
     }
     expect(find.text('每日目标字数'), findsOneWidget);
+  });
+
+  testWidgets('章节排序：倒序最新章在上，新建章节按钮随序列末尾端', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['第一章', '第二章', '第三章'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+
+    // 正序（默认）：第一章在上
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+    expect(
+      tester.getTopLeft(find.text('第一章')).dy <
+          tester.getTopLeft(find.text('第三章')).dy,
+      isTrue,
+    );
+
+    // 切倒序：第三章（最新）在上；「新建章节」按钮移到列表顶部
+    await tester.runAsync(
+      () => settings.setDocsOrder(nbId, 'desc'),
+    );
+    await tester.pump();
+    await settle(tester);
+    expect(
+      tester.getTopLeft(find.text('第三章')).dy <
+          tester.getTopLeft(find.text('第一章')).dy,
+      isTrue,
+    );
+    expect(
+      tester.getTopLeft(find.text('新建章节')).dy <
+          tester.getTopLeft(find.text('第三章')).dy,
+      isTrue,
+    );
+
+    // 倒序 + 新建章节 → 仍按整本章节数 +1 命名，追加在序列末尾（最新上方）
+    await tester.tap(find.text('新建章节'));
+    await settle(tester);
+    expect(library.documentsOf(nbId), hasLength(4));
+    expect(library.documentsOf(nbId).last.title, '第 4 章');
+    expect(find.text('第 4 章'), findsOneWidget);
+
+    // 切回正序恢复
+    await tester.runAsync(
+      () => settings.setDocsOrder(nbId, 'asc'),
+    );
+    await tester.pump();
+    await settle(tester);
+    expect(
+      tester.getTopLeft(find.text('第一章')).dy <
+          tester.getTopLeft(find.text('第三章')).dy,
+      isTrue,
+    );
+  });
+
+  testWidgets('写作设置：章节排序下拉可切换正序/倒序', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['第一章'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+
+    await tester.tap(find.byTooltip('写作设置'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('章节排序'), findsOneWidget);
+    expect(find.text('正序（旧章在上）'), findsOneWidget);
+
+    await tester.tap(find.text('正序（旧章在上）'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('倒序（新章在上）').last);
+    await settle(tester);
+    expect(settings.docsOrderFor(nbId), 'desc');
   });
 }

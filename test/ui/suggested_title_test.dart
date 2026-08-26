@@ -19,75 +19,46 @@ void main() {
       expect(suggestedChapterTitle([]), '第 1 章');
     });
 
-    test('全部阿拉伯数字编号 → 递增', () {
+    test('按整本章节数 +1（阿拉伯编号书）', () {
       expect(suggestedChapterTitle([doc('第 1 章'), doc('第 2 章')]), '第 3 章');
+      expect(suggestedChapterTitle([doc('第 1 章'), doc('第 5 章')]), '第 3 章');
     });
 
-    test('非连续编号 → 取最大值 +1', () {
-      expect(suggestedChapterTitle([doc('第 1 章'), doc('第 5 章')]), '第 6 章');
-    });
-
-    test('全部中文数字编号 → 递增中文', () {
-      expect(suggestedChapterTitle([doc('第一章'), doc('第二章')]), '第三章');
-    });
-
-    test('中文数字到十', () {
+    test('大章节数量（2000 章书）', () {
       expect(
-        suggestedChapterTitle([
-          doc('第八章'), doc('第九章'),
-        ]),
-        '第十章',
+        suggestedChapterTitle([for (var i = 1; i <= 1008; i++) doc('第 $i 章')]),
+        '第 1009 章',
       );
     });
 
-    test('中文数字到十一', () {
-      expect(
-        suggestedChapterTitle([
-          doc('第九章'), doc('第十章'),
-        ]),
-        '第十一章',
-      );
+    test('标题不含数字也照算（不再出现「新章节」）', () {
+      expect(suggestedChapterTitle([doc('第 1 章'), doc('序章')]), '第 3 章');
+      expect(suggestedChapterTitle([doc('番外一'), doc('番外二')]), '第 3 章');
     });
 
-    test('混合编号（中文+阿拉伯）→ 阿拉伯递增', () {
+    test('中文编号书 → 仍按整本章节数 +1（阿拉伯）', () {
+      expect(suggestedChapterTitle([doc('第一章'), doc('第二章')]), '第 3 章');
+      expect(suggestedChapterTitle([doc('第九章'), doc('第十章')]), '第 3 章');
+    });
+
+    test('混合编号 → 数量 +1', () {
       expect(
         suggestedChapterTitle([doc('第一章'), doc('第 2 章')]),
         '第 3 章',
       );
     });
 
-    test('有不符编号模式的标题 → 新章节', () {
-      expect(
-        suggestedChapterTitle([doc('第 1 章'), doc('序章')]),
-        '新章节',
-      );
-    });
-
-    test('有不符编号模式的标题2 → 新章节', () {
-      expect(
-        suggestedChapterTitle([doc('番外一'), doc('番外二')]),
-        '新章节',
-      );
-    });
-
-    test('全角数字编号 → 递增', () {
-      expect(
-        suggestedChapterTitle([doc('第１章'), doc('第２章')]),
-        '第 3 章',
-      );
-    });
-
-    test('带后缀标题仍能识别编号', () {
+    test('带后缀标题仍按数量 +1', () {
       expect(
         suggestedChapterTitle([doc('第 1 章 开端'), doc('第 2 章 相遇')]),
         '第 3 章',
       );
     });
 
-    test('中文数字百', () {
+    test('全角数字编号 → 数量 +1', () {
       expect(
-        suggestedChapterTitle([doc('第九十九章')]),
-        '第一百章',
+        suggestedChapterTitle([doc('第１章'), doc('第２章')]),
+        '第 3 章',
       );
     });
   });

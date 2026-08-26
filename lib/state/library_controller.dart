@@ -103,21 +103,16 @@ class LibraryController extends ChangeNotifier {
   /// edit-003 注入：切换文档 / 退出前先保存当前缓冲（防丢）。
   Future<void> Function()? beforeSwitchSave;
 
-  /// 启动恢复：目录树 + 今日增量 + 恢复上次打开的笔记本（resume 进工作区；
-  /// 无记录或书已不存在则停在笔记本管理页）。
+  /// 启动恢复：目录树 + 今日增量。**总是停在笔记本管理页（书架）**——
+  /// 不自动进上次的笔记本（重启后从书架点进某本书时，才经 [openNotebook]
+  /// 回溯到该书上一次打开的章节）。
   Future<void> restore() async {
     _loading = true;
     _error = null;
     notifyListeners();
     try {
       await _reloadTree();
-      final lastOpen = await _db.loadLastOpen();
-      if (lastOpen?.notebookId != null &&
-          notebookById(lastOpen!.notebookId!) != null) {
-        await openNotebook(lastOpen.notebookId!);
-      } else {
-        await _refreshTodayDelta();
-      }
+      await _refreshTodayDelta();
     } catch (e) {
       _error = '加载失败: $e';
     } finally {

@@ -171,6 +171,33 @@ class _BookSettingsDialogState extends State<BookSettingsDialog> {
                           ],
                         ),
                         _Group(
+                          label: '目录',
+                          children: [
+                            _row(
+                              '章节排序',
+                              ZzSelect<String>(
+                                value: settings.docsOrderFor(_notebookId),
+                                display: settings.docsAscending(_notebookId)
+                                    ? '正序（旧章在上）'
+                                    : '倒序（新章在上）',
+                                options: const [
+                                  (
+                                    label: '正序（旧章在上）',
+                                    value: 'asc',
+                                  ),
+                                  (
+                                    label: '倒序（新章在上）',
+                                    value: 'desc',
+                                  ),
+                                ],
+                                onChanged: (order) => widget.settings
+                                    .setDocsOrder(_notebookId, order),
+                              ),
+                              description: '章节很多时倒序浏览最新章节更方便',
+                            ),
+                          ],
+                        ),
+                        _Group(
                           label: '分卷',
                           children: [
                             _row(

@@ -34,7 +34,7 @@ void main() {
         title: doc.title,
         content: '[{"insert":"正文一二三"}]',
       );
-      // 恢复进工作区依赖 last_open（与真实启动一致）。
+      // last_open 存进书后恢复章节的依据（启动不自动进书，见 restore）。
       await db.saveLastOpen(notebookId: nb.id, documentId: doc.id, words: 0);
     }
     final settings = SettingsController(db);
@@ -91,7 +91,7 @@ void main() {
     expect(find.text('还没有笔记本'), findsNothing);
   });
 
-  testWidgets('有书且 last_open：恢复进单书工作区，状态栏渲染今日进度与字数', (tester) async {
+  testWidgets('启动：有书也停在书架页；点书进工作区并恢复上次章节', (tester) async {
     await pumpAtSize(tester, const Size(1200, 800));
     final (library, settings) = (await tester.runAsync(
       () => makeApp(seed: true),
@@ -99,6 +99,14 @@ void main() {
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
     await tester.pump();
 
+    // 启动 → 笔记本管理页（书架），不自动进书
+    expect(find.byType(LibraryHome), findsOneWidget);
+    expect(find.byType(Sidebar), findsNothing);
+    expect(library.currentNotebook, isNull);
+
+    // 从书架点书 → 进入单书工作区，恢复上次打开的章节
+    await tester.tap(find.text('小说').first);
+    await settleDatabaseWrite(tester);
     expect(find.byType(LibraryHome), findsNothing);
     expect(find.byType(Sidebar), findsOneWidget);
     // 创建时含「正文」2 字；保存「正文一二三」5 字 → 今日增量 3
@@ -108,6 +116,14 @@ void main() {
     expect(find.text('第一章'), findsNWidgets(2));
   });
 
+  /// 从书架点书进入单书工作区（makeApp(seed) 启动停在书架后使用）。
+  /// 内存库跨测试共享可能累积多本同名「小说」，点第一本即可。
+  Future<void> enterBookFromShelf(WidgetTester tester) async {
+    await tester.tap(find.text('小说').first);
+    await settleDatabaseWrite(tester);
+    expect(find.byType(Sidebar), findsOneWidget);
+  }
+
   testWidgets('单书工作区：顶栏返回 → 回到笔记本管理页', (tester) async {
     await pumpAtSize(tester, const Size(1200, 800));
     final (library, settings) = (await tester.runAsync(
@@ -116,6 +132,7 @@ void main() {
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
     await tester.pump();
 
+    await enterBookFromShelf(tester);
     expect(find.byType(Sidebar), findsOneWidget);
     await tester.tap(find.byTooltip('返回笔记本管理'));
     // closeNotebook 先 await 编辑器 beforeSwitchSave（真实写库），多轮推进后切回管理页。
@@ -133,6 +150,7 @@ void main() {
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
     await tester.pump();
 
+    await enterBookFromShelf(tester);
     expect(find.byType(Sidebar), findsOneWidget);
 
     final mod = Platform.isMacOS
@@ -159,6 +177,7 @@ void main() {
     await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
     await tester.pump();
 
+    await enterBookFromShelf(tester);
     expect(find.byType(Sidebar), findsOneWidget);
     final mod = Platform.isMacOS ? '⌘' : 'Ctrl';
     await tester.tap(find.byTooltip('收起侧边栏 ($mod+B)'));

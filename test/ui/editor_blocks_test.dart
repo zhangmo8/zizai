@@ -41,6 +41,8 @@ void main() {
     await settings.load();
     final library = LibraryController(db);
     await library.restore();
+    // 测试编辑器需要处于工作区：启动停在书架，这里恢复进书。
+    await library.openNotebook(nb.id);
     return (library, settings, db, doc.id);
   }
 

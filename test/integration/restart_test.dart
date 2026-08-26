@@ -47,8 +47,12 @@ void main() {
     final library = LibraryController(db2);
     await library.restore();
 
-    expect(library.currentDocument?.id, doc.id); // last_open 恢复
+    // 启动总是停在书架（不自动进上次的书）；进书时才恢复 last_open 章节。
+    expect(library.currentNotebook, isNull);
+    expect(library.currentDocument, isNull);
     expect(library.todayDelta, 300); // 今日增量
+    await library.openNotebook(nb.id);
+    expect(library.currentDocument?.id, doc.id); // openNotebook 恢复 last_open
     final loaded = await db2.getDocument(doc.id);
     expect(deltaToPlainText(loaded!.content), '字' * 300);
     expect(loaded.words, 300);
@@ -66,6 +70,9 @@ void main() {
     await settings.load();
     final library = LibraryController(db);
     await library.restore();
+    // 启动停在书架；进入书后 currentDocument 恢复为 last_open（d1）。
+    await library.openNotebook(nb.id);
+    expect(library.currentDocument?.id, d1.id);
 
     // 编辑器挂接：切换前保存（与 EditorView.initState 相同接线）
     var savedContent = '';

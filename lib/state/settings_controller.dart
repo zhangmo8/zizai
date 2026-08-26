@@ -149,6 +149,27 @@ class SettingsController extends ChangeNotifier {
     await _db.setSetting('library.homeView', view);
   }
 
+  /// 笔记本内章节展示顺序（settings 键 `docsOrder.<notebookId>`，默认 asc）。
+  /// asc = 正序（第一章在上，追加在底部）；desc = 倒序（最新章在上）。
+  Map<String, String> _docOrders = const {};
+
+  /// 该笔记本的章节顺序；未设置返回正序。
+  String docsOrderFor(String? notebookId) {
+    if (notebookId == null) return 'asc';
+    return _docOrders[notebookId] ?? 'asc';
+  }
+
+  bool docsAscending(String? notebookId) =>
+      docsOrderFor(notebookId) != 'desc';
+
+  Future<void> setDocsOrder(String notebookId, String order) async {
+    final resolved = order == 'desc' ? 'desc' : 'asc';
+    if (_docOrders[notebookId] == resolved) return;
+    _docOrders = {..._docOrders, notebookId: resolved};
+    notifyListeners();
+    await _db.setSetting('docsOrder.$notebookId', resolved);
+  }
+
   /// 主题三态：system / light / dark。
   ThemeMode get themeMode => switch (_settings.theme) {
     'light' => ThemeMode.light,
@@ -263,6 +284,15 @@ class SettingsController extends ChangeNotifier {
     _volumeAutoNames = volumeNames;
     _volumeView = values['sidebar.volumeView'] == 'flat' ? 'flat' : 'grouped';
     _homeView = values['library.homeView'] == 'list' ? 'list' : 'grid';
+    final docOrders = <String, String>{};
+    for (final entry in values.entries) {
+      const prefix = 'docsOrder.';
+      if (!entry.key.startsWith(prefix)) continue;
+      final notebookId = entry.key.substring(prefix.length);
+      if (notebookId.isEmpty) continue;
+      docOrders[notebookId] = entry.value == 'desc' ? 'desc' : 'asc';
+    }
+    _docOrders = docOrders;
     _outlineOpen = values['outline.open'] == 'true';
     _notesOpen = values['notes.open'] == 'true';
     _loaded = true;

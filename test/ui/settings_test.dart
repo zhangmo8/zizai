@@ -37,6 +37,10 @@ void main() {
     await settings.load();
     final library = LibraryController(db);
     await library.restore();
+    // 启动停在书架；测试功能需要进书：恢复进工作区（与旧启动行为一致）。
+    if (seed) {
+      await library.openNotebook(library.notebooks.first.id);
+    }
     return (library, settings);
   }
 
