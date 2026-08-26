@@ -44,6 +44,7 @@ dependencies:
   crypto: ^3.0.7
   package_info_plus: ^10.2.1
   archive: ^4.0.9
+  mcp_dart: ^2.4.1
 
 dev_dependencies:
   flutter_test:
