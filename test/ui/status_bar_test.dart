@@ -14,23 +14,25 @@ void main() {
   });
 
   testWidgets('窄窗口（360dp）状态栏不溢出（会话 chip + 进度条 + 字数同屏）', (tester) async {
-    final db = await Db.open(inMemoryDatabasePath);
-    final nb = await db.createNotebook('小说');
-    final doc = await db.createDocument(
-      nb.id,
-      title: '第一章',
-      content: '[{"insert":"正文"}]',
-    );
-    await db.saveDocument(
-      id: doc.id,
-      title: doc.title,
-      content: '[{"insert":"正文一二三四五六七八九十"}]',
-    );
-    await db.saveLastOpen(notebookId: nb.id, documentId: doc.id, words: 0);
-    final settings = SettingsController(db);
-    await settings.load();
+    final db = await tester.runAsync(() => Db.open(inMemoryDatabasePath));
+    await tester.runAsync(() async {
+      final nb = await db!.createNotebook('小说');
+      final doc = await db.createDocument(
+        nb.id,
+        title: '第一章',
+        content: '[{"insert":"正文"}]',
+      );
+      await db.saveDocument(
+        id: doc.id,
+        title: doc.title,
+        content: '[{"insert":"正文一二三四五六七八九十"}]',
+      );
+      await db.saveLastOpen(notebookId: nb.id, documentId: doc.id, words: 0);
+    });
+    final settings = SettingsController(db!);
+    await tester.runAsync(() => settings.load());
     final library = LibraryController(db);
-    await library.restore();
+    await tester.runAsync(() => library.restore());
     // 本次写作有增量 → 会话 chip 出现（状态栏最宽的组合之一）。
     library.session.onWordsWritten(100);
 
@@ -53,6 +55,9 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.textContaining('今日'), findsOneWidget);
     expect(find.textContaining('本文'), findsOneWidget);
-    await tester.runAsync(() => db.close());
+    await tester.runAsync(() async {
+      library.session.dispose();
+      await db.close();
+    });
   });
 }
