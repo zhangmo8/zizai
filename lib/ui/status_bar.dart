@@ -135,38 +135,56 @@ class _StatusBarState extends State<StatusBar> {
               ),
             ],
             const Spacer(),
-            _SessionChip(session: widget.library.session),
-            if (widget.backup != null)
-              _BackupIndicator(
-                backup: widget.backup!,
-                onTap: () => widget.onOpenSettings?.call(focusBackup: true),
-              ),
-            if (_showSaved)
-              Text(
-                '已保存',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: appColors.success,
-                  fontWeight: FontWeight.w600,
-                ),
-              )
-            else
-              // 字数逐键变化，用 ValueListenableBuilder 局部刷新，
-              // 不惊动状态栏之外的任何子树。
-              ValueListenableBuilder<int?>(
-                valueListenable: widget.library.liveWords,
-                builder: (context, live, _) {
-                  final words =
-                      live ?? widget.library.currentDocument?.words ?? 0;
-                  return Text(
-                    '本文 $words 字',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: colors.onSurfaceVariant,
+            // 右侧组整体放入 Flexible：窄窗口（手机 / 桌面拖窄）时内部
+            // 文本截断而非溢出（黄线防护；状态栏常驻底部，最易触发）。
+            Flexible(
+              child: Row(
+                mainAxisSize: MainAxisSize.max,
+                children: [
+                  Flexible(
+                    child: _SessionChip(session: widget.library.session),
+                  ),
+                  if (widget.backup != null)
+                    _BackupIndicator(
+                      backup: widget.backup!,
+                      onTap: () =>
+                          widget.onOpenSettings?.call(focusBackup: true),
                     ),
-                  );
-                },
+                  Flexible(
+                    child: _showSaved
+                        ? Text(
+                            '已保存',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: appColors.success,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          )
+                        // 字数逐键变化，用 ValueListenableBuilder 局部刷新，
+                        // 不惊动状态栏之外的任何子树。
+                        : ValueListenableBuilder<int?>(
+                            valueListenable: widget.library.liveWords,
+                            builder: (context, live, _) {
+                              final words = live ??
+                                  widget.library.currentDocument?.words ??
+                                  0;
+                              return Text(
+                                '本文 $words 字',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: colors.onSurfaceVariant,
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               ),
+            ),
           ],
         ),
       ),
@@ -287,6 +305,8 @@ class _SessionChipState extends State<_SessionChip> {
         padding: const EdgeInsets.only(right: 12),
         child: Text(
           '+${snap.words} · $duration${wph > 0 ? ' · $wph/时' : ''}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: 12,
             color: appColors.success,

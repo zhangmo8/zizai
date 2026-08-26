@@ -578,6 +578,9 @@ void showZzToast(BuildContext context, String message, {bool error = false}) {
                     Flexible(
                       child: Text(
                         message,
+                        // 长文案（路径/版本串等）截断显示，避免 Text 溢出标记。
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 13,
                           color: Colors.white,
