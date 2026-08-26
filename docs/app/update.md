@@ -42,7 +42,7 @@ releases/v1.2.0/app-release.apk
 releases/v1.2.0/zizai-macos.zip
 releases/v1.2.0/zizai-macos.pkg           ← 首次安装向导（不参与自更新）
 releases/v1.2.0/zizai-windows.zip
-releases/v1.2.0/zizai-1.2.0-windows-setup.exe   ← Windows 自更新 + 首次安装
+releases/v1.2.0/zizai-windows-setup.exe      ← Windows 自更新 + 首次安装（R2 用无版本号命名）
 releases/v1.2.0/update.json              ← 版本归档
 ```
 
@@ -55,10 +55,10 @@ App 首次启动即可自动检查更新，无需手动配置。
 ```json
 {
   "latest": "1.2.0",
-  "minDbSchema": 4,
+  "minDbSchema": 1,
   "platforms": {
     "macos":   { "url": "https://.../zizai-1.2.0-macos.zip",           "sha256": "..." },
-    "windows": { "url": "https://.../zizai-1.2.0-windows-setup.exe",   "sha256": "..." },
+    "windows": { "url": "https://.../zizai-windows-setup.exe",   "sha256": "..." },
     "android": { "url": "https://.../zizai-1.2.0.apk",                 "sha256": "..." }
   },
   "notes": "新增云同步；修复自动保存竞态"
@@ -76,7 +76,7 @@ App 首次启动即可自动检查更新，无需手动配置。
    - **macOS：下载 zip → 解压到 `updates/unpacked/`**（解压前清空旧残留，避免新旧文件混入 bundle）→ 打开该文件夹由用户手动替换应用。**必须经系统 `ditto -x -k` 解压**：`.app` 内含符号链接与可执行位，Dart 侧解压会丢失两者并使签名失效（替换后系统报「已损坏，无法打开」），与 CI 打包 `ditto -c -k` 对称；解压后统一 `xattr -dr com.apple.quarantine` 剥除隔离属性（带隔离属性的 ad-hoc 签名 `.app` 会被 Gatekeeper 判「已损坏」）。未签名 app 需「右键打开」首次运行，文档说明。
    - **macOS 不走 .pkg 自更新**：`.pkg` 是 `auth="root"` 装到 /Applications，每次自更新要输管理员密码，体验不如 zip 手动替换；`.pkg` 仅作首次安装向导（§7）。
    - **macOS 不启用 App Sandbox**（直接分发，非 App Store）：沙盒应用写出的一切文件（含下载的更新包与解压产物）会被系统自动打上 `com.apple.quarantine`，且沙盒内禁止移除该属性，自更新链路必然产出被 Gatekeeper 拒开的 app。去沙盒后数据目录从 `~/Library/Containers/dev.zizai.ziZai/...` 变为 `~/Library/Application Support/dev.zizai.ziZai/`，启动时对旧容器内的 `zi-zai.db*` 做一次性迁移（新路径无 db 才执行）。
-5. 更新后首次启动：若本地 DB schema < `minDbSchema` → 自动执行 §2 迁移链；新功能随迁移解锁。
+5. 更新前置守卫：本地 DB schema < `minDbSchema` → **拒绝更新**并提示「请先升级中间版本」（`fetchManifest` 守卫）。本项目迁移链自 v1 起由回放测试保证可逐级升级，故 `minDbSchema` 为 `1`（任何既有库均可直接升级，守卫不误伤）；取值来自代码常量 `lib/core/db.dart` 的 `minUpgradableSchemaVersion`（build.yml 发布时自动提取，不在工作流写死），仅当未来某级迁移无法从更老版本直接升级时才调大该常量。
 6. 安装包由 pkg-006 构建并上传 R2（wrangler/rclone 均可，R2 凭据与桶配置见 docs/app/sync.md）。
 
 ## 4. 版本一致性约束
@@ -86,7 +86,7 @@ App 首次启动即可自动检查更新，无需手动配置。
 | 旧 App + 新 DB blob（schemaVersion 更高） | 拒写 + 提示升级 |
 | 新 App + 旧 DB（本地 schema 低于代码） | onUpgrade 自动迁移 |
 | 新旧 App 互相同步 | 协议版本不一致 → 409 + 升级提示 |
-| 更新清单 minDbSchema > 本地 | 更新安装后首次启动自动迁移 |
+| 更新清单 minDbSchema > 本地 | 拒绝更新，提示先升级中间版本（本项目恒为 1，实际不触发；见 §3 第 5 条） |
 
 ## 5. CI/CD 构建（R2 分发）
 
@@ -128,7 +128,7 @@ GitHub Actions 工作流 [build.yml](../../.github/workflows/build.yml) 负责�
 | 平台 | 产物 | 工具 | 构建脚本 |
 |---|---|---|---|
 | macOS | `zizai-<ver>-macos.pkg`（欢迎页 + 系统安装向导，装到 /Applications） | 系统自带 `pkgbuild`/`productbuild` | `tool/installer/macos/build_pkg.sh`（`Distribution.xml` 提供欢迎页 UI；choice id 必须与 pkg-ref id 一致，否则组件包被静默丢弃） |
-| Windows | `zizai-<ver>-windows-setup.exe`（MUI2 向导：欢迎 → 目录 → 安装 → 完成，按用户安装到 `%LOCALAPPDATA%\Programs\ZiZai`，带开始菜单/桌面快捷方式与卸载项） | NSIS（CI 用 `choco install nsis`） | `tool/installer/windows/zi_zai_installer.nsi` |
+| Windows | `zizai-<ver>-windows-setup.exe`（MUI2 向导：欢迎 → 目录 → 安装 → 完成，按用户安装到 `%LOCALAPPDATA%\Programs\ZiZai`，带开始菜单/桌面快捷方式与卸载项；本地产物名带版本，上传 R2 用 `zizai-windows-setup.exe`） | NSIS（CI 用 `choco install nsis`） | `tool/installer/windows/zi_zai_installer.nsi` |
 
 - 构建流程已接入 [build.yml](../../.github/workflows/build.yml)：macos/windows job 在打包 zip 后追加打安装包并上传 R2（`releases/<tag>/`），发布后校验探针同时验证安装包可达。
 - 安装包与自更新的关系：

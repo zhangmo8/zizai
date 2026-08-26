@@ -87,7 +87,7 @@ CupertinoSwitch/Slider/Dialog、毛玻璃层次、系统蓝 accent。目标是�
   - **自动检查**：启动后异步检查一次，无需手动触发；发现新版自动 toast 提示「发现新版本 vX.Y.Z」，管理页设置图标亮 accent 角标（`UpdateChecker.status` 驱动）。
   - 另保留「检查更新」按钮；点击后按钮内出现 loading 态（spinner 替换文字）。
   - 结果用 **toast** 反馈：「已是最新版本」/「发现新版本 vX.Y.Z」/「检查失败，请稍后重试」。**移除按钮下方的 inline error text**。
-  - 下载进度显示在按钮内或旁边一条细进度条，完成后按钮变「安装 vX.Y.Z」。后按钮变「安装 vX.Y.Z」。
+  - 下载进度显示在按钮内或旁边一条细进度条，完成后按钮变「安装 vX.Y.Z」。
 
 ### 5.3 编辑器
 - **光标**：宽 2px、accent 色（或 primary 文字色）、圆角 1px，高度与行高匹配；输入时不闪、停顿后 1s 周期闪烁（Notion/现代编辑器手感）。修正目前光标观感不对的问题（editor.dart `cursorColor` 一带）。
