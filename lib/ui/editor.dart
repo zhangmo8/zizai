@@ -1266,6 +1266,22 @@ class _EditorViewState extends State<EditorView> {
     return false;
   }
 
+  /// 切换块级标题：已是该级 → 转回正文，否则应用（header 不可自动反选）。
+  void _toggleHeader(int level) {
+    final current = _quill.getSelectionStyle().attributes['header']?.value;
+    if (current == level) {
+      _quill.formatSelection(q.Attribute.clone(q.Attribute.header, null));
+      return;
+    }
+    _quill.formatSelection(
+      switch (level) {
+        1 => q.Attribute.h1,
+        2 => q.Attribute.h2,
+        _ => q.Attribute.h3,
+      },
+    );
+  }
+
   void _applySlash(SlashCommand cmd) {
     final anchor = _slashAnchor;
     final caret = _quill.selection.baseOffset;
@@ -1290,11 +1306,11 @@ class _EditorViewState extends State<EditorView> {
           _quill.formatSelection(q.Attribute.clone(attr, null));
         }
       case 'h1':
-        _quill.formatSelection(q.Attribute.h1);
+        _toggleHeader(1);
       case 'h2':
-        _quill.formatSelection(q.Attribute.h2);
+        _toggleHeader(2);
       case 'h3':
-        _quill.formatSelection(q.Attribute.h3);
+        _toggleHeader(3);
       case 'bullet':
         _quill.formatSelection(q.Attribute.ul);
       case 'ordered':
@@ -2653,19 +2669,27 @@ class _FormatButtons extends StatelessWidget {
         'H1',
         '标题 1',
         isActive('header', 1),
-        () => quill.formatSelection(q.Attribute.h1),
+        // header 在 flutter_quill 里不可自动反选（块级独占），
+        // 已选中 → 转回正文，否则应用 H1。
+        () => isActive('header', 1)
+            ? quill.formatSelection(q.Attribute.clone(q.Attribute.header, null))
+            : quill.formatSelection(q.Attribute.h1),
       ),
       textBtn(
         'H2',
         '标题 2',
         isActive('header', 2),
-        () => quill.formatSelection(q.Attribute.h2),
+        () => isActive('header', 2)
+            ? quill.formatSelection(q.Attribute.clone(q.Attribute.header, null))
+            : quill.formatSelection(q.Attribute.h2),
       ),
       textBtn(
         'H3',
         '标题 3',
         isActive('header', 3),
-        () => quill.formatSelection(q.Attribute.h3),
+        () => isActive('header', 3)
+            ? quill.formatSelection(q.Attribute.clone(q.Attribute.header, null))
+            : quill.formatSelection(q.Attribute.h3),
       ),
       _sep(colors),
       btn(
