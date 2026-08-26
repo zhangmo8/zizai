@@ -2179,6 +2179,8 @@ class _EditorHeader extends StatelessWidget {
               child: title.isEmpty
                   ? Text(
                       '未选择文档',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 13,
                         color: appColors.textTertiary,
@@ -2198,9 +2200,14 @@ class _EditorHeader extends StatelessWidget {
                               ),
                             ),
                           ),
-                          Text(
-                            ' / ',
-                            style: TextStyle(color: appColors.textTertiary),
+                          // 分隔符也参与收缩：极窄时面包屑整行可缩到 0，不溢出。
+                          Flexible(
+                            child: Text(
+                              ' / ',
+                              style: TextStyle(
+                                color: appColors.textTertiary,
+                              ),
+                            ),
                           ),
                         ],
                         Flexible(

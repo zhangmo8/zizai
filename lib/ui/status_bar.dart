@@ -116,9 +116,18 @@ class _StatusBarState extends State<StatusBar> {
         child: Row(
           children: [
             if (goal.enabled && notebookId != null) ...[
-              _StatusChip(
-                onTap: () => widget.onOpenSettings?.call(focusDailyGoal: true),
-                child: Text('今日 $delta/${goal.words}'),
+              // 左侧组也需可收缩：窄窗下目标 chip 文本 ellipsis，
+              // 否则与固定 104px 进度条一起把整行挤爆（toast 下方黄线）。
+              Flexible(
+                child: _StatusChip(
+                  onTap: () =>
+                      widget.onOpenSettings?.call(focusDailyGoal: true),
+                  child: Text(
+                    '今日 $delta/${goal.words}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ),
               const SizedBox(width: 8),
               SizedBox(
