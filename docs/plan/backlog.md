@@ -8,7 +8,7 @@
 | 4 | requirements.md 范围 | 全文搜索 | 已完成（全书搜索 + 替换预览） |
 | 5 | requirements.md 范围 | 链接、表格等更多富文本格式 | 待处理（链接已随工具栏落地，表格仍缺） |
 | 6 | requirements.md F1.5 | 拖拽排序章节 | 已完成（reorderDocument DB + 上移/下移 UI + 拖拽手势：桌面手柄/触摸长按，支持跨笔记本移动） |
-| 7 | requirements.md F4.x | 焦点模式（暗淡非当前行） | 待处理 |
+| 7 | requirements.md F4.x | 焦点模式（暗淡非当前行） | 已完成（focusDim 蒙层 + 沉浸 FocusView + 设置项 + 打字机联动，2026-08-26 核实） |
 | 8 | app/README.md ADR | 多人实时协同（当前单用户架构不支持，需重构状态层） | 待处理 |
 | 9 | requirements.md 风险 | 内置中文字体包（改善跨端渲染一致） | 待处理 |
 | 10 | sync.md §5 | 云端修订历史浏览/回滚 UI（数据层 R2 版本控制已留） | 待处理 |

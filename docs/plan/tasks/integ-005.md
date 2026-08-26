@@ -3,7 +3,7 @@
 ```yaml
 id: integ-005
 scope: 全项目
-status: pending
+status: done
 depends-on: [edit-003, set-004, sync-ui-003, upd-001]
 ```
 

@@ -3,7 +3,7 @@
 ```yaml
 id: snap-001
 scope: lib/core + lib/ui
-status: pending
+status: done
 depends-on: [integ-005]
 ```
 
