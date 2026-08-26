@@ -304,6 +304,43 @@ Future<Map<String, dynamic>> parseChengguaDb(String dbPath) async {
   }
 }
 
+/// 探测橙瓜码字数据库文件（macOS/Windows 用户数据目录下的 `*.db`）。
+///
+/// 返回按最后修改时间倒序的文件列表；找不到返回空。macOS 的 `~/Library`
+/// 在访达默认隐藏，手动找容易卡住——导入器直接自动探测，省去翻目录。
+/// [rootOverride] 供测试注入目录。
+Future<List<String>> detectChengguaDbFiles({String? rootOverride}) async {
+  final roots = <String>[];
+  if (rootOverride != null) {
+    roots.add(rootOverride);
+  } else if (Platform.isMacOS) {
+    final home = Platform.environment['HOME'];
+    if (home != null && home.isNotEmpty) {
+      roots.add('$home/Library/Application Support/橙瓜码字');
+    }
+  } else if (Platform.isWindows) {
+    final appdata = Platform.environment['APPDATA'];
+    if (appdata != null && appdata.isNotEmpty) {
+      roots.add('$appdata/橙瓜码字');
+    }
+  }
+  final files = <File>[];
+  for (final root in roots) {
+    final dir = Directory(root);
+    if (!await dir.exists()) continue;
+    await for (final e in dir.list()) {
+      if (e is File &&
+          e.path.endsWith('.db') &&
+          !e.path.endsWith('-wal') &&
+          !e.path.endsWith('-shm')) {
+        files.add(e);
+      }
+    }
+  }
+  files.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+  return files.map((f) => f.path).toList();
+}
+
 /// 导入橙瓜码字库：复制源库 → 解析（桌面 isolate）→ 编排 position → 批量入库。
 ///
 /// 返回导入统计；[tempDir] 供测试注入（非空则不清理）。

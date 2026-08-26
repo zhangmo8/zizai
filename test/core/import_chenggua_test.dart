@@ -228,4 +228,27 @@ void main() {
     );
     await target.close();
   });
+
+  test('自动探测：只认 *.db、排除 -wal/-shm、按修改时间倒序', () async {
+    final root = Directory('${tempDir.path}/橙瓜码字');
+    await root.create(recursive: true);
+    final old = File('${root.path}/100.db');
+    final fresh = File('${root.path}/103564487.db');
+    final wal = File('${root.path}/103564487.db-wal'); // 应排除
+    final shm = File('${root.path}/103564487.db-shm'); // 应排除
+    await old.writeAsString('x');
+    await fresh.writeAsString('y');
+    await wal.writeAsString('z');
+    await shm.writeAsString('z');
+    // 显式设置不同 mtime（APFS mtime 粒度太粗，靠写时间无法区分）。
+    final base = DateTime.now().subtract(const Duration(minutes: 10));
+    await old.setLastModified(base);
+    await fresh.setLastModified(base.add(const Duration(minutes: 1)));
+
+    final found = await detectChengguaDbFiles(rootOverride: root.path);
+    expect(found.length, 2);
+    expect(found.first, fresh.path); // 最新的在前
+    expect(found, isNot(contains(wal.path)));
+    expect(found, isNot(contains(shm.path)));
+  });
 }

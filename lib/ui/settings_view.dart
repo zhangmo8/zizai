@@ -962,15 +962,35 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   Future<void> _runChengguaImport() async {
-    final loc = await openFile(
-      acceptedTypeGroups: [
-        const XTypeGroup(label: '橙瓜码字数据库', extensions: ['db']),
-      ],
-    );
-    if (loc == null) return;
+    // 自动探测橙瓜数据库（macOS/Windows 常见位置），找不到再让用户手动选文件。
+    String? chosen;
+    final detected = await detectChengguaDbFiles();
+    if (!mounted) return;
+    if (detected.isNotEmpty) {
+      final ok = await zzConfirm(
+        context,
+        title: '从橙瓜码字导入',
+        message:
+            '检测到橙瓜码字数据库：\n${detected.first}\n\n'
+            '直接导入吗？取消则手动选择文件。',
+        confirmLabel: '导入',
+      );
+      if (!mounted) return;
+      if (ok) chosen = detected.first;
+    }
+    if (chosen == null) {
+      final loc = await openFile(
+        acceptedTypeGroups: [
+          const XTypeGroup(label: '橙瓜码字数据库', extensions: ['db']),
+        ],
+      );
+      if (loc == null) return;
+      chosen = loc.path;
+    }
+    if (!mounted) return;
     setState(() => _chengguaImporting = true);
     try {
-      final result = await importChenggua(widget.settings.db, loc.path);
+      final result = await importChenggua(widget.settings.db, chosen);
       await widget.library.refreshTree(); // 合并导入不打断当前书
       if (mounted) {
         showZzToast(
