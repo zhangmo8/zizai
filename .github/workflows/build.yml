@@ -101,6 +101,26 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: false
       - run: flutter pub get
+      - name: Configure release signing (from secrets)
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ZIZAI_ANDROID_KEYSTORE }}
+          KEY_ALIAS: ${{ secrets.ZIZAI_ANDROID_KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.ZIZAI_ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ZIZAI_ANDROID_KEY_PASSWORD }}
+        run: |
+          # 稳定签名：keystore 经 base64 存在 GitHub secret，每次发布解出为固定文件，
+          # 保证所有 release APK 签名一致（覆盖安装不再报「签名冲突」）。
+          if [ -n "$KEYSTORE_B64" ]; then
+            mkdir -p "$RUNNER_TEMP/keystore"
+            echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/keystore/release.jks"
+            echo "ZIZAI_KEYSTORE_PATH=$RUNNER_TEMP/keystore/release.jks" >> "$GITHUB_ENV"
+            echo "ZIZAI_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "ZIZAI_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "ZIZAI_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          else
+            echo "warning: ZIZAI_ANDROID_KEYSTORE secret 未配置，release APK 将回退 debug 签名（更新会签名冲突）"
+          fi
       - name: Build APK
         env:
           UPDATE_URL: ${{ secrets.R2_PUBLIC_BASE }}/update.json
