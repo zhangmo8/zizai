@@ -11,7 +11,8 @@ import 'dart:io';
 import 'package:archive/archive_io.dart' show extractFileToDisk;
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show MethodChannel;
+import 'package:flutter/services.dart'
+    show Clipboard, ClipboardData, MethodChannel;
 import 'package:share_plus/share_plus.dart';
 
 import '../app.dart' show appColorsOf;
@@ -21,6 +22,7 @@ import '../core/export.dart' show exportPlainText;
 import '../core/models.dart';
 import '../core/update.dart';
 import '../state/library_controller.dart';
+import '../state/mcp_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/platform.dart';
 import 'export_dialog.dart';
@@ -42,7 +44,7 @@ const List<String> kFontChoices = [
 /// 导出实现签名（桌面保存对话框 / Android 分享；测试可注入）。
 typedef ExportHandler = Future<void> Function(Document doc, String plainText);
 
-enum _SettingsCategory { appearance, backup, data, about }
+enum _SettingsCategory { appearance, backup, data, mcp, about }
 
 class SettingsView extends StatefulWidget {
   const SettingsView({
@@ -55,10 +57,14 @@ class SettingsView extends StatefulWidget {
     this.dbSchemaVersion,
     this.exporter,
     this.autoFocusBackup = false,
+    this.mcp,
   });
 
   final SettingsController settings;
   final LibraryController library;
+
+  /// 本地 MCP 服务控制器（null = 未接线，如单测；「AI 协作」区隐藏）。
+  final McpController? mcp;
 
   /// 备份引擎（null = 未接线，如单测；备份区隐藏）。
   final BackupManager? backup;
@@ -85,6 +91,9 @@ class SettingsView extends StatefulWidget {
 class _SettingsViewState extends State<SettingsView> {
   bool _exporting = false;
   bool _checkingUpdate = false;
+
+  /// 「AI 协作」端口输入（与 mcp.port 同步，提交时生效）。
+  final TextEditingController _mcpPortController = TextEditingController();
 
   Settings get _s => widget.settings.settings;
 
@@ -120,6 +129,7 @@ class _SettingsViewState extends State<SettingsView> {
     _backupBucketController.dispose();
     _backupAccessController.dispose();
     _backupSecretController.dispose();
+    _mcpPortController.dispose();
     super.dispose();
   }
 
@@ -262,6 +272,7 @@ class _SettingsViewState extends State<SettingsView> {
     _SettingsCategory.appearance,
     if (widget.backup != null) _SettingsCategory.backup,
     _SettingsCategory.data,
+    if (widget.mcp != null) _SettingsCategory.mcp,
     // 关于常驻：版本/更新组随 UpdateChecker 接线显隐，帮助组（快捷键）始终可用。
     _SettingsCategory.about,
   ];
@@ -288,6 +299,7 @@ class _SettingsViewState extends State<SettingsView> {
     _SettingsCategory.appearance => _appearancePage(),
     _SettingsCategory.backup => _backupPage(),
     _SettingsCategory.data => _dataPage(),
+    _SettingsCategory.mcp => _mcpPage(),
     _SettingsCategory.about => _aboutPage(),
   };
 
@@ -393,6 +405,112 @@ class _SettingsViewState extends State<SettingsView> {
       ),
     ],
   );
+
+  /// 「AI 协作（本地 MCP）」区：开关 / 端口 / 状态 / 地址 / 复制 skill。
+  Widget _mcpPage() {
+    final mcp = widget.mcp!;
+    final mcpRow = ListenableBuilder(
+      listenable: mcp,
+      builder: (context, _) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _row(
+              '启用本地服务',
+              ZzSwitch(
+                value: mcp.enabled,
+                onChanged: (v) => mcp.setEnabled(v),
+              ),
+              description: '仅本机（127.0.0.1）可访问，供其他 AI agent 读写你的书（桌面端）',
+            ),
+            _row('端口', _mcpPortField(mcp)),
+            _row('状态', _mcpStatus(mcp)),
+            if (mcp.running && mcp.url != null) _row('服务地址', _mcpUrl(mcp)),
+            _row('skill 模板', _mcpCopyButton(mcp)),
+          ],
+        );
+      },
+    );
+    return Column(
+      children: [
+        _SettingsGroup(label: 'AI 协作（本地 MCP）', children: [mcpRow]),
+      ],
+    );
+  }
+
+  Widget _mcpPortField(McpController mcp) {
+    if (_mcpPortController.text.isEmpty) {
+      _mcpPortController.text = '${mcp.port}';
+    }
+    return SizedBox(
+      width: 96,
+      child: ZzTextField(
+        controller: _mcpPortController,
+        hint: '端口',
+        keyboardType: TextInputType.number,
+        compact: true,
+        onSubmitted: (v) {
+          final port = int.tryParse(v.trim());
+          if (port != null) {
+            mcp.setPort(port);
+            _mcpPortController.text = '${mcp.port}';
+          } else {
+            _mcpPortController.text = '${mcp.port}';
+            showZzToast(context, '端口需为数字', error: true);
+          }
+        },
+      ),
+    );
+  }
+
+  Widget _mcpStatus(McpController mcp) {
+    final colors = Theme.of(context).colorScheme;
+    final label = mcp.starting
+        ? '启动中…'
+        : mcp.running
+        ? '运行中'
+        : '已停止';
+    final color = mcp.running ? colors.primary : colors.onSurfaceVariant;
+    return Text(label, style: TextStyle(fontSize: 13, color: color));
+  }
+
+  Widget _mcpUrl(McpController mcp) {
+    final url = mcp.url ?? '';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            url,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF9B9A97)),
+          ),
+        ),
+        const SizedBox(width: 6),
+        InkWell(
+          onTap: () {
+            Clipboard.setData(ClipboardData(text: url));
+            showZzToast(context, '地址已复制');
+          },
+          child: const Padding(
+            padding: EdgeInsets.all(2),
+            child: Icon(Icons.copy, size: 13, color: Color(0xFF9B9A97)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _mcpCopyButton(McpController mcp) {
+    return ZzButton.secondary(
+      label: '复制 skill',
+      onPressed: () {
+        Clipboard.setData(ClipboardData(text: mcp.skillText));
+        showZzToast(context, 'skill 已复制，可粘到 agent 的 skills 目录');
+      },
+    );
+  }
 
   Widget _aboutPage() {
     final checker = widget.updateChecker;
@@ -1018,6 +1136,7 @@ extension on _SettingsCategory {
     _SettingsCategory.appearance => '外观',
     _SettingsCategory.backup => '备份',
     _SettingsCategory.data => '数据',
+    _SettingsCategory.mcp => 'AI 协作',
     _SettingsCategory.about => '关于',
   };
 
@@ -1025,6 +1144,7 @@ extension on _SettingsCategory {
     _SettingsCategory.appearance => '自定义阅读与编辑体验',
     _SettingsCategory.backup => '安全备份你的作品',
     _SettingsCategory.data => '导出与管理本地数据',
+    _SettingsCategory.mcp => '本地 MCP 服务，供 AI agent 读写你的书',
     _SettingsCategory.about => '版本信息与软件更新',
   };
 
@@ -1032,6 +1152,7 @@ extension on _SettingsCategory {
     _SettingsCategory.appearance => Icons.palette_outlined,
     _SettingsCategory.backup => Icons.cloud_outlined,
     _SettingsCategory.data => Icons.folder_outlined,
+    _SettingsCategory.mcp => Icons.terminal_outlined,
     _SettingsCategory.about => Icons.info_outline,
   };
 }

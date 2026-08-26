@@ -17,6 +17,7 @@ import '../core/crash_journal.dart';
 import '../core/snapshot_history.dart';
 import '../core/update.dart';
 import '../state/library_controller.dart';
+import '../state/mcp_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/ime_state.dart';
 import '../util/platform.dart';
@@ -41,6 +42,7 @@ class Shell extends StatefulWidget {
     this.backup,
     this.updateChecker,
     this.snapshots,
+    this.mcp,
   });
 
   final LibraryController library;
@@ -60,6 +62,9 @@ class Shell extends StatefulWidget {
 
   /// 单文档版本历史（null = 未接线，如测试）。
   final SnapshotHistory? snapshots;
+
+  /// 本地 MCP 服务控制器（null = 未接线，如测试）。
+  final McpController? mcp;
 
   @override
   State<Shell> createState() => _ShellState();
@@ -224,6 +229,7 @@ class _ShellState extends State<Shell> {
       updateChecker: widget.updateChecker,
       dbSchemaVersion: widget.updateChecker?.dbSchemaVersion,
       autoFocusBackup: focusBackup,
+      mcp: widget.mcp,
     );
     if (isAndroidPlatform) {
       Navigator.of(context).push(

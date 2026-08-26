@@ -23,6 +23,7 @@ import 'core/models.dart';
 import 'core/snapshot_history.dart';
 import 'core/update.dart';
 import 'state/library_controller.dart';
+import 'state/mcp_controller.dart';
 import 'state/settings_controller.dart';
 import 'util/platform.dart';
 
@@ -78,6 +79,11 @@ Future<void> main() async {
   final snapshots = SnapshotHistory(
     rootPath: '${dir.path}${Platform.pathSeparator}snapshots',
   );
+
+  // 本地 MCP 服务：设置里开启后在 127.0.0.1 起服务，供其他 AI agent
+  // 读写你的书（仅回环可访问）；init 会读持久化配置并自动恢复。
+  final mcp = McpController(db, snapshots: snapshots);
+  await mcp.init();
 
   // 更新检查：App 版本来自 package_info；URL 由构建注入。
   var appVersion = '0.1.0';
@@ -137,6 +143,7 @@ Future<void> main() async {
       backup: backup,
       updateChecker: updateChecker,
       snapshots: snapshots,
+      mcp: mcp,
     ),
   );
 }

@@ -15,6 +15,7 @@ import '../core/crash_journal.dart';
 import '../core/models.dart';
 import '../core/update.dart';
 import '../state/library_controller.dart';
+import '../state/mcp_controller.dart';
 import '../state/settings_controller.dart';
 import 'settings_view.dart';
 import 'zz.dart';
@@ -29,6 +30,7 @@ class LibraryHome extends StatelessWidget {
     this.logger,
     this.backup,
     this.updateChecker,
+    this.mcp,
   });
 
   final LibraryController library;
@@ -39,6 +41,9 @@ class LibraryHome extends StatelessWidget {
   final AppLogger? logger;
   final BackupManager? backup;
   final UpdateChecker? updateChecker;
+
+  /// 本地 MCP 服务控制器（null = 未接线，如测试）。
+  final McpController? mcp;
 
   void _openNotebook(String notebookId) {
     library.openNotebook(notebookId);
@@ -52,6 +57,7 @@ class LibraryHome extends StatelessWidget {
       logger: logger,
       updateChecker: updateChecker,
       dbSchemaVersion: updateChecker?.dbSchemaVersion,
+      mcp: mcp,
     );
     showDialog<void>(
       context: context,

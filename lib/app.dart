@@ -12,6 +12,7 @@ import 'core/crash_journal.dart';
 import 'core/snapshot_history.dart';
 import 'core/update.dart';
 import 'state/library_controller.dart';
+import 'state/mcp_controller.dart';
 import 'state/settings_controller.dart';
 import 'ui/library_home.dart';
 import 'ui/shell.dart';
@@ -70,6 +71,7 @@ class _AppGate extends StatefulWidget {
     this.backup,
     this.updateChecker,
     this.snapshots,
+    this.mcp,
   });
 
   final LibraryController library;
@@ -79,6 +81,9 @@ class _AppGate extends StatefulWidget {
   final BackupManager? backup;
   final UpdateChecker? updateChecker;
   final SnapshotHistory? snapshots;
+
+  /// 本地 MCP 服务控制器（null = 未接线，如测试）。
+  final McpController? mcp;
 
   @override
   State<_AppGate> createState() => _AppGateState();
@@ -129,6 +134,7 @@ class _AppGateState extends State<_AppGate> {
             backup: widget.backup,
             updateChecker: widget.updateChecker,
             snapshots: widget.snapshots,
+            mcp: widget.mcp,
           );
         }
         return LibraryHome(
@@ -138,6 +144,7 @@ class _AppGateState extends State<_AppGate> {
           logger: widget.logger,
           backup: widget.backup,
           updateChecker: widget.updateChecker,
+          mcp: widget.mcp,
         );
       },
     );
@@ -385,6 +392,7 @@ class ZiZaiApp extends StatelessWidget {
     this.backup,
     this.updateChecker,
     this.snapshots,
+    this.mcp,
   });
 
   final LibraryController library;
@@ -405,6 +413,9 @@ class ZiZaiApp extends StatelessWidget {
   /// 单文档版本历史（null = 未接线，如测试）。
   final SnapshotHistory? snapshots;
 
+  /// 本地 MCP 服务控制器（null = 未接线，如测试）。
+  final McpController? mcp;
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -424,6 +435,7 @@ class ZiZaiApp extends StatelessWidget {
             backup: backup,
             updateChecker: updateChecker,
             snapshots: snapshots,
+            mcp: mcp,
           ),
         );
       },
