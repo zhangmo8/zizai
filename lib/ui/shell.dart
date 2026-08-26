@@ -312,7 +312,9 @@ class _ShellState extends State<Shell> {
               drawer: _focusMode
                   ? null
                   : Drawer(width: _androidDrawerWidth, child: sidebar),
-              body: editor,
+              // SafeArea：内容避开系统状态栏与手势导航条（edge-to-edge 下
+              // 顶栏会被状态栏盖住点不到、底部会被导航条遮住）。
+              body: SafeArea(child: editor),
             );
           },
         );
