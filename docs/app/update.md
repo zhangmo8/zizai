@@ -56,6 +56,7 @@ App 首次启动即可自动检查更新，无需手动配置。
 {
   "latest": "1.2.0",
   "minDbSchema": 1,
+  "changelog": "- feat(mcp): 本地 MCP 服务\n- fix(ui): toast 黄线修复",
   "platforms": {
     "macos":   { "url": "https://.../zizai-1.2.0-macos.zip",           "sha256": "..." },
     "windows": { "url": "https://.../zizai-windows-setup.exe",   "sha256": "..." },
@@ -101,6 +102,7 @@ GitHub Actions 工作流 [build.yml](../../.github/workflows/build.yml) 负责�
   - 三端包 → `s3://<bucket>/releases/<tag>/`
   - `update.json` → `s3://<bucket>/releases/<tag>/update.json`（归档）+ `s3://<bucket>/update.json`（根路径覆盖，App 始终检查此 URL）
 - `update.json` 中的下载 URL 指向 R2 公开域名（`R2_PUBLIC_BASE` secret）。
+- **changelog**：`update.json` 的 `changelog` 字段由 release job 从**上一个版本 tag 到本 tag 的提交**提取（`git log --oneline --no-merges <prev>..HEAD`，一行一条 markdown 列表）；首个发布无前序 tag 时为空，客户端跳过弹窗。App 发现新版且清单带 changelog 时，下载前先弹「更新说明」确认框（取消不下载）。
 - 构建时通过 `--dart-define=UPDATE_URL=<R2_PUBLIC_BASE>/update.json` 将默认更新地址注入二进制。
 - GitHub Release 仅保留自动生成的 release notes，不再上传二进制资产。
 - 上传后必须从 R2 公开域名回读根清单，并对三端安装包执行公开 GET 探针；任一对象不可访问时发布失败。
