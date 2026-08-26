@@ -282,6 +282,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.validate.outputs.tag }}
+          # changelog 需要完整历史与 tag（上一个版本 tag..HEAD 的提交）。
+          fetch-depth: 0
       - name: Generate update.json (URLs point to R2)
         env:
           TAG: ${{ needs.validate.outputs.tag }}
@@ -305,6 +307,16 @@ jobs:
             echo "未从 lib/core/db.dart 提取到 minUpgradableSchemaVersion" >&2
             exit 1
           fi
+          # changelog：上一个版本 tag..HEAD 的提交（一行一条，去掉 merge）。
+          # 首个发布无前序 tag → 空串，客户端跳过弹窗。
+          export CHANGELOG=""
+          PREV_TAG=$(git tag --sort=-v:refname | sed -n '2p')
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG=$(
+              git log --oneline --no-merges "${PREV_TAG}..HEAD" |
+                sed 's/^/- /'
+            )
+          fi
           python3 - <<'EOF'
           import json, re, os
           tag = os.environ['TAG']
@@ -313,6 +325,7 @@ jobs:
           manifest = {
               "latest": version,
               "minDbSchema": int(os.environ['MIN_DB_SCHEMA']),
+              "changelog": os.environ.get('CHANGELOG', ''),
               "platforms": {
                   "android": {
                       "url": f"{base}/releases/{tag}/{os.environ['ANDROID_FILE']}",

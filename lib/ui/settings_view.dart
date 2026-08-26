@@ -910,6 +910,45 @@ class _SettingsViewState extends State<SettingsView> {
     );
   }
 
+  /// 发现新版且清单带 changelog → 先弹「更新说明」确认框，确认后才下载。
+  Future<bool> _confirmUpdateWithChangelog(UpdateManifest manifest) async {
+    final colors = Theme.of(context).colorScheme;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(6),
+          side: BorderSide(color: colors.outline),
+        ),
+        insetPadding: const EdgeInsets.all(24),
+        contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+        titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+        actionsPadding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+        title: Text('发现新版本 v${manifest.latest}'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440, maxHeight: 380),
+          child: SingleChildScrollView(
+            child: Text(
+              manifest.changelog,
+              style: const TextStyle(fontSize: 13, height: 1.6),
+            ),
+          ),
+        ),
+        actions: [
+          ZzButton.link(
+            label: '稍后再说',
+            onPressed: () => Navigator.of(context).pop(false),
+          ),
+          ZzButton.primary(
+            label: '下载并安装',
+            onPressed: () => Navigator.of(context).pop(true),
+          ),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
   Future<void> _runUpdateCheck() async {
     final checker = widget.updateChecker!;
     final status = checker.status.value;
@@ -926,8 +965,14 @@ class _SettingsViewState extends State<SettingsView> {
             manifest == null ? '已是最新版本' : '发现新版本 v${manifest.latest}',
           );
         case UpdateStatus.available:
-          final manifest = await checker.install();
-          if (mounted) showZzToast(context, 'v${manifest.latest} 已下载并通过校验');
+          // 清单带更新说明（build.yml 从提交提取）→ 先弹窗确认再下载。
+          final manifest = checker.lastManifest;
+          if (manifest != null && manifest.changelog.trim().isNotEmpty) {
+            final confirmed = await _confirmUpdateWithChangelog(manifest);
+            if (!confirmed || !mounted) return;
+          }
+          final installed = await checker.install();
+          if (mounted) showZzToast(context, 'v${installed.latest} 已下载并通过校验');
         case UpdateStatus.ready:
           await _installPackage();
           if (mounted) {

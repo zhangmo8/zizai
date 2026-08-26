@@ -37,7 +37,7 @@ void main() {
       crypto.sha256.convert(utf8.encode(content)).toString();
 
   /// 注入的更新源：清单 + 安装包（真实 http MockClient 路由）。
-  UpdateChecker makeChecker({String latest = '1.1.0'}) {
+  UpdateChecker makeChecker({String latest = '1.1.0', String changelog = ''}) {
     const packageBody = 'package-bytes';
     final sha = shaOf(packageBody);
     final client = MockClient((request) async {
@@ -46,6 +46,7 @@ void main() {
           jsonEncode({
             'latest': latest,
             'minDbSchema': 2,
+            if (changelog.isNotEmpty) 'changelog': changelog,
             'platforms': {
               'macos': {
                 'url': 'http://fake/zizai-$latest-macos.zip',
@@ -139,6 +140,38 @@ void main() {
     await settle(tester);
     expect(checker.status.value, UpdateStatus.ready);
     expect(find.text('v1.1.0 已下载并通过校验'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.runAsync(() => db.close());
+  });
+
+  testWidgets('清单带 changelog → 下载前先弹更新说明；取消不下载，确认才安装', (tester) async {
+    final db = (await tester.runAsync(() => Db.open('${tempDir.path}/t.db')))!;
+    final checker = makeChecker(changelog: '- 新增本地 MCP 服务\n- 修复 toast 黄线');
+    await pumpSettings(tester, checker: checker, db: db);
+    await openAbout(tester);
+
+    await tester.tap(find.text('检查更新').last);
+    await settle(tester);
+    expect(checker.status.value, UpdateStatus.available);
+
+    // 点「下载并安装」→ 先弹更新说明（从 commit 提取的 changelog）。
+    await tester.tap(find.text('下载并安装 v1.1.0'));
+    await tester.pumpAndSettle();
+    expect(find.text('发现新版本 v1.1.0'), findsWidgets);
+    expect(find.textContaining('本地 MCP 服务'), findsOneWidget);
+    expect(find.textContaining('黄线'), findsOneWidget);
+
+    // 取消 → 不下载，仍处于 available。
+    await tester.tap(find.text('稍后再说'));
+    await tester.pumpAndSettle();
+    expect(checker.status.value, UpdateStatus.available);
+
+    // 再次点击 → 确认后下载 → ready。
+    await tester.tap(find.text('下载并安装 v1.1.0'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('下载并安装').last);
+    await settle(tester);
+    expect(checker.status.value, UpdateStatus.ready);
     await tester.pump(const Duration(seconds: 3));
     await tester.runAsync(() => db.close());
   });

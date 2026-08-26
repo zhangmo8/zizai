@@ -41,12 +41,16 @@ class UpdateManifest {
     required this.minDbSchema,
     required this.platforms,
     this.notes,
+    this.changelog = '',
   });
 
   final String latest;
   final int minDbSchema;
   final Map<String, ({String url, String sha256})> platforms;
   final String? notes;
+
+  /// 本次更新说明（build.yml 从上一个 tag 到本 tag 的提交提取，markdown 列表）。
+  final String changelog;
 
   static UpdateManifest fromJson(Map<String, dynamic> json) {
     final platforms = <String, ({String url, String sha256})>{};
@@ -62,6 +66,7 @@ class UpdateManifest {
       minDbSchema: json['minDbSchema']! as int,
       platforms: platforms,
       notes: json['notes'] as String?,
+      changelog: json['changelog'] as String? ?? '',
     );
   }
 }
@@ -104,6 +109,9 @@ class UpdateChecker {
 
   /// 发现的新版本号（available 态展示）。
   final ValueNotifier<String?> availableVersion = ValueNotifier(null);
+
+  /// 最近一次拉到的待更新清单（UI 读取 changelog 展示更新说明用）。
+  UpdateManifest? lastManifest;
 
   /// 有待处理的新版本（available / downloading / ready）→ 设置入口显示角标。
   bool get hasPendingUpdate =>
@@ -188,6 +196,7 @@ class UpdateChecker {
         status.value = UpdateStatus.none;
         return null;
       }
+      lastManifest = manifest;
       status.value = UpdateStatus.available;
       availableVersion.value = manifest.latest;
       return manifest;

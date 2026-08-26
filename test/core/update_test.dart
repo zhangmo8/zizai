@@ -17,11 +17,13 @@ class FakeUpdateServer {
     this.latest = '1.1.0',
     this.minDbSchema = 1,
     this.platform = 'macos',
+    this.changelog = '',
   });
 
   final String latest;
   final int minDbSchema;
   final String platform;
+  final String changelog;
 
   static const String packageBody = 'fake-installer-bytes';
   late String packageSha = sha256Of(packageBody);
@@ -32,6 +34,7 @@ class FakeUpdateServer {
         jsonEncode({
           'latest': latest,
           'minDbSchema': minDbSchema,
+          if (changelog.isNotEmpty) 'changelog': changelog,
           'platforms': {
             platform: {
               'url': 'http://fake/zizai-$latest-$platform.zip',
@@ -107,6 +110,20 @@ void main() {
       );
       final m = await c.fetchManifest();
       expect(m!.latest, '1.1.0');
+    });
+
+    test('清单带 changelog → 解析并保留给 UI', () async {
+      final c = checker(
+        server: FakeUpdateServer(
+          latest: '1.1.0',
+          changelog: '- feat(mcp): 本地 MCP 服务\n- fix(ui): 黄线修复',
+        ),
+        dir: tempDir,
+      );
+      final m = await c.check();
+      expect(m!.changelog, contains('本地 MCP 服务'));
+      // check() 后 UI 可从 lastManifest 读取 changelog 弹窗。
+      expect(c.lastManifest, same(m));
     });
 
     test('minDbSchema 高于本地 → 拒绝并报可读错误', () async {
