@@ -53,6 +53,26 @@ Status: Draft（v3：双栏分类导航）
 持久化键：`notebookGoal.<id>.enabled/.words`、`paragraphIndent.<id>`、
 `volume.<id>.enabled/.chapters`（settings 表）。
 
+## AI 协作（本地 MCP）
+
+桌面端（macOS/Windows）可开启一个**仅本机回环**的 MCP 服务，供其他 AI agent
+读写你的书（查看章节 / 搜索上下文 / 新建与追加章节）。入口：设置 → 「AI 协作」。
+
+| 项 | 说明 |
+|---|---|
+| 启用本地服务 | 开关，立即起/停服务；状态持久化（`mcp.enabled`） |
+| 端口 | 默认 8765，可改（1024–65535，0 = 自动分配）；持久化（`mcp.port`）；修改后自动重启服务 |
+| 状态 | 已停止 / 启动中 / 运行中；启动失败显示可读错误 |
+| 服务地址 | `http://127.0.0.1:<port>/mcp`，带复制按钮 |
+| skill 模板 | 「复制 skill」把 skills/zizai-writing/SKILL.md 内容拷到剪贴板，装进 agent 的 skills 目录即用 |
+
+安全边界：**只绑 127.0.0.1**，局域网/公网不可达；无令牌（v1）；写操作
+append-only（追加前自动留版本快照，不覆盖）。Android 端不显示该分类
+（agent 需 `adb reverse` 才能连到设备回环，价值低）。
+
+MCP 工具与 skill 约定见 `skills/zizai-writing/SKILL.md` 与
+`lib/core/mcp/`（tools / server / controller 三层）。
+
 ## Region Layout
 
 | 分类 | 设置项 | 说明 |
@@ -89,6 +109,8 @@ Status: Draft（v3：双栏分类导航）
 | 导出当前文档 | 数据 | 导出当前文档纯文本；失败显示错误（不可写路径） |
 | 导出全书 | 数据 | 打开导出对话框选项详见上表；用户取消保存对话框时不关闭选项对话框、不提示 |
 | 检查更新 | 关于 | 拉取清单比较；有新版 → 确认下载 → sha256 校验 → 安装 |
+| 本地 MCP 开关 | AI 协作 | 开关启停本地服务；改端口自动重启；启动失败显示错误 |
+| 复制 skill | AI 协作 | 把 skill 模板拷到剪贴板 |
 | 打开目录 | 数据 | 定位 db 所在目录（桌面） |
 | 恢复默认 | 全局 | 先显示确认框；确认后重置外观与每日目标，不删除文档或备份 |
 | `×` / Esc | 全局 | 关闭并保留所有已即时保存的改动 |
@@ -98,6 +120,7 @@ Status: Draft（v3：双栏分类导航）
 - **导出失败**：错误提示条（路径不可写/当前无文档）。
 - **当前无文档**：导出按钮禁用，附说明「先打开一个文档」。
 - **备份失败**：备份区显示最近错误 + 重试按钮；进行中按钮转圈。
+- **MCP 启动失败**：端口被占用等 → 状态显示可读错误，服务不运行。
 - **更新可用**：「检查更新」按钮由次级升为 accent 主按钮，label 携带新版本号；下载中按钮内 spinner + 旁侧 4px 细进度条与百分比。
 - **窄屏**：导航不压缩为双栏；改为可横向滚动的顶部标签，底部保留关闭入口。
 
@@ -107,7 +130,7 @@ Status: Draft（v3：双栏分类导航）
 SettingsView
 ├─ Header（title / CloseButton）
 ├─ Desktop: SettingsNav
-│  ├─ CategoryItem（Appearance / Writing / Backup? / Data / About?）
+│  ├─ CategoryItem（Appearance / Backup? / Data / AI 协作? / About?）
 │  └─ ResetDefaultsButton
 ├─ Mobile: HorizontalCategoryNav
 ├─ SettingsPage（current category）
