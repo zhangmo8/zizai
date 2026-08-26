@@ -671,6 +671,9 @@ class _ZzIconButtonState extends State<ZzIconButton> {
               borderRadius: BorderRadius.circular(4),
             ),
             child: Stack(
+              // 非 Positioned 的 Icon 需居中：ec6ce37 加角标引入 Stack 后曾
+              // 遗漏 alignment，默认 topStart 使 icon 贴左上角（回归）。
+              alignment: Alignment.center,
               clipBehavior: Clip.none,
               children: [
                 Icon(
