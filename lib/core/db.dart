@@ -663,7 +663,7 @@ CREATE TABLE last_open (
     if (n == 0) throw LibraryException('分卷不存在: $id', path: _path);
   }
 
-  /// 删除分卷：其章节 volume_id 清空（回落「未分卷」区），卷随行删除。
+  /// 仅删除分卷本身；其章节 volume_id 清空（兼容自动→手动残留脏数据用）。
   Future<void> deleteVolume(String id) async {
     await _db.transaction((txn) async {
       final n = await txn.delete(
@@ -685,6 +685,38 @@ CREATE TABLE last_open (
           whereArgs: [doc['id']],
         );
         await _markDirtyOn(txn, doc['id']! as String);
+      }
+    });
+  }
+
+  /// 删除分卷并连带删除其内的章节（产品：删除分卷 = 卷 + 卷内章节一并删除，
+  /// 无「未归卷」）。[documentIds] 非空时按给定章节删除，否则按卷内全部删除。
+  Future<void> deleteVolumeWithDocs(
+    String id, {
+    List<String>? documentIds,
+  }) async {
+    await _db.transaction((txn) async {
+      final n = await txn.delete(
+        'volumes',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (n == 0) throw LibraryException('分卷不存在: $id', path: _path);
+      final ids =
+          documentIds?.toList() ??
+          (await txn.query(
+            'documents',
+            columns: ['id'],
+            where: 'volume_id = ?',
+            whereArgs: [id],
+          )).map((r) => r['id']! as String).toList();
+      for (final docId in ids) {
+        await txn.delete(
+          'documents',
+          where: 'id = ?',
+          whereArgs: [docId],
+        );
+        await _markDirtyOn(txn, docId);
       }
     });
   }

@@ -17,7 +17,7 @@ Widget sidebarPreview() {
   );
 }
 
-/// 手动分卷模式侧边栏：真数据卷 + 未分卷区 + 「新建分卷」。
+/// 手动分卷模式侧边栏：真数据卷，顶栏「+ 新建分卷」。
 @Preview(name: 'Sidebar 手动分卷', group: '页面', size: Size(280, 620))
 Widget sidebarManualPreview() {
   return MaterialApp(
@@ -58,32 +58,22 @@ class _StaticSidebarManual extends StatelessWidget {
                       ),
                     ),
                   ),
+                  // 手动分卷顶栏：新建分卷 + 视图切换
+                  _PreviewIconButton(tooltip: '新建分卷', icon: Icons.create_new_folder_outlined),
                   _PreviewIconButton(tooltip: '平铺展示', icon: Icons.account_tree_outlined),
                   _PreviewIconButton(tooltip: '写作设置', icon: Icons.settings_outlined),
                 ],
               ),
             ),
             const Divider(height: 1, color: Color(0xFFE6E4DF)),
-            // 手动卷（真数据，卷头 ⋮ 可重命名/删除卷）
+            // 手动卷（真数据，卷头 ⋮ 可重命名/删除卷）；无「未分卷」区
             const _PreviewManualVolume(title: '第一卷', count: '2 章'),
             const _PreviewDocument(title: '第 1 章', selected: true),
             const _PreviewDocument(title: '第 2 章'),
             const _PreviewManualVolume(title: '第二卷', count: '1 章'),
             const _PreviewDocument(title: '第 3 章'),
-            // 未分卷区（删卷后章节回落 / 无卷时新建章节）
-            const _PreviewVolume(title: '未分卷', count: '1 章'),
+            const _PreviewManualVolume(title: '第三卷', count: '1 章'),
             const _PreviewDocument(title: '第 4 章'),
-            // + 新建分卷
-            const Padding(
-              padding: EdgeInsets.only(left: 18, top: 4, bottom: 6),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  '+ 新建分卷',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF787774)),
-                ),
-              ),
-            ),
             const Spacer(),
           ],
         ),

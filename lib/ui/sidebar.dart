@@ -406,7 +406,7 @@ class _SidebarState extends State<Sidebar> {
 
   /// 点「+」直接创建章节：suggestedChapterTitle 自动编号（已有 3 章 → 第 4 章），
   /// 不进入命名环节；创建后保持当前文档不变（不打断写作流）。
-  /// 手动分卷模式下新章节归入当前卷（当前打开文档所在卷 → 最后一卷 → 未分卷）。
+  /// 手动分卷模式下新章节归入当前卷（当前打开文档所在卷 → 最后一卷 → 无卷时自动建卷）。
   Future<void> _createDocumentDirect(String notebookId) async {
     final title = suggestedChapterTitle(
       widget.library.documentsOf(notebookId),
@@ -414,7 +414,7 @@ class _SidebarState extends State<Sidebar> {
     final volume = widget.settings.volumeForNotebook(notebookId);
     final grouped = volume.enabled && widget.settings.volumeViewGrouped;
     final volumeId = grouped && volume.mode == VolumeMode.manual
-        ? _targetVolumeForNew(notebookId)
+        ? await _targetVolumeForNew(notebookId)
         : null;
     await widget.library.createDocument(
       notebookId,
@@ -423,8 +423,9 @@ class _SidebarState extends State<Sidebar> {
     );
   }
 
-  /// 手动分卷模式新建章节的归卷目标。
-  String? _targetVolumeForNew(String notebookId) {
+  /// 手动分卷模式新建章节的归卷目标（非空）：当前打开文档所在卷 → 最后一卷；
+  /// 无卷时自动创建一个卷（章节必须有归属，没有「未归卷」）。
+  Future<String?> _targetVolumeForNew(String notebookId) async {
     final library = widget.library;
     final cur = library.currentDocument;
     final volumes = library.volumesOf(notebookId);
@@ -434,7 +435,12 @@ class _SidebarState extends State<Sidebar> {
         volumes.any((v) => v.id == cur.volumeId)) {
       return cur.volumeId;
     }
-    return volumes.isEmpty ? null : volumes.last.id;
+    if (volumes.isNotEmpty) return volumes.last.id;
+    final vol = await library.createVolume(
+      notebookId,
+      name: '第一卷',
+    );
+    return vol.id;
   }
 
   /// 直接新建分卷（默认名「第 N 卷」中文数字），随后可卷头重命名。
@@ -446,21 +452,35 @@ class _SidebarState extends State<Sidebar> {
     );
   }
 
+  /// 删除分卷 = 连卷带卷内所有章节一起删除（无「未归卷」）。
   Future<void> _deleteVolume(Notebook nb, Volume vol) async {
+    final count = widget.library
+        .documentsOf(nb.id)
+        .where((d) => d.volumeId == vol.id)
+        .length;
     final confirmed = await zzConfirm(
       context,
       title: '删除分卷「${vol.name}」？',
-      message: '卷内 ${widget.library.documentsOf(nb.id).where((d) => d.volumeId == vol.id).length} 个章节将移到「未分卷」，卷本身删除。',
+      message: '卷内 $count 个章节将一并删除，此操作不可恢复。',
       confirmLabel: '删除',
       danger: true,
     );
-    if (confirmed) await widget.library.deleteVolume(vol.id);
+    if (confirmed) {
+      await widget.library.deleteVolumeWithDocs(
+        vol.id,
+        documentIds: widget.library
+            .documentsOf(nb.id)
+            .where((d) => d.volumeId == vol.id)
+            .map((d) => d.id)
+            .toList(),
+      );
+    }
   }
 
-  /// 章节「移动到分卷」：目标卷内末尾（volumeId = null → 未分卷末尾）。
+  /// 章节「移动到分卷」：目标卷内末尾。
   Future<void> _moveToVolume(
     Document doc, {
-    required String? volumeId,
+    required String volumeId,
   }) async {
     final docs = widget.library.documentsOf(doc.notebookId);
     var count = 0;
@@ -508,9 +528,16 @@ class _SidebarState extends State<Sidebar> {
                   nb != null &&
                   widget.settings.volumeForNotebook(nb.id).enabled,
               volumeViewGrouped: widget.settings.volumeViewGrouped,
+              volumeMode:
+                  nb != null
+                      ? widget.settings.volumeForNotebook(nb.id).mode
+                      : VolumeMode.auto,
               onToggleVolumeView: () => widget.settings.setVolumeView(
                 widget.settings.volumeViewGrouped ? 'flat' : 'grouped',
               ),
+              onCreateVolume: nb == null
+                  ? null
+                  : () => _createVolume(nb.id),
             ),
             Expanded(
               child: nb == null
@@ -642,21 +669,22 @@ class _SidebarState extends State<Sidebar> {
     );
   }
 
-  /// 手动分卷树：卷序 → 卷内章节；未归卷区放最后；底部「+ 新建分卷」。
+  /// 手动分卷树：卷序 → 卷内章节；底部「+ 新建章节」。
+  /// 无「未归卷」概念——章节永远属于某卷（新章节自动落卷；脏数据卷 id 回退最后一卷）。
   void _buildManualTree(
     Notebook nb,
     List<Document> docs,
     List<Volume> volumes,
     void Function(Widget child, TreeRowRef ref) add,
   ) {
-    // 分桶：卷序 → 章节（position 序）；未归卷桶放最后。
-    final buckets = <String?, List<Document>>{};
-    for (final vol in volumes) {
-      buckets[vol.id] = <Document>[];
-    }
+    // 分桶：卷序 → 章节（position 序）。
+    final buckets = <String, List<Document>>{
+      for (final vol in volumes) vol.id: <Document>[],
+    };
     for (final doc in docs) {
-      final vid = doc.volumeId;
-      final key = buckets.containsKey(vid) ? vid : null;
+      final key = buckets.containsKey(doc.volumeId) && volumes.isNotEmpty
+          ? doc.volumeId!
+          : volumes.last.id; // 脏数据（指向已删卷/无卷）→ 最后一卷
       buckets[key]!.add(doc);
     }
 
@@ -715,29 +743,6 @@ class _SidebarState extends State<Sidebar> {
         _addManualDocRow(nb, doc, add);
       }
     }
-
-    final unassigned = buckets[null] ?? const <Document>[];
-    if (unassigned.isNotEmpty) {
-      add(
-        _VolumeHeader(
-          key: ValueKey('unassigned-${nb.id}'),
-          title: '未分卷',
-          count: '${unassigned.length} 章',
-        ),
-        TreeRowRef(notebookId: nb.id, isUnassignedHeader: true),
-      );
-      for (final doc in unassigned) {
-        _addManualDocRow(nb, doc, add);
-      }
-    }
-
-    add(
-      _NewVolumeButton(
-        key: ValueKey('new-vol-${nb.id}'),
-        onPressed: () => _createVolume(nb.id),
-      ),
-      TreeRowRef(notebookId: nb.id),
-    );
   }
 
   void _addManualDocRow(
@@ -770,7 +775,7 @@ class _SidebarState extends State<Sidebar> {
     final volume = widget.settings.volumeForNotebook(nb.id);
     final grouped = volume.enabled && widget.settings.volumeViewGrouped;
     final manual = grouped && volume.mode == VolumeMode.manual;
-    // 手动分卷：章节菜单加「移动到分卷」二级菜单。
+    // 手动分卷：章节菜单加「移动到分卷」二级菜单（列出所有卷）。
     final moveItems = manual
         ? <({String label, VoidCallback action})>[
             for (final v in library.volumesOf(nb.id))
@@ -778,7 +783,6 @@ class _SidebarState extends State<Sidebar> {
                 label: v.name,
                 action: () => _moveToVolume(doc, volumeId: v.id),
               ),
-            (label: '未分卷', action: () => _moveToVolume(doc, volumeId: null)),
           ]
         : null;
     final tile = _DocumentTile(
@@ -907,7 +911,7 @@ class _SidebarState extends State<Sidebar> {
   }
 }
 
-/// 单书工作区顶栏：返回 + 书名 + 分卷视图切换 + 全书搜索 + 本书设置。
+/// 单书工作区顶栏：返回 + 书名 + 新建分卷 + 分卷视图切换 + 全书搜索 + 本书设置。
 class _BookHeader extends StatelessWidget {
   const _BookHeader({
     required this.title,
@@ -916,7 +920,9 @@ class _BookHeader extends StatelessWidget {
     this.onOpenBookSearch,
     this.volumeEnabled = false,
     this.volumeViewGrouped = true,
+    this.volumeMode = VolumeMode.auto,
     this.onToggleVolumeView,
+    this.onCreateVolume,
   });
 
   final String title;
@@ -924,12 +930,16 @@ class _BookHeader extends StatelessWidget {
   final VoidCallback? onOpenBookSettings;
   final VoidCallback? onOpenBookSearch;
 
-  /// 分卷是否开启（开启才显示「分卷展示/平铺展示」切换）。
+  /// 分卷是否开启（开启才显示「分卷展示/平铺展示」切换与「新建分卷」）。
   final bool volumeEnabled;
 
   /// 当前目录视图：true = 分卷展示，false = 平铺展示。
   final bool volumeViewGrouped;
+
+  /// 分卷方式（手动分卷、分卷展示时显示「+ 新建分卷」）。
+  final VolumeMode volumeMode;
   final VoidCallback? onToggleVolumeView;
+  final VoidCallback? onCreateVolume;
 
   @override
   Widget build(BuildContext context) {
@@ -959,6 +969,15 @@ class _BookHeader extends StatelessWidget {
               ),
             ),
           ),
+          if (volumeEnabled &&
+              volumeMode == VolumeMode.manual &&
+              volumeViewGrouped &&
+              onCreateVolume != null)
+            ZzIconButton(
+              tooltip: '新建分卷',
+              icon: Icons.create_new_folder_outlined,
+              onPressed: onCreateVolume!,
+            ),
           if (volumeEnabled && onToggleVolumeView != null)
             ZzIconButton(
               tooltip: volumeViewGrouped ? '平铺展示' : '分卷展示',
@@ -989,7 +1008,6 @@ class _BookHeader extends StatelessWidget {
 ///
 /// - 自动分卷：卷头为推导分组，菜单仅「重命名」（自定义名存 settings）。
 /// - 手动分卷：卷头为真数据卷，菜单「重命名 / 删除卷」。
-/// - 未分卷头：无菜单，仅展示。
 class _VolumeHeader extends StatefulWidget {
   const _VolumeHeader({
     super.key,
@@ -1565,63 +1583,6 @@ class _RowMenu extends StatelessWidget {
               Icons.more_horiz,
               size: 16,
               color: colors.onSurfaceVariant,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 手动分卷模式底部的「+ 新建分卷」。
-class _NewVolumeButton extends StatefulWidget {
-  const _NewVolumeButton({super.key, required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  State<_NewVolumeButton> createState() => _NewVolumeButtonState();
-}
-
-class _NewVolumeButtonState extends State<_NewVolumeButton> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 90),
-        height: 30,
-        margin: const EdgeInsets.symmetric(vertical: 1),
-        decoration: BoxDecoration(
-          color: _hover ? appColors.surfaceHover : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(4),
-          onTap: widget.onPressed,
-          child: Padding(
-            padding: const EdgeInsets.only(left: 18, right: 8),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.create_new_folder_outlined,
-                  size: 15,
-                  color: appColors.textTertiary,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '新建分卷',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-              ],
             ),
           ),
         ),

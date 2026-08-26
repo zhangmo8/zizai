@@ -549,15 +549,19 @@ void main() {
     expect(find.text('第一卷'), findsNothing);
   });
 
-  testWidgets('分卷：关闭时平铺显示', (tester) async {
+  testWidgets('分卷：关闭时平铺显示，且不显示视图切换/新建分卷按钮', (tester) async {
     final (library, settings) = (await tester.runAsync(
       () => makeApp(tree: [('小说', ['第一章', '第二章'])]),
     ))!;
     final nbId = library.notebooks.first.id;
     await pumpSidebar(tester, library, settings, notebookId: nbId);
 
+    // 分卷关闭 = 平铺：无卷头，顶栏不出现视图切换/新建分卷按钮
     expect(find.text('第一卷'), findsNothing);
     expect(find.text('第一章'), findsOneWidget);
+    expect(find.byTooltip('平铺展示'), findsNothing);
+    expect(find.byTooltip('分卷展示'), findsNothing);
+    expect(find.byTooltip('新建分卷'), findsNothing);
   });
 
   testWidgets('手动分卷：从自动切换后自动建卷并归章，卷头可交互', (tester) async {
@@ -582,8 +586,8 @@ void main() {
     expect(find.text('未分卷'), findsNothing);
     expect(find.text('第一章'), findsOneWidget);
     expect(find.text('第三章'), findsOneWidget);
-    // 手动分卷入口：新建分卷
-    expect(find.text('新建分卷'), findsOneWidget);
+    // 手动分卷入口：顶栏「+ 新建分卷」icon
+    expect(find.byTooltip('新建分卷'), findsOneWidget);
     // 章节数角标
     expect(find.text('2 章'), findsOneWidget);
     expect(find.text('1 章'), findsOneWidget);
@@ -620,8 +624,8 @@ void main() {
     expect(find.text('移动到分卷'), findsOneWidget);
     await tester.tap(find.text('移动到分卷'));
     await tester.pumpAndSettle();
-    // 二级菜单：卷名 + 未分卷（用 key 排除树里的卷头文本）
-    expect(find.text('未分卷'), findsOneWidget);
+    // 二级菜单：只列卷（无「未分卷」），用 key 排除树里的卷头文本
+    expect(find.text('未分卷'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('move-vol-第二卷')));
     await settle(tester);
 
@@ -638,6 +642,62 @@ void main() {
       library.documentsOf(nbId).where((d) => d.volumeId == vols[1].id),
       hasLength(2),
     );
+  });
+
+  testWidgets('手动分卷：删除卷连带删除卷内章节，侧边栏不白屏', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['第一章', '第二章'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await tester.runAsync(
+      () => settings.setVolumeForNotebook(nbId, enabled: true, chapters: 1),
+    );
+    await tester.runAsync(
+      () => settings.setVolumeForNotebook(nbId, mode: VolumeMode.manual),
+    );
+    await tester.runAsync(() => library.refreshTree());
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+
+    // 删除第一卷：卷头 ⋮ → 删除卷 → 确认
+    await openRowMenu(tester, 0);
+    await tester.tap(find.text('删除卷'));
+    await tester.pump();
+    await tester.tap(find.text('删除'));
+    await settle(tester);
+
+    // 卷内章节随卷删除，剩下的章节归到唯一剩余卷；渲染无异常、无未分卷
+    expect(tester.takeException(), isNull);
+    expect(library.volumesOf(nbId), hasLength(1));
+    expect(find.text('第一卷'), findsNothing);
+    expect(find.text('未分卷'), findsNothing);
+    expect(find.text('第一章'), findsNothing); // 第一卷的章节被删除
+    expect(find.text('第二章'), findsOneWidget);
+    final vols = library.volumesOf(nbId);
+    expect(
+      library.documentsOf(nbId).first.volumeId,
+      vols.single.id,
+    );
+  });
+
+  testWidgets('手动分卷：无卷时新建章节自动建卷', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', [])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await tester.runAsync(
+      () => settings.setVolumeForNotebook(nbId, enabled: true, chapters: 5),
+    );
+    await tester.runAsync(
+      () => settings.setVolumeForNotebook(nbId, mode: VolumeMode.manual),
+    );
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+
+    // 点击「新建第一章」→ 无卷时自动创建一个卷并归章
+    await tester.tap(find.text('新建第一章'));
+    await settle(tester);
+    expect(library.volumesOf(nbId), hasLength(1));
+    expect(find.text('第一卷'), findsOneWidget);
+    expect(library.documentsOf(nbId).single.volumeId, library.volumesOf(nbId).single.id);
   });
 
   testWidgets('视图切换：分卷展示 ↔ 平铺展示（顶栏图标 + tooltip）', (tester) async {

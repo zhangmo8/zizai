@@ -342,6 +342,20 @@ class LibraryController extends ChangeNotifier {
     await _reloadTree();
   }
 
+  /// 删除分卷并连带删除卷内章节（product 约定：删除分卷 = 卷 + 卷内章节）。
+  Future<void> deleteVolumeWithDocs(
+    String id, {
+    required List<String> documentIds,
+  }) async {
+    // 若删除卷正是当前打开的文档，先清空当前文档。
+    final cur = _currentDocument;
+    if (cur != null && documentIds.contains(cur.id)) {
+      _currentDocument = null;
+    }
+    await _db.deleteVolumeWithDocs(id, documentIds: documentIds);
+    await _reloadTree();
+  }
+
   /// 把章节移到指定分卷的 [indexInVolume] 位（volumeId = null → 未分卷区）。
   Future<void> moveDocumentToVolume(
     String id, {

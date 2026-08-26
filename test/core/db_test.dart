@@ -457,6 +457,24 @@ void main() {
       await db.close();
     });
 
+    test('deleteVolumeWithDocs：删除分卷连带删除卷内章节', () async {
+      final db = await openDb();
+      final nb = await db.createNotebook('书');
+      final v1 = await db.createVolume(nb.id, name: '一');
+      final v2 = await db.createVolume(nb.id, name: '二');
+      final d1 = await db.createDocument(nb.id, title: 'A');
+      final d2 = await db.createDocument(nb.id, title: 'B');
+      final d3 = await db.createDocument(nb.id, title: 'C');
+      await db.setDocumentVolume(d1.id, v1.id);
+      await db.setDocumentVolume(d2.id, v1.id);
+      await db.setDocumentVolume(d3.id, v2.id);
+      await db.deleteVolumeWithDocs(v1.id, documentIds: [d1.id, d2.id]);
+      expect((await db.listVolumes(nb.id)).single.id, v2.id);
+      final docs = await db.listDocuments(nb.id);
+      expect(docs.map((d) => d.title), ['C']);
+      await db.close();
+    });
+
     test('ensureAutoVolumes：按每卷章数建卷并归章，幂等', () async {
       final db = await openDb();
       final nb = await db.createNotebook('书');
