@@ -293,6 +293,18 @@ jobs:
           WINDOWS_FILE: ${{ needs.windows.outputs.file }}
           WINDOWS_SHA: ${{ needs.windows.outputs.sha256 }}
         run: |
+          # minDbSchema 从代码提取（lib/core/db.dart 的 minUpgradableSchemaVersion），
+          # 不在工作流写死：其值 = 迁移链可升级的最老库版本（回放测试从 v1 空库逐级
+          # 迁移到当前版本保证），不是 currentSchemaVersion——后者会把 v1–v3 老库
+          # 用户拦在更新外（update.dart 守卫：minDbSchema > 本地库 → 拒绝更新）。
+          export MIN_DB_SCHEMA=$(
+            sed -n 's/^const int minUpgradableSchemaVersion = \([0-9]*\);.*/\1/p' \
+              lib/core/db.dart
+          )
+          if [ -z "$MIN_DB_SCHEMA" ]; then
+            echo "未从 lib/core/db.dart 提取到 minUpgradableSchemaVersion" >&2
+            exit 1
+          fi
           python3 - <<'EOF'
           import json, re, os
           tag = os.environ['TAG']
@@ -300,7 +312,7 @@ jobs:
           version = re.sub(r'^v', '', tag)
           manifest = {
               "latest": version,
-              "minDbSchema": 2,
+              "minDbSchema": int(os.environ['MIN_DB_SCHEMA']),
               "platforms": {
                   "android": {
                       "url": f"{base}/releases/{tag}/{os.environ['ANDROID_FILE']}",

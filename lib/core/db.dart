@@ -18,6 +18,14 @@ import 'word_count.dart';
 /// v4：+ documents.notes（章节备注，不进正文导出）。
 const int currentSchemaVersion = 4;
 
+/// 迁移链可升级的最老库版本：update.json 的 `minDbSchema` 取值来源
+/// （build.yml 发布时从本常量提取，不在工作流写死）。
+/// 回放测试保证从 v1 空库可逐级迁移到当前版本（update.md §6），故恒为 1；
+/// 仅当某级迁移无法从更老版本直接升级时，才调大此值（并同步调整回放测试起点）。
+/// 注意：不是 `currentSchemaVersion`——update.dart 守卫对
+/// `minDbSchema > 本地库` 直接拒绝更新，填当前版本会把 v1–v3 老库用户拦在外面。
+const int minUpgradableSchemaVersion = 1;
+
 /// 单级迁移：`to` 为目标版本，`up` 执行该级全部 DDL/DML。
 class SchemaMigration {
   const SchemaMigration({required this.to, required this.up});
