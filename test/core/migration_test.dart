@@ -32,7 +32,7 @@ void main() {
     return rows.first;
   }
 
-  test('fresh 空库：当前版本（v2）6 张表 + user_version = 2', () async {
+  test('fresh 空库：当前版本（v5）7 张表 + user_version = 5', () async {
     final path = dbPath();
     final db = await Db.open(path);
     final tables = (await db.listNotebooks()).isEmpty &&
@@ -47,8 +47,47 @@ void main() {
       "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
     );
     final names = rows.map((r) => r['name']).toList();
-    expect(names, containsAll(
-        ['notebooks', 'documents', 'settings', 'stats', 'last_open', 'sync_journal']));
+    expect(
+      names,
+      containsAll([
+        'notebooks',
+        'documents',
+        'settings',
+        'stats',
+        'last_open',
+        'sync_journal',
+        'volumes',
+      ]),
+    );
+    await conn.close();
+  });
+
+  test('迁移 v5：volumes 表 + documents.volume_id，旧数据无损', () async {
+    final path = dbPath();
+    // 1. 建 v4 库并写入数据（真实 v1-v4 链）。
+    final db1 = await Db.open(path, version: 4, migrations: schemaMigrations);
+    final nb = await db1.createNotebook('书');
+    final doc = await db1.createDocument(nb.id, title: '第一章');
+    await db1.setSetting('theme', 'dark');
+    await db1.close();
+
+    // 2. 升到 v5：volumes 表落地 + documents.volume_id 列。
+    final db2 = await Db.open(path);
+    expect((await db2.listNotebooks()).single.name, '书');
+    expect((await db2.listDocuments(nb.id)).single.title, '第一章');
+    expect(await db2.getSetting('theme'), 'dark');
+    // v5 新结构：volumes 表可建卷，章节可归卷。
+    final vol = await db2.createVolume(nb.id);
+    await db2.setDocumentVolume(doc.id, vol.id);
+    final docs = await db2.listDocuments(nb.id);
+    expect(docs.single.volumeId, vol.id);
+    await db2.close();
+
+    final v = await userVersion(path);
+    expect(v['user_version'], 5);
+    final conn = await databaseFactory.openDatabase(path);
+    final cols = await conn.rawQuery('PRAGMA table_info(documents)');
+    expect(cols.map((c) => c['name']), contains('volume_id'));
     await conn.close();
   });
 

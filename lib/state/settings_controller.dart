@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../core/db.dart';
 import '../core/models.dart';
+import '../util/chinese.dart' show toChineseNumber;
 
 class SettingsController extends ChangeNotifier {
   SettingsController(this._db);
@@ -47,24 +48,57 @@ class SettingsController extends ChangeNotifier {
     );
   }
 
-  /// 笔记本分卷配置（settings 键 `volume.<notebookId>.enabled/.chapters`，
-  /// 默认关闭、每卷 20 章）。
+  /// 笔记本分卷配置（settings 键 `volume.<notebookId>.enabled/.chapters/.mode`，
+  /// 默认关闭、每卷 20 章、自动分卷）。
   Map<String, VolumeCfg> _volumes = const {};
 
-  /// 该笔记本的分卷配置（未配置返回默认：关闭）。
+  /// 自动分卷模式下「第 N 卷」的自定义名（settings 键
+  /// `volume.<notebookId>.name.<n>`；空 = 恢复「第 N 卷」）。
+  Map<String, Map<int, String>> _volumeAutoNames = const {};
+
+  /// 该笔记本的分卷配置（未配置返回默认：关闭、自动分卷）。
   VolumeCfg volumeForNotebook(String? notebookId) {
     if (notebookId == null) return const VolumeCfg();
     return _volumes[notebookId] ?? const VolumeCfg();
+  }
+
+  /// 自动分卷模式第 [number] 卷的显示名；未重命名过返回「第 N 卷」。
+  String autoVolumeName(String? notebookId, int number) {
+    if (notebookId == null) return '第${toChineseNumber(number)}卷';
+    final custom = _volumeAutoNames[notebookId]?[number]?.trim();
+    if (custom != null && custom.isNotEmpty) return custom;
+    return '第${toChineseNumber(number)}卷';
+  }
+
+  /// 设置自动分卷第 [number] 卷的自定义名；空串恢复「第 N 卷」。
+  Future<void> setAutoVolumeName(
+    String notebookId,
+    int number,
+    String name,
+  ) async {
+    final map = {..._volumeAutoNames[notebookId] ?? const <int, String>{}};
+    if (name.trim().isEmpty) {
+      map.remove(number);
+    } else {
+      map[number] = name.trim();
+    }
+    if (map.isEmpty) {
+      _volumeAutoNames = {..._volumeAutoNames}..remove(notebookId);
+    } else {
+      _volumeAutoNames = {..._volumeAutoNames, notebookId: map};
+    }
+    notifyListeners();
+    await _db.setSetting('volume.$notebookId.name.$number', name.trim());
   }
 
   Future<void> setVolumeForNotebook(
     String notebookId, {
     bool? enabled,
     int? chapters,
+    VolumeMode? mode,
   }) async {
-    final next = volumeForNotebook(
-      notebookId,
-    ).copyWith(enabled: enabled, chapters: chapters);
+    final prev = volumeForNotebook(notebookId);
+    final next = prev.copyWith(enabled: enabled, chapters: chapters, mode: mode);
     _volumes = {..._volumes, notebookId: next};
     notifyListeners();
     await _db.setSetting(
@@ -75,6 +109,44 @@ class SettingsController extends ChangeNotifier {
       'volume.$notebookId.chapters',
       next.chapters.toString(),
     );
+    await _db.setSetting(
+      'volume.$notebookId.mode',
+      next.mode.name,
+    );
+    // 自动 → 手动：一次性按当前每卷分组建真实卷并归章（幂等，已有卷则跳过）。
+    if (prev.mode == VolumeMode.auto &&
+        next.mode == VolumeMode.manual &&
+        next.enabled) {
+      await _db.ensureAutoVolumes(
+        notebookId,
+        chapters: next.chapters,
+        names: _volumeAutoNames[notebookId] ?? const {},
+      );
+    }
+  }
+
+  /// 侧边栏目录视图：分卷展示（grouped） / 平铺展示（flat）。
+  /// settings 键 `sidebar.volumeView`，默认分卷展示。
+  String _volumeView = 'grouped';
+  String get volumeView => _volumeView;
+  bool get volumeViewGrouped => _volumeView != 'flat';
+
+  Future<void> setVolumeView(String view) async {
+    if (_volumeView == view) return;
+    _volumeView = view;
+    notifyListeners();
+    await _db.setSetting('sidebar.volumeView', view);
+  }
+
+  /// 笔记本管理页视图：grid / list（settings 键 `library.homeView`，默认 grid）。
+  String _homeView = 'grid';
+  String get homeView => _homeView;
+
+  Future<void> setHomeView(String view) async {
+    if (_homeView == view) return;
+    _homeView = view;
+    notifyListeners();
+    await _db.setSetting('library.homeView', view);
   }
 
   /// 主题三态：system / light / dark。
@@ -150,10 +222,25 @@ class SettingsController extends ChangeNotifier {
     }
     _paragraphIndents = indents;
     final volumes = <String, VolumeCfg>{};
+    final volumeNames = <String, Map<int, String>>{};
     for (final entry in values.entries) {
       const prefix = 'volume.';
       if (!entry.key.startsWith(prefix)) continue;
       final suffix = entry.key.substring(prefix.length);
+      // volume.<nb>.name.<n>：两级字段（自动分卷自定义卷名）。
+      const nameToken = '.name.';
+      final nameAt = suffix.indexOf(nameToken);
+      if (nameAt >= 0) {
+        final notebookId = suffix.substring(0, nameAt);
+        final number =
+            int.tryParse(suffix.substring(nameAt + nameToken.length));
+        if (number != null && number > 0) {
+          final map = {...volumeNames[notebookId] ?? const <int, String>{}};
+          map[number] = entry.value;
+          volumeNames[notebookId] = map;
+        }
+        continue;
+      }
       final split = suffix.lastIndexOf('.');
       if (split <= 0) continue;
       final notebookId = suffix.substring(0, split);
@@ -166,9 +253,16 @@ class SettingsController extends ChangeNotifier {
         volumes[notebookId] = current.copyWith(
           chapters: int.tryParse(entry.value) ?? 20,
         );
+      } else if (field == 'mode') {
+        volumes[notebookId] = current.copyWith(
+          mode: entry.value == 'manual' ? VolumeMode.manual : VolumeMode.auto,
+        );
       }
     }
     _volumes = volumes;
+    _volumeAutoNames = volumeNames;
+    _volumeView = values['sidebar.volumeView'] == 'flat' ? 'flat' : 'grouped';
+    _homeView = values['library.homeView'] == 'list' ? 'list' : 'grid';
     _outlineOpen = values['outline.open'] == 'true';
     _notesOpen = values['notes.open'] == 'true';
     _loaded = true;

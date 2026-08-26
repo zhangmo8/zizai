@@ -72,6 +72,7 @@ class Document {
     required this.updatedAt,
     this.status = DocumentStatus.draft,
     this.notes = '',
+    this.volumeId,
   });
 
   final String id;
@@ -93,6 +94,9 @@ class Document {
   /// 章节备注（不进正文导出）：本章目的、出场人物、伏笔、待修改事项等。
   final String notes;
 
+  /// 所属分卷（手动分卷模式写入；自动分卷为纯推导不写，null = 未归卷）。
+  final String? volumeId;
+
   factory Document.fromRow(Map<String, Object?> row) => Document(
     id: row['id']! as String,
     notebookId: row['notebook_id']! as String,
@@ -104,6 +108,7 @@ class Document {
     updatedAt: row['updated_at']! as int,
     status: DocumentStatus.fromString(row['status'] as String? ?? 'draft'),
     notes: (row['notes'] as String?) ?? '',
+    volumeId: row['volume_id'] as String?,
   );
 
   @override
@@ -118,7 +123,8 @@ class Document {
       other.createdAt == createdAt &&
       other.updatedAt == updatedAt &&
       other.status == status &&
-      other.notes == notes;
+      other.notes == notes &&
+      other.volumeId == volumeId;
 
   @override
   int get hashCode => Object.hash(
@@ -132,6 +138,7 @@ class Document {
     updatedAt,
     status,
     notes,
+    volumeId,
   );
 }
 
@@ -268,19 +275,73 @@ class NotebookGoal {
   );
 }
 
+/// 分卷方式：自动（按每卷章数纯视觉推导） / 手动（用户建卷并归章，真数据）。
+enum VolumeMode { auto, manual }
+
 /// 单个笔记本的分卷配置（写作设置里的「分卷」）。
 class VolumeCfg {
-  const VolumeCfg({this.enabled = false, this.chapters = 20});
+  const VolumeCfg({
+    this.enabled = false,
+    this.chapters = 20,
+    this.mode = VolumeMode.auto,
+  });
 
   final bool enabled;
 
   /// 每卷章数（1–500）。
   final int chapters;
 
-  VolumeCfg copyWith({bool? enabled, int? chapters}) => VolumeCfg(
+  /// 分卷方式：自动分卷（每 N 章一卷，纯推导） / 手动分卷（用户建卷归章）。
+  final VolumeMode mode;
+
+  VolumeCfg copyWith({
+    bool? enabled,
+    int? chapters,
+    VolumeMode? mode,
+  }) => VolumeCfg(
     enabled: enabled ?? this.enabled,
     chapters: (chapters ?? this.chapters).clamp(1, 500),
+    mode: mode ?? this.mode,
   );
+}
+
+/// 分卷（手动分卷模式的真数据分组）：属一个笔记本，按 position 排序。
+class Volume {
+  const Volume({
+    required this.id,
+    required this.notebookId,
+    required this.name,
+    required this.position,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String notebookId;
+  final String name;
+
+  /// 卷在同书内的排序位（小在前）。
+  final int position;
+  final int createdAt;
+
+  factory Volume.fromRow(Map<String, Object?> row) => Volume(
+    id: row['id']! as String,
+    notebookId: row['notebook_id']! as String,
+    name: row['name']! as String,
+    position: row['position']! as int,
+    createdAt: row['created_at']! as int,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is Volume &&
+      other.id == id &&
+      other.notebookId == notebookId &&
+      other.name == name &&
+      other.position == position &&
+      other.createdAt == createdAt;
+
+  @override
+  int get hashCode => Object.hash(id, notebookId, name, position, createdAt);
 }
 
 /// last_open 表记录（启动恢复用）。

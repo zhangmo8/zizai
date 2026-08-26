@@ -183,28 +183,53 @@ class _BookSettingsDialogState extends State<BookSettingsDialog> {
                                   enabled: enabled,
                                 ),
                               ),
-                              description: '开启后按每卷章数在目录里拆分为卷',
+                              description: '开启后按卷在目录里组织章节',
                             ),
-                            if (volume.enabled)
+                            if (volume.enabled) ...[
                               _row(
-                                '每卷章数',
-                                SizedBox(
-                                  width: 140,
-                                  child: ZzTextField(
-                                    controller: _volumeController,
-                                    focusNode: _volumeFocus,
-                                    hint: '1–500',
-                                    keyboardType: TextInputType.number,
-                                    onSubmitted: (v) {
-                                      final n = int.tryParse(v.trim());
-                                      if (n != null && n >= 1 && n <= 500) {
-                                        _setVolumeChapters(n);
-                                      }
-                                    },
-                                  ),
+                                '分卷方式',
+                                ZzSelect<VolumeMode>(
+                                  value: volume.mode,
+                                  display: volume.mode == VolumeMode.auto
+                                      ? '自动分卷'
+                                      : '手动分卷',
+                                  options: const [
+                                    (label: '自动分卷', value: VolumeMode.auto),
+                                    (label: '手动分卷', value: VolumeMode.manual),
+                                  ],
+                                  onChanged: (mode) async {
+                                    await widget.settings
+                                        .setVolumeForNotebook(
+                                      _notebookId,
+                                      mode: mode,
+                                    );
+                                    // 自动→手动会按当前分组建卷，刷新目录树装载卷数据。
+                                    await widget.library.refreshTree();
+                                  },
                                 ),
-                                description: '第 1~N 章为第一卷，之后每 N 章一卷',
+                                description: '自动 = 每 N 章一卷；手动 = 侧边栏自建卷并归章',
                               ),
+                              if (volume.mode == VolumeMode.auto)
+                                _row(
+                                  '每卷章数',
+                                  SizedBox(
+                                    width: 140,
+                                    child: ZzTextField(
+                                      controller: _volumeController,
+                                      focusNode: _volumeFocus,
+                                      hint: '1–500',
+                                      keyboardType: TextInputType.number,
+                                      onSubmitted: (v) {
+                                        final n = int.tryParse(v.trim());
+                                        if (n != null && n >= 1 && n <= 500) {
+                                          _setVolumeChapters(n);
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                  description: '第 1~N 章为第一卷，之后每 N 章一卷',
+                                ),
+                            ],
                           ],
                         ),
                       ],

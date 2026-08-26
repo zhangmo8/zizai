@@ -191,6 +191,58 @@ void main() {
     });
   });
 
+  group('manualReorderTarget 手动分卷拖拽落点映射', () {
+    TreeRowRef vh(String volId) =>
+        TreeRowRef(notebookId: 'A', isVolumeHeader: true, volumeId: volId);
+    TreeRowRef doc(String nbId, String docId, String? volId) =>
+        TreeRowRef(notebookId: nbId, docId: docId, volumeId: volId);
+    TreeRowRef uh() => TreeRowRef(notebookId: 'A', isUnassignedHeader: true);
+    TreeRowRef btn() => TreeRowRef(notebookId: 'A');
+
+    // 树：卷一[一,二], 卷二[三], 未分卷[四], 按钮
+    final refs = [
+      vh('v1'),
+      doc('A', 'd1', 'v1'),
+      doc('A', 'd2', 'v1'),
+      vh('v2'),
+      doc('A', 'd3', 'v2'),
+      uh(),
+      doc('A', 'd4', null),
+      btn(),
+    ];
+
+    test('拖到卷头边界 → 移入该卷末尾', () {
+      // d1 落到卷二头 → 卷二末尾（d3 之后）
+      expect(manualReorderTarget(refs, 1, 2), ('A', 'v2', 1));
+    });
+
+    test('落到章节行上方 → 移入该章所在卷的对应序号', () {
+      // d2 移到 d3 上方 → 卷二第 0 位（跨卷）
+      expect(manualReorderTarget(refs, 2, 3), ('A', 'v2', 0));
+      // d2 移到 d1 上方 → 卷一第 0 位（卷内重排）
+      expect(manualReorderTarget(refs, 2, 1), ('A', 'v1', 0));
+    });
+
+    test('落到未分卷头 → 清卷（volumeId null，末尾）', () {
+      expect(manualReorderTarget(refs, 1, 4), ('A', null, 1));
+    });
+
+    test('无拖动 / 同卷位置未变 → null（不写库）', () {
+      expect(manualReorderTarget(refs, 1, 1), isNull); // d1 原地
+      expect(manualReorderTarget(refs, 2, 2), isNull); // d2 原地
+    });
+
+    test('卷头/未分卷头/按钮不可拖', () {
+      expect(manualReorderTarget(refs, 0, 1), isNull); // 卷头
+      expect(manualReorderTarget(refs, 5, 1), isNull); // 未分卷头
+      expect(manualReorderTarget(refs, 7, 1), isNull); // 按钮
+    });
+
+    test('落到列表末尾 → 最后一个分区末尾（未分卷）', () {
+      expect(manualReorderTarget(refs, 1, 8), ('A', null, 1));
+    });
+  });
+
   testWidgets('拖拽排序：拖手柄同本书内重排', (tester) async {
     final (library, settings) = (await tester.runAsync(
       () => makeApp(tree: [('小说', ['第一章', '第二章'])]),
@@ -506,6 +558,132 @@ void main() {
 
     expect(find.text('第一卷'), findsNothing);
     expect(find.text('第一章'), findsOneWidget);
+  });
+
+  testWidgets('手动分卷：从自动切换后自动建卷并归章，卷头可交互', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['第一章', '第二章', '第三章'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await tester.runAsync(
+      () => settings.setVolumeForNotebook(nbId, enabled: true, chapters: 2),
+    );
+    // 切手动：自动按每 2 章建卷并归章（幂等迁移）。
+    await tester.runAsync(
+      () => settings.setVolumeForNotebook(nbId, mode: VolumeMode.manual),
+    );
+    await tester.runAsync(() => library.refreshTree());
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+
+    // 两卷，全部归章（无未分卷），章节仍在
+    expect(library.volumesOf(nbId), hasLength(2));
+    expect(find.text('第一卷'), findsOneWidget);
+    expect(find.text('第二卷'), findsOneWidget);
+    expect(find.text('未分卷'), findsNothing);
+    expect(find.text('第一章'), findsOneWidget);
+    expect(find.text('第三章'), findsOneWidget);
+    // 手动分卷入口：新建分卷
+    expect(find.text('新建分卷'), findsOneWidget);
+    // 章节数角标
+    expect(find.text('2 章'), findsOneWidget);
+    expect(find.text('1 章'), findsOneWidget);
+    // 新建章节归入当前（最后）卷
+    await tester.runAsync(() => library.switchDocument(
+      library.documentsOf(nbId).first.id,
+    ));
+    await tester.pump();
+    await tester.tap(find.text('新建章节'));
+    await settle(tester);
+    final newDoc = library.documentsOf(nbId).last;
+    expect(newDoc.title, '第四章');
+    expect(newDoc.volumeId, library.volumesOf(nbId).first.id);
+  });
+
+  testWidgets('手动分卷：章节菜单「移动到分卷」跨卷移动', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['第一章', '第二章'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await tester.runAsync(
+      () => settings.setVolumeForNotebook(nbId, enabled: true, chapters: 1),
+    );
+    await tester.runAsync(
+      () => settings.setVolumeForNotebook(nbId, mode: VolumeMode.manual),
+    );
+    await tester.runAsync(() => library.refreshTree());
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+    final vols = library.volumesOf(nbId);
+    expect(vols, hasLength(2));
+
+    // 树中 ⋮ 顺序：卷一头, 第一章, 卷二头, 第二章（卷头自带菜单）
+    await openRowMenu(tester, 1); // 第一章的菜单
+    expect(find.text('移动到分卷'), findsOneWidget);
+    await tester.tap(find.text('移动到分卷'));
+    await tester.pumpAndSettle();
+    // 二级菜单：卷名 + 未分卷（用 key 排除树里的卷头文本）
+    expect(find.text('未分卷'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('move-vol-第二卷')));
+    await settle(tester);
+
+    final moved = library.documentsOf(nbId).firstWhere(
+      (d) => d.title == '第一章',
+    );
+    // 第一章 移入第二卷；第一卷清空，第二卷两章
+    expect(moved.volumeId, vols[1].id);
+    expect(
+      library.documentsOf(nbId).where((d) => d.volumeId == vols[0].id),
+      isEmpty,
+    );
+    expect(
+      library.documentsOf(nbId).where((d) => d.volumeId == vols[1].id),
+      hasLength(2),
+    );
+  });
+
+  testWidgets('视图切换：分卷展示 ↔ 平铺展示（顶栏图标 + tooltip）', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['第一章', '第二章'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await tester.runAsync(
+      () => settings.setVolumeForNotebook(nbId, enabled: true, chapters: 2),
+    );
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+
+    // 分卷展示：卷头可见
+    expect(find.text('第一卷'), findsOneWidget);
+    // 切平铺展示：卷头消失
+    await tester.tap(find.byTooltip('平铺展示'));
+    await tester.pump();
+    await settle(tester);
+    expect(settings.volumeViewGrouped, isFalse);
+    expect(find.text('第一卷'), findsNothing);
+    expect(find.text('第一章'), findsOneWidget);
+    // 切回分卷展示
+    await tester.tap(find.byTooltip('分卷展示'));
+    await tester.pump();
+    await settle(tester);
+    expect(find.text('第一卷'), findsOneWidget);
+  });
+
+  testWidgets('自动分卷：卷头可重命名（自定义名存 settings）', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['第一章', '第二章'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await tester.runAsync(
+      () => settings.setVolumeForNotebook(nbId, enabled: true, chapters: 2),
+    );
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+
+    // 自动分卷卷头菜单：仅重命名
+    await openRowMenu(tester, 0); // 第一卷的 ⋮
+    expect(find.text('重命名'), findsOneWidget);
+    expect(find.text('删除卷'), findsNothing);
+    await renameViaMenu(tester, '上卷');
+    expect(settings.autoVolumeName(nbId, 1), '上卷');
+    expect(find.text('上卷'), findsOneWidget);
+    expect(find.text('第一卷'), findsNothing);
   });
 
   testWidgets('写作设置：写作目标 + 段落缩进 + 分卷开关', (tester) async {

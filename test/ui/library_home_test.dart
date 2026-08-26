@@ -86,22 +86,28 @@ void main() {
     expect(find.byType(Image), findsNothing);
   });
 
-  testWidgets('视图切换：grid ↔ list', (tester) async {
+  testWidgets('视图切换：grid ↔ list（带过渡动画 + 持久化）', (tester) async {
     final (library, settings) = (await tester.runAsync(
       () => makeApp(tree: [('小说', ['第一章']), ('随笔', [])]),
     ))!;
     await pumpHome(tester, library, settings);
 
-    // 默认网格（卡片容器）；切列表 → 行容器
+    // 默认网格（卡片容器）；切列表 → 行容器（tap 触发 setHomeView 落库，需 drain）
     await tester.tap(find.byTooltip('列表视图'));
     await tester.pump();
+    await drain(tester);
     expect(find.byTooltip('网格视图'), findsOneWidget);
     // 列表行内仍有书名
     expect(find.text('小说'), findsOneWidget);
     // 切回网格
     await tester.tap(find.byTooltip('网格视图'));
     await tester.pump();
+    await drain(tester);
     expect(find.byTooltip('列表视图'), findsOneWidget);
+    // 视图选择已持久化：重建后仍是网格
+    final settings2 = SettingsController(settings.db);
+    await tester.runAsync(() => settings2.load());
+    expect(settings2.homeView, 'grid');
   });
 
   testWidgets('新建笔记本：对话框命名 → 卡片出现', (tester) async {

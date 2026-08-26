@@ -38,6 +38,11 @@ class LibraryController extends ChangeNotifier {
   List<Document> documentsOf(String notebookId) =>
       _documentsByNotebook[notebookId] ?? const [];
 
+  /// 各笔记本的分卷（手动分卷真数据，按 position 排序）。
+  Map<String, List<Volume>> _volumesByNotebook = const {};
+  List<Volume> volumesOf(String notebookId) =>
+      _volumesByNotebook[notebookId] ?? const [];
+
   /// 当前库内全部文档，按笔记本和章节顺序展平，供整书导出使用。
   List<Document> get allDocuments => [
     for (final notebook in _notebooks) ...documentsOf(notebook.id),
@@ -187,6 +192,9 @@ class LibraryController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 手动刷新目录树（分卷数据装载；设置侧创建卷后调用）。
+  Future<void> refreshTree() => _reloadTree();
+
   /// 保存当前文档（edit-003 自动保存调用）：返回字数增量并刷新今日增量/快照。
   Future<int> saveDocument({
     required String documentId,
@@ -259,8 +267,13 @@ class LibraryController extends ChangeNotifier {
   Future<Document> createDocument(
     String notebookId, {
     String title = '新章节.md',
+    String? volumeId,
   }) async {
-    final doc = await _db.createDocument(notebookId, title: title);
+    final doc = await _db.createDocument(
+      notebookId,
+      title: title,
+      volumeId: volumeId,
+    );
     await _reloadTree();
     return doc;
   }
@@ -311,6 +324,52 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
+  // ── 分卷 CRUD（手动分卷真数据） ──────────────────────────
+
+  Future<Volume> createVolume(String notebookId, {String? name}) async {
+    final vol = await _db.createVolume(notebookId, name: name);
+    await _reloadTree();
+    return vol;
+  }
+
+  Future<void> renameVolume(String id, String name) async {
+    await _db.renameVolume(id, name);
+    await _reloadTree();
+  }
+
+  Future<void> deleteVolume(String id) async {
+    await _db.deleteVolume(id);
+    await _reloadTree();
+  }
+
+  /// 把章节移到指定分卷的 [indexInVolume] 位（volumeId = null → 未分卷区）。
+  Future<void> moveDocumentToVolume(
+    String id, {
+    required String? volumeId,
+    required int indexInVolume,
+  }) async {
+    await _db.moveDocumentToVolume(
+      id,
+      volumeId: volumeId,
+      indexInVolume: indexInVolume,
+    );
+    await _reloadTree();
+    if (_currentDocument != null && _currentDocument!.id == id) {
+      _currentDocument = await _db.getDocument(id);
+      notifyListeners();
+    }
+  }
+
+  /// 仅改章节所属分卷（不重排）。
+  Future<void> setDocumentVolume(String id, String? volumeId) async {
+    await _db.setDocumentVolume(id, volumeId);
+    await _reloadTree();
+    if (_currentDocument != null && _currentDocument!.id == id) {
+      _currentDocument = await _db.getDocument(id);
+      notifyListeners();
+    }
+  }
+
   /// 复制章节：创建副本并刷新树。
   Future<Document> duplicateDocument(String id) async {
     final doc = await _db.duplicateDocument(id);
@@ -338,6 +397,7 @@ class LibraryController extends ChangeNotifier {
       src.notebookId,
       title: '${src.title}（续）',
       content: result.secondContent,
+      volumeId: src.volumeId,
     );
     // 把新文档移到原文档之后
     await _db.reorderDocument(
@@ -434,10 +494,13 @@ class LibraryController extends ChangeNotifier {
   Future<void> _reloadTree() async {
     _notebooks = await _db.listNotebooks();
     final map = <String, List<Document>>{};
+    final vols = <String, List<Volume>>{};
     for (final nb in _notebooks) {
       map[nb.id] = await _db.listDocuments(nb.id);
+      vols[nb.id] = await _db.listVolumes(nb.id);
     }
     _documentsByNotebook = map;
+    _volumesByNotebook = vols;
     notifyListeners();
   }
 

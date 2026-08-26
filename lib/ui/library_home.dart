@@ -111,6 +111,7 @@ class LibraryHome extends StatelessWidget {
       ]),
       builder: (context, _) => _Home(
         library: library,
+        settings: settings,
         onOpenNotebook: _openNotebook,
         onNewNotebook: () => _createNotebook(context),
         onRename: (nb) => _renameNotebook(context, nb),
@@ -127,6 +128,7 @@ enum _HomeView { grid, list }
 class _Home extends StatefulWidget {
   const _Home({
     required this.library,
+    required this.settings,
     required this.onOpenNotebook,
     required this.onNewNotebook,
     required this.onRename,
@@ -136,6 +138,7 @@ class _Home extends StatefulWidget {
   });
 
   final LibraryController library;
+  final SettingsController settings;
   final ValueChanged<String> onOpenNotebook;
   final VoidCallback onNewNotebook;
   final ValueChanged<Notebook> onRename;
@@ -150,7 +153,16 @@ class _Home extends StatefulWidget {
 }
 
 class _HomeState extends State<_Home> {
-  _HomeView _view = _HomeView.grid;
+  /// 初始值来自持久化设置（library.homeView），切换时回写（视图切换持久化）。
+  late _HomeView _view = widget.settings.homeView == 'list'
+      ? _HomeView.list
+      : _HomeView.grid;
+
+  void _setView(_HomeView v) {
+    if (_view == v) return;
+    setState(() => _view = v);
+    widget.settings.setHomeView(v == _HomeView.list ? 'list' : 'grid');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -180,7 +192,7 @@ class _HomeState extends State<_Home> {
                   const Spacer(),
                   _ViewToggle(
                     view: _view,
-                    onChanged: (v) => setState(() => _view = v),
+                    onChanged: _setView,
                   ),
                   const SizedBox(width: 4),
                   ZzIconButton(
@@ -228,7 +240,8 @@ class _HomeState extends State<_Home> {
   }
 }
 
-/// 右上角视图切换（grid / list，Notion 分段：active = bg-active 灰底）。
+/// 右上角视图切换（grid / list）：单图标，点击切换并带过渡动画；
+/// 当前视图网格 → 图标 grid_view（点击去列表），反之亦然。tooltip 提示目标视图。
 class _ViewToggle extends StatelessWidget {
   const _ViewToggle({required this.view, required this.onChanged});
 
@@ -239,66 +252,32 @@ class _ViewToggle extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final gridActive = view == _HomeView.grid;
-    final listActive = view == _HomeView.list;
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: colors.outline),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _ToggleIcon(
-            icon: Icons.grid_view,
-            tooltip: '网格视图',
-            active: gridActive,
-            onTap: () => onChanged(_HomeView.grid),
-          ),
-          _ToggleIcon(
-            icon: Icons.view_list,
-            tooltip: '列表视图',
-            active: listActive,
-            onTap: () => onChanged(_HomeView.list),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ToggleIcon extends StatelessWidget {
-  const _ToggleIcon({
-    required this.icon,
-    required this.tooltip,
-    required this.active,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
     return Tooltip(
-      message: tooltip,
+      message: gridActive ? '列表视图' : '网格视图',
       child: InkWell(
-        onTap: onTap,
+        onTap: () => onChanged(gridActive ? _HomeView.list : _HomeView.grid),
         borderRadius: BorderRadius.circular(4),
         child: Container(
-          width: 32,
-          height: 26,
+          width: 36,
+          height: 30,
           decoration: BoxDecoration(
-            color: active ? appColors.rowSelected : Colors.transparent,
+            border: Border.all(color: colors.outline),
             borderRadius: BorderRadius.circular(4),
           ),
-          child: Icon(
-            icon,
-            size: 16,
-            color: active ? colors.onSurfaceVariant : appColors.textTertiary,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            transitionBuilder: (child, animation) => ScaleTransition(
+              scale: animation,
+              child: FadeTransition(opacity: animation, child: child),
+            ),
+            child: Icon(
+              gridActive ? Icons.grid_view : Icons.view_list,
+              key: ValueKey(gridActive),
+              size: 16,
+              color: colors.onSurfaceVariant,
+            ),
           ),
         ),
       ),

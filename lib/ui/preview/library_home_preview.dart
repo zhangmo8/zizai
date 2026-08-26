@@ -36,19 +36,8 @@ class _PreviewHeader extends StatelessWidget {
             style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF37352F)),
           ),
           const Spacer(),
-          Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFFE6E4DF)),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _ToggleCell(icon: Icons.grid_view, tooltip: '网格视图', active: !listMode),
-                _ToggleCell(icon: Icons.view_list, tooltip: '列表视图', active: listMode),
-              ],
-            ),
-          ),
+          // 单图标视图切换：grid → 列表图标；list → 网格图标（过渡动画 + tooltip）
+          _ViewTogglePreview(listMode: listMode),
           const SizedBox(width: 4),
           const _HeaderIcon(tooltip: '新建笔记本', icon: Icons.add),
           const _HeaderIcon(tooltip: '设置', icon: Icons.settings_outlined),
@@ -58,31 +47,29 @@ class _PreviewHeader extends StatelessWidget {
   }
 }
 
-class _ToggleCell extends StatelessWidget {
-  const _ToggleCell({required this.icon, required this.tooltip, required this.active});
+class _ViewTogglePreview extends StatelessWidget {
+  const _ViewTogglePreview({required this.listMode});
 
-  final IconData icon;
-  final String tooltip;
-  final bool active;
+  final bool listMode;
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: tooltip,
+      message: listMode ? '网格视图' : '列表视图',
       child: InkWell(
         borderRadius: BorderRadius.circular(4),
         onTap: () {},
         child: Container(
-          width: 32,
-          height: 26,
+          width: 36,
+          height: 30,
           decoration: BoxDecoration(
-            color: active ? const Color(0x0F37352F) : Colors.transparent,
+            border: Border.all(color: const Color(0xFFE6E4DF)),
             borderRadius: BorderRadius.circular(4),
           ),
           child: Icon(
-            icon,
+            listMode ? Icons.view_list : Icons.grid_view,
             size: 16,
-            color: active ? const Color(0xFF787774) : const Color(0xFF9B9A97),
+            color: const Color(0xFF787774),
           ),
         ),
       ),

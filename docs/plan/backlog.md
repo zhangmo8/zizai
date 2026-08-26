@@ -34,3 +34,5 @@
 | 30 | set-004 评审 | Android Drawer 底部设置入口未实现（ui-settings.md Entry Points） | 已完成（桌面与 Drawer 共用 Sidebar，_SidebarFooter 即底部设置入口） |
 | 31 | design.md §6 | 全局圆角审计：只允许 4/6/8 | 已完成（审计仅 2/9 两处，均为开关轨道/进度条的全圆角惯例，符合控件规范） |
 | 32 | design.md §6 | 编辑器光标：输入时不闪、停顿后 1s 周期闪烁 | 待处理（宽度/颜色已做；闪烁节奏由 flutter_quill 控制，自定需改其光标动画） |
+| 33 | 需求「分卷」 | 分卷 v2：自动/手动分卷 + volumes 表真分组（DB v5 + documents.volume_id；自动 = 纯视觉推导可重命名，手动 = 侧边栏建卷/删卷/重命名 + 章节拖拽与「移动到分卷」+ 未分卷区；自动→手动一次性建卷归章；侧边栏分卷/平铺视图切换 + 笔记本管理视图切换动画与持久化；H1-H3 工具栏反选修复；preview 同步；ui-sidebar/ui-settings/README 更新，2026-08-26） | 已完成 |
+| 34 | edit-review | 编辑器 H1/H2/H3 工具条与斜杠菜单无法反选（header 块级独占，flutter_quill 无 paragraph 常量） | 已完成（toggle：已是该级 → clone(header, null) 转回正文；editor.dart `_toggleHeader` 复用，2026-08-26） |

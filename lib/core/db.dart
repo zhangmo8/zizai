@@ -12,11 +12,13 @@ import 'package:sqflite/sqflite.dart';
 import 'export.dart' show deltaToPlainText, emptyDeltaJson;
 import 'models.dart';
 import 'word_count.dart';
+import '../util/chinese.dart' show toChineseNumber;
 
 /// 当前代码里的 DB schema 版本（`PRAGMA user_version`）。
 /// v1：基础五表；v2：+ sync_journal（云同步脏标记）；v3：+ documents.status（章节状态标记）；
-/// v4：+ documents.notes（章节备注，不进正文导出）。
-const int currentSchemaVersion = 4;
+/// v4：+ documents.notes（章节备注，不进正文导出）；
+/// v5：+ volumes（分卷表，手动分卷真数据）+ documents.volume_id。
+const int currentSchemaVersion = 5;
 
 /// 迁移链可升级的最老库版本：update.json 的 `minDbSchema` 取值来源
 /// （build.yml 发布时从本常量提取，不在工作流写死）。
@@ -70,6 +72,22 @@ CREATE TABLE sync_journal (
       await db.execute(
         "ALTER TABLE documents ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
       );
+    },
+  ),
+  // v5：分卷真数据 —— volumes 表（手动分卷的卷）+ documents.volume_id（可空=未归卷）。
+  // 卷随笔记本级联删除；删除卷时其章节 volume_id 由 deleteVolume 在事务内清空。
+  SchemaMigration(
+    to: 5,
+    up: (db) async {
+      await db.execute('''
+CREATE TABLE volumes (
+  id          TEXT PRIMARY KEY,
+  notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  position    INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL
+)''');
+      await db.execute('ALTER TABLE documents ADD COLUMN volume_id TEXT');
     },
   ),
 ];
@@ -367,6 +385,7 @@ CREATE TABLE last_open (
     String notebookId, {
     String title = '未命名',
     String content = emptyDeltaJson,
+    String? volumeId,
   }) async {
     final id = _newId('doc');
     final now = _nowMs();
@@ -385,6 +404,7 @@ CREATE TABLE last_open (
       'position': position,
       'created_at': now,
       'updated_at': now,
+      'volume_id': ?volumeId,
     });
     await _markDirty(id);
     return Document(
@@ -396,6 +416,7 @@ CREATE TABLE last_open (
       position: position,
       createdAt: now,
       updatedAt: now,
+      volumeId: volumeId,
     );
   }
 
@@ -574,6 +595,7 @@ CREATE TABLE last_open (
         'created_at': now,
         'updated_at': now,
         'status': src.status.name,
+        if (src.volumeId != null) 'volume_id': src.volumeId,
       });
     });
     await _markDirty(newId);
@@ -587,7 +609,220 @@ CREATE TABLE last_open (
       createdAt: now,
       updatedAt: now,
       status: src.status,
+      volumeId: src.volumeId,
     );
+  }
+
+  // ── 分卷（手动分卷真数据） ───────────────────────────────
+
+  Future<List<Volume>> listVolumes(String notebookId) async {
+    final rows = await _db.query(
+      'volumes',
+      where: 'notebook_id = ?',
+      whereArgs: [notebookId],
+      orderBy: 'position ASC, created_at ASC',
+    );
+    return rows.map(Volume.fromRow).toList();
+  }
+
+  /// 创建分卷：默认名「第 N 卷」（阿拉伯数字兜底），排在最后。
+  Future<Volume> createVolume(String notebookId, {String? name}) async {
+    final id = _newId('vol');
+    final now = _nowMs();
+    final count = await _count(
+      'volumes',
+      where: 'notebook_id = ?',
+      whereArgs: [notebookId],
+    );
+    final resolved = name != null && name.trim().isNotEmpty
+        ? name.trim()
+        : '第${count + 1}卷';
+    await _db.insert('volumes', {
+      'id': id,
+      'notebook_id': notebookId,
+      'name': resolved,
+      'position': count,
+      'created_at': now,
+    });
+    return Volume(
+      id: id,
+      notebookId: notebookId,
+      name: resolved,
+      position: count,
+      createdAt: now,
+    );
+  }
+
+  Future<void> renameVolume(String id, String name) async {
+    final n = await _db.update(
+      'volumes',
+      {'name': name},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (n == 0) throw LibraryException('分卷不存在: $id', path: _path);
+  }
+
+  /// 删除分卷：其章节 volume_id 清空（回落「未分卷」区），卷随行删除。
+  Future<void> deleteVolume(String id) async {
+    await _db.transaction((txn) async {
+      final n = await txn.delete(
+        'volumes',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (n == 0) throw LibraryException('分卷不存在: $id', path: _path);
+      final docs = await txn.query(
+        'documents',
+        where: 'volume_id = ?',
+        whereArgs: [id],
+      );
+      for (final doc in docs) {
+        await txn.update(
+          'documents',
+          {'volume_id': null},
+          where: 'id = ?',
+          whereArgs: [doc['id']],
+        );
+        await _markDirtyOn(txn, doc['id']! as String);
+      }
+    });
+  }
+
+  /// 仅设置章节所属分卷（不重排）；菜单「移动到分卷」建议走
+  /// [moveDocumentToVolume] 以同步落位。
+  Future<void> setDocumentVolume(String id, String? volumeId) async {
+    final n = await _db.update(
+      'documents',
+      {'volume_id': volumeId},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (n == 0) throw LibraryException('文档不存在: $id', path: _path);
+    await _markDirty(id);
+  }
+
+  /// 把章节移到指定分卷的 [indexInVolume] 位（volumeId = null → 未分卷区）。
+  ///
+  /// 按「卷序（volumes.position）→ 卷内章节序」重写全书 position，保证
+  /// 分组与顺序一致；指向已删卷的章节视作未归卷。这是手动分卷模式下
+  /// 跨卷移动 / 卷内重排的统一入口。
+  Future<void> moveDocumentToVolume(
+    String id, {
+    required String? volumeId,
+    required int indexInVolume,
+  }) async {
+    await _db.transaction((txn) async {
+      final rows = await txn.query(
+        'documents',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw LibraryException('文档不存在: $id', path: _path);
+      final notebookId = rows.first['notebook_id']! as String;
+      final all = await txn.query(
+        'documents',
+        where: 'notebook_id = ?',
+        whereArgs: [notebookId],
+        orderBy: 'position ASC, created_at ASC',
+      );
+      final vols = await txn.query(
+        'volumes',
+        where: 'notebook_id = ?',
+        whereArgs: [notebookId],
+        orderBy: 'position ASC, created_at ASC',
+      );
+      // 分桶：卷序 → 卷内章节（position 序）；未归卷桶放最后。
+      final buckets = <String?, List<Map<String, Object?>>>{};
+      for (final vol in vols) {
+        buckets[vol['id']! as String] = <Map<String, Object?>>[];
+      }
+      buckets[null] = <Map<String, Object?>>[];
+      for (final row in all) {
+        if (row['id'] == id) continue; // 先移除自身
+        final vid = row['volume_id'] as String?;
+        final bucket = buckets.containsKey(vid) ? vid : null;
+        buckets[bucket]!.add(row);
+      }
+      final target = buckets[volumeId];
+      if (target == null) {
+        throw LibraryException('分卷不存在: $volumeId', path: _path);
+      }
+      final insertAt = indexInVolume.clamp(0, target.length);
+      target.insert(insertAt, <String, Object?>{'id': id});
+      // 按桶序展平，重写全书 position。
+      var position = 0;
+      for (final vol in vols) {
+        for (final row in buckets[vol['id']! as String]!) {
+          await txn.update(
+            'documents',
+            {'position': position++},
+            where: 'id = ?',
+            whereArgs: [row['id']],
+          );
+        }
+      }
+      for (final row in buckets[null]!) {
+        await txn.update(
+          'documents',
+          {'position': position++},
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+      }
+      await txn.update(
+        'documents',
+        {'volume_id': volumeId},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
+    await _markDirty(id);
+  }
+
+  /// 自动分卷 → 手动分卷的一次性迁移：按每 [chapters] 章一组建真实卷并归章。
+  ///
+  /// [names] 为卷序号（从 1）→ 自定义卷名（自动分卷时用户重命名过的）；缺省
+  /// 「第 N 卷」。仅当该笔记本尚无任何分卷时执行（幂等）。
+  Future<void> ensureAutoVolumes(
+    String notebookId, {
+    required int chapters,
+    Map<int, String> names = const {},
+  }) async {
+    final existing = await listVolumes(notebookId);
+    if (existing.isNotEmpty) return;
+    final docs = await listDocuments(notebookId);
+    if (docs.isEmpty) return;
+    final now = _nowMs();
+    await _db.transaction((txn) async {
+      var volumeNumber = 1;
+      for (var i = 0; i < docs.length; i += chapters) {
+        final volId = _newId('vol');
+        final custom = names[volumeNumber];
+        final name = custom != null && custom.trim().isNotEmpty
+            ? custom.trim()
+            : '第${toChineseNumber(volumeNumber)}卷';
+        await txn.insert('volumes', {
+          'id': volId,
+          'notebook_id': notebookId,
+          'name': name,
+          'position': volumeNumber - 1,
+          'created_at': now,
+        });
+        final end = (i + chapters).clamp(0, docs.length);
+        for (var j = i; j < end; j++) {
+          await txn.update(
+            'documents',
+            {'volume_id': volId},
+            where: 'id = ?',
+            whereArgs: [docs[j].id],
+          );
+          await _markDirtyOn(txn, docs[j].id);
+        }
+        volumeNumber++;
+      }
+    });
   }
 
   /// 更新文档状态标记。

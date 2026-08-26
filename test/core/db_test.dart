@@ -377,6 +377,113 @@ void main() {
     });
   });
 
+  group('分卷 CRUD', () {
+    test('创建/列出按 position 排序，默认名「第 N 卷」', () async {
+      final db = await openDb();
+      final nb = await db.createNotebook('书');
+      final v1 = await db.createVolume(nb.id);
+      final v2 = await db.createVolume(nb.id);
+      final v3 = await db.createVolume(nb.id);
+      expect(v1.name, '第1卷');
+      expect(v3.name, '第3卷');
+      expect(v1.position, 0);
+      expect(v3.position, 2);
+      expect(await db.listVolumes(nb.id), [v1, v2, v3]);
+      // 其他笔记本互不可见
+      final nb2 = await db.createNotebook('另一本');
+      expect(await db.listVolumes(nb2.id), isEmpty);
+      await db.close();
+    });
+
+    test('指定名称创建 + 重命名', () async {
+      final db = await openDb();
+      final nb = await db.createNotebook('书');
+      final v = await db.createVolume(nb.id, name: '序章卷');
+      expect(v.name, '序章卷');
+      await db.renameVolume(v.id, '开篇');
+      expect((await db.listVolumes(nb.id)).single.name, '开篇');
+      await expectLater(
+        db.renameVolume('nope', 'x'),
+        throwsA(isA<LibraryException>()),
+      );
+      await db.close();
+    });
+
+    test('setDocumentVolume / moveDocumentToVolume：跨卷移动重排 position', () async {
+      final db = await openDb();
+      final nb = await db.createNotebook('书');
+      final v1 = await db.createVolume(nb.id, name: '一');
+      final v2 = await db.createVolume(nb.id, name: '二');
+      final d1 = await db.createDocument(nb.id, title: 'A');
+      final d2 = await db.createDocument(nb.id, title: 'B');
+      final d3 = await db.createDocument(nb.id, title: 'C');
+      await db.setDocumentVolume(d1.id, v1.id);
+      await db.setDocumentVolume(d2.id, v1.id);
+      await db.setDocumentVolume(d3.id, v2.id);
+      var docs = await db.listDocuments(nb.id);
+      expect(docs.map((d) => d.volumeId), [v1.id, v1.id, v2.id]);
+
+      // 把 A 移到第二卷第 0 位 → 卷序不变，A 在 v2 内排最前。
+      await db.moveDocumentToVolume(d1.id, volumeId: v2.id, indexInVolume: 0);
+      docs = await db.listDocuments(nb.id);
+      expect(docs.map((d) => d.title), ['B', 'A', 'C']);
+      expect(docs.map((d) => d.volumeId), [v1.id, v2.id, v2.id]);
+      // 未归卷：把 B 移出卷（volumeId = null）→ 落到底部。
+      await db.moveDocumentToVolume(d2.id, volumeId: null, indexInVolume: 0);
+      docs = await db.listDocuments(nb.id);
+      expect(docs.map((d) => d.title), ['A', 'C', 'B']);
+      expect(docs.last.volumeId, isNull);
+      await db.close();
+    });
+
+    test('deleteVolume：卷删除，其章节回落未分卷', () async {
+      final db = await openDb();
+      final nb = await db.createNotebook('书');
+      final v1 = await db.createVolume(nb.id, name: '一');
+      final v2 = await db.createVolume(nb.id, name: '二');
+      final d1 = await db.createDocument(nb.id, title: 'A');
+      final d2 = await db.createDocument(nb.id, title: 'B');
+      await db.setDocumentVolume(d1.id, v1.id);
+      await db.setDocumentVolume(d2.id, v2.id);
+      await db.deleteVolume(v1.id);
+      expect((await db.listVolumes(nb.id)).single.id, v2.id);
+      final docs = await db.listDocuments(nb.id);
+      expect(docs.firstWhere((d) => d.id == d1.id).volumeId, isNull);
+      expect(docs.firstWhere((d) => d.id == d2.id).volumeId, v2.id);
+      await expectLater(
+        db.deleteVolume('nope'),
+        throwsA(isA<LibraryException>()),
+      );
+      await db.close();
+    });
+
+    test('ensureAutoVolumes：按每卷章数建卷并归章，幂等', () async {
+      final db = await openDb();
+      final nb = await db.createNotebook('书');
+      final docs = <Document>[];
+      for (var i = 1; i <= 5; i++) {
+        docs.add(await db.createDocument(nb.id, title: '第 $i 章'));
+      }
+      await db.ensureAutoVolumes(
+        nb.id,
+        chapters: 2,
+        names: const {1: '上卷'},
+      );
+      final vols = await db.listVolumes(nb.id);
+      expect(vols.map((v) => v.name), ['上卷', '第二卷', '第三卷']);
+      final grouped = await db.listDocuments(nb.id);
+      expect(grouped.map((d) => d.volumeId), [
+        vols[0].id, vols[0].id,
+        vols[1].id, vols[1].id,
+        vols[2].id,
+      ]);
+      // 幂等：已有卷不重复建。
+      await db.ensureAutoVolumes(nb.id, chapters: 2);
+      expect(await db.listVolumes(nb.id), hasLength(3));
+      await db.close();
+    });
+  });
+
   group('打开失败', () {
     test('无效路径抛可恢复 LibraryException', () async {
       final db = await openDb();

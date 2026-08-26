@@ -93,7 +93,12 @@ class _StaticBookSettings extends StatelessWidget {
                       _Row(
                         label: '启用分卷',
                         control: _SwitchPreview(on: true),
-                        description: '开启后按每卷章数在目录里拆分为卷',
+                        description: '开启后按卷在目录里组织章节',
+                      ),
+                      _Row(
+                        label: '分卷方式',
+                        control: _SelectPreview(text: '自动分卷'),
+                        description: '自动 = 每 N 章一卷；手动 = 侧边栏自建卷并归章',
                       ),
                       _Row(
                         label: '每卷章数',
@@ -208,6 +213,33 @@ class _SwitchPreview extends StatelessWidget {
           height: 14,
           decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
         ),
+      ),
+    );
+  }
+}
+
+class _SelectPreview extends StatelessWidget {
+  const _SelectPreview({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 96),
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        border: Border.all(color: const Color(0xFFE6E4DF)),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(text, style: const TextStyle(fontSize: 13, color: Color(0xFF37352F))),
+          const SizedBox(width: 5),
+          const Icon(Icons.expand_more, size: 14, color: Color(0xFF9B9A97)),
+        ],
       ),
     );
   }

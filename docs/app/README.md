@@ -60,7 +60,16 @@ CREATE TABLE documents (
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL,
   status      TEXT NOT NULL DEFAULT 'draft',  -- v3: draft/done/todo 章节状态标记
-  notes       TEXT NOT NULL DEFAULT ''         -- v4: 章节备注（不进正文导出）
+  notes       TEXT NOT NULL DEFAULT '',       -- v4: 章节备注（不进正文导出）
+  volume_id   TEXT                            -- v5: 所属分卷（手动分卷；NULL = 未归卷）
+);
+
+CREATE TABLE volumes (  -- v5: 手动分卷真数据
+  id          TEXT PRIMARY KEY,
+  notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  position    INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL
 );
 
 CREATE TABLE settings (

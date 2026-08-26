@@ -48,10 +48,10 @@ Status: Draft（v3：双栏分类导航）
 |---|---|---|
 | 写作目标 | 启用今日目标 / 每日目标字数 | 每本书独立计算今日进度（原全局「写作」分类迁移） |
 | 段落缩进 | 行首自动缩进 | 中文排版首行空两格（原全局「写作」分类迁移） |
-| 分卷 | 启用分卷 / 每卷章数 | 开启后按每卷章数在目录里视觉分组为「第 N 卷」（不动库） |
+| 分卷 | 启用分卷 / 分卷方式（自动·手动）/ 每卷章数 | 开启后目录按卷组织章节：自动 = 每 N 章一卷纯视觉分组；手动 = 侧边栏自建卷并归章（真数据，见 ui-sidebar.md 分卷） |
 
 持久化键：`notebookGoal.<id>.enabled/.words`、`paragraphIndent.<id>`、
-`volume.<id>.enabled/.chapters`（settings 表）。
+`volume.<id>.enabled/.chapters/.mode`、`volume.<id>.name.<n>`（settings 表）。
 
 ## AI 协作（本地 MCP）
 
