@@ -10,6 +10,7 @@ import 'package:http/testing.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:zi_zai/core/backup/backup.dart';
 import 'package:zi_zai/core/backup/s3_store.dart';
+import 'package:zi_zai/core/backup/snapshot.dart';
 import 'package:zi_zai/core/db.dart';
 
 void main() {
@@ -140,6 +141,62 @@ void main() {
     expect(await backup.upload(), isFalse);
     expect(backup.state.value, BackupState.error);
     expect(backup.failureCount.value, 1);
+    await db.close();
+  });
+
+  test('本地导出/恢复：文件往返含分卷，恢复前生成 .bak', () async {
+    final db = await openDb();
+    final nb = await db.createNotebook('诗集');
+    final vol = await db.createVolume(nb.id, name: '上卷');
+    await db.createDocument(
+      nb.id,
+      title: '静夜思',
+      content: '[{"insert":"床前明月光\\n"}]',
+      volumeId: vol.id,
+    );
+    final backup = BackupManager(db: db, dbPath: dbPath);
+
+    final filePath = '${tempDir.path}/backup.json';
+    await backup.exportToFile(filePath, deviceId: 'dev', appVersion: '1.0.0');
+    expect(File(filePath).existsSync(), isTrue);
+    final raw = jsonDecode(await File(filePath).readAsString()) as Map;
+    expect(raw['format'], 'zizai-backup');
+    expect((raw['data'] as Map)['volumes'], hasLength(1));
+    expect((raw['data'] as Map)['docs'], hasLength(1));
+    await db.close();
+
+    // 恢复端：先放脏数据，再从文件恢复（应全量替换 + 生成 .bak）。
+    final target = await openDb('${tempDir.path}/target.db');
+    await target.createNotebook('本地临时');
+    final targetBackup = BackupManager(
+      db: target,
+      dbPath: '${tempDir.path}/target.db',
+    );
+    final result = await targetBackup.restoreFromFile(filePath);
+    expect(result.notebooks, 1);
+    expect(result.volumes, 1);
+    expect(result.docs, 1);
+    expect((await target.listNotebooks()).single.name, '诗集');
+    expect((await target.listAllVolumes()).single.name, '上卷');
+    expect(
+      File('${tempDir.path}/target.db.bak').existsSync(),
+      isTrue,
+      reason: '恢复前应生成滚动 .bak',
+    );
+    await target.close();
+  });
+
+  test('本地恢复：坏文件抛 BackupException 且不破坏现有库', () async {
+    final db = await openDb();
+    await db.createNotebook('保留书');
+    final backup = BackupManager(db: db, dbPath: dbPath);
+    final badFile = '${tempDir.path}/bad.json';
+    await File(badFile).writeAsString('not-a-backup');
+    await expectLater(
+      backup.restoreFromFile(badFile),
+      throwsA(isA<BackupException>()),
+    );
+    expect((await db.listNotebooks()).single.name, '保留书');
     await db.close();
   });
 }

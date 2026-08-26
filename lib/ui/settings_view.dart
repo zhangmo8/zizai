@@ -13,12 +13,14 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show Clipboard, ClipboardData, MethodChannel;
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../app.dart' show appColorsOf;
 import '../core/app_logger.dart';
 import '../core/backup/backup.dart';
 import '../core/export.dart' show exportPlainText;
+import '../core/import_chenggua.dart';
 import '../core/models.dart';
 import '../core/update.dart';
 import '../state/library_controller.dart';
@@ -91,6 +93,8 @@ class SettingsView extends StatefulWidget {
 class _SettingsViewState extends State<SettingsView> {
   bool _exporting = false;
   bool _checkingUpdate = false;
+  bool _localExporting = false;
+  bool _chengguaImporting = false;
 
   /// 「AI 协作」端口输入（与 mcp.port 同步，提交时生效）。
   final TextEditingController _mcpPortController = TextEditingController();
@@ -366,19 +370,38 @@ class _SettingsViewState extends State<SettingsView> {
     ],
   );
 
-  Widget _backupPage() => _SettingsGroup(
-    label: 'R2 备份',
+  Widget _backupPage() => Column(
     children: [
-      _row(
-        'Account ID',
-        _backupAccountField(),
-        description: 'Cloudflare R2 账户标识',
+      _SettingsGroup(
+        label: 'R2 备份',
+        children: [
+          _row(
+            'Account ID',
+            _backupAccountField(),
+            description: 'Cloudflare R2 账户标识',
+          ),
+          _row('Bucket', _backupBucketField()),
+          _row('Access Key', _backupAccessField()),
+          _row('Secret Key', _backupSecretField()),
+          _row('上次备份', _lastBackupRow()),
+          Padding(padding: const EdgeInsets.only(top: 8), child: _backupActions()),
+        ],
       ),
-      _row('Bucket', _backupBucketField()),
-      _row('Access Key', _backupAccessField()),
-      _row('Secret Key', _backupSecretField()),
-      _row('上次备份', _lastBackupRow()),
-      Padding(padding: const EdgeInsets.only(top: 8), child: _backupActions()),
+      _SettingsGroup(
+        label: '本地备份',
+        children: [
+          _row(
+            '导出备份文件',
+            _localExportButton(),
+            description: '把全部数据存为一份本地 .json 备份（与 R2 上传同一格式）',
+          ),
+          _row(
+            '从备份文件恢复',
+            _localRestoreButton(),
+            description: '用本地备份覆盖全部数据，恢复前自动备份（保留最近 3 份）',
+          ),
+        ],
+      ),
     ],
   );
 
@@ -400,6 +423,16 @@ class _SettingsViewState extends State<SettingsView> {
             '整本书',
             _bookExportRow(),
             description: '合并 TXT / Markdown / 每章一个文件，可选章节编号与排版',
+          ),
+        ],
+      ),
+      _SettingsGroup(
+        label: '导入',
+        children: [
+          _row(
+            '从橙瓜码字导入',
+            _chengguaImportButton(),
+            description: '选择橙瓜码字的数据库文件（<uid>.db），把图书/卷/章节导入为笔记本/分卷/章节',
           ),
         ],
       ),
@@ -839,6 +872,116 @@ class _SettingsViewState extends State<SettingsView> {
       }
     } else if (mounted) {
       showZzToast(context, '恢复失败，请稍后重试', error: true);
+    }
+  }
+
+  // ── 本地备份（导出 / 恢复）────────────────────────────────
+
+  Widget _localExportButton() {
+    return ZzButton.secondary(
+      label: '导出',
+      busy: _localExporting,
+      onPressed: _localExporting ? null : _runLocalExport,
+    );
+  }
+
+  Future<void> _runLocalExport() async {
+    setState(() => _localExporting = true);
+    try {
+      final stamp = DateTime.now().toIso8601String().split('T').first;
+      if (isAndroidPlatform) {
+        final dir = await getApplicationDocumentsDirectory();
+        final file = File('${dir.path}/zizai-backup-$stamp.json');
+        await widget.backup!.exportToFile(file.path);
+        await SharePlus.instance.share(
+          ShareParams(files: [XFile(file.path)], subject: '字在备份 $stamp'),
+        );
+      } else {
+        final loc = await getSaveLocation(
+          suggestedName: 'zizai-backup-$stamp.json',
+        );
+        if (loc == null) return; // 用户取消
+        await widget.backup!.exportToFile(loc.path);
+      }
+      if (mounted) showZzToast(context, '备份已导出');
+    } catch (e) {
+      if (mounted) showZzToast(context, '导出备份失败：$e', error: true);
+    } finally {
+      if (mounted) setState(() => _localExporting = false);
+    }
+  }
+
+  Widget _localRestoreButton() {
+    return ZzButton.secondary(
+      label: '选择文件',
+      onPressed: _runLocalRestore,
+    );
+  }
+
+  Future<void> _runLocalRestore() async {
+    final loc = await openFile(
+      acceptedTypeGroups: [
+        const XTypeGroup(label: '字在备份', extensions: ['json']),
+      ],
+    );
+    if (loc == null) return;
+    if (!mounted) return;
+    final confirmed = await zzConfirm(
+      context,
+      title: '从备份恢复',
+      message:
+          '将用所选备份覆盖本地全部数据。\n'
+          '本地数据会先自动备份为 .bak 文件（保留最近 3 份），仍可找回。',
+      confirmLabel: '恢复',
+      danger: true,
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      final result = await widget.backup!.restoreFromFile(loc.path);
+      await widget.library.restore();
+      await widget.settings.load();
+      if (mounted) {
+        showZzToast(
+          context,
+          '已从备份恢复（${result.notebooks} 本 / ${result.volumes} 卷 / ${result.docs} 章）',
+        );
+      }
+    } catch (e) {
+      if (mounted) showZzToast(context, '恢复失败：$e', error: true);
+    }
+  }
+
+  // ── 从橙瓜码字导入 ────────────────────────────────────────
+
+  Widget _chengguaImportButton() {
+    return ZzButton.secondary(
+      label: '选择文件',
+      busy: _chengguaImporting,
+      onPressed: _chengguaImporting ? null : _runChengguaImport,
+    );
+  }
+
+  Future<void> _runChengguaImport() async {
+    final loc = await openFile(
+      acceptedTypeGroups: [
+        const XTypeGroup(label: '橙瓜码字数据库', extensions: ['db']),
+      ],
+    );
+    if (loc == null) return;
+    setState(() => _chengguaImporting = true);
+    try {
+      final result = await importChenggua(widget.settings.db, loc.path);
+      await widget.library.refreshTree(); // 合并导入不打断当前书
+      if (mounted) {
+        showZzToast(
+          context,
+          '导入完成：${result.notebooks} 本 / ${result.volumes} 卷 / ${result.docs} 章',
+        );
+      }
+    } catch (e) {
+      if (mounted) showZzToast(context, '导入失败：$e', error: true);
+    } finally {
+      if (mounted) setState(() => _chengguaImporting = false);
     }
   }
 

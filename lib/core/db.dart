@@ -145,6 +145,19 @@ String _todayKey(int nowMs) {
 String _notebookStatKey(String dateKey, String notebookId) =>
     '$dateKey::$notebookId';
 
+/// 外部内容导入（其他编辑器）的合并结果统计（UI 提示用）。
+class ExternalImportResult {
+  const ExternalImportResult({
+    required this.notebooks,
+    required this.volumes,
+    required this.docs,
+  });
+
+  final int notebooks;
+  final int volumes;
+  final int docs;
+}
+
 class Db {
   Db._(this._db, this._path, [this._clock]);
 
@@ -620,6 +633,15 @@ CREATE TABLE last_open (
       'volumes',
       where: 'notebook_id = ?',
       whereArgs: [notebookId],
+      orderBy: 'position ASC, created_at ASC',
+    );
+    return rows.map(Volume.fromRow).toList();
+  }
+
+  /// 全部分卷（跨笔记本；快照导出用）。
+  Future<List<Volume>> listAllVolumes() async {
+    final rows = await _db.query(
+      'volumes',
       orderBy: 'position ASC, created_at ASC',
     );
     return rows.map(Volume.fromRow).toList();
@@ -1262,23 +1284,19 @@ CREATE TABLE last_open (
     await _db.delete(table, where: 'id = ?', whereArgs: [id]);
   }
 
-  // ── 全量恢复导入（备份模型）───────────────────────────────
+  // ── 外部内容导入（其他编辑器 → 追加合并）────────────────────
 
-  /// 全量替换导入：事务内清空各表并按快照重建。
-  /// 不标记脏、不触发 onMutation（调用方负责备份本地 db 文件与刷新控制器）。
-  Future<void> importFull({
+  /// 外部内容合并导入：把其他编辑器产物导入为新的笔记本/卷/章节，**追加**到库。
+  ///
+  /// - 单事务批量插入；不累计 stats（外部导入不是今日新增）、不触发 onMutation。
+  /// - 各条目的 `id`/`position` 由调用方生成并保证不冲突（导入器先查库现状再编排）。
+  /// - 章节内容为 Delta JSON；`words` 由调用方对纯文本算好。
+  Future<ExternalImportResult> importExternal({
     required List<Map<String, dynamic>> notebooks,
+    required List<Map<String, dynamic>> volumes,
     required List<Map<String, dynamic>> docs,
-    required Map<String, String> settings,
-    required Map<String, int> stats,
   }) async {
     await _db.transaction((txn) async {
-      await txn.delete('last_open');
-      await txn.delete('stats');
-      await txn.delete('settings');
-      await txn.delete('documents');
-      await txn.delete('notebooks');
-      await txn.delete('sync_journal');
       for (final n in notebooks) {
         await txn.insert('notebooks', {
           'id': n['id'],
@@ -1286,6 +1304,15 @@ CREATE TABLE last_open (
           'position': n['position'] ?? 0,
           'created_at': n['createdAt'] ?? _nowMs(),
           'updated_at': n['updatedAt'] ?? 0,
+        });
+      }
+      for (final v in volumes) {
+        await txn.insert('volumes', {
+          'id': v['id'],
+          'notebook_id': v['notebookId'],
+          'name': v['name'] ?? '',
+          'position': v['position'] ?? 0,
+          'created_at': v['createdAt'] ?? _nowMs(),
         });
       }
       for (final d in docs) {
@@ -1298,6 +1325,69 @@ CREATE TABLE last_open (
           'position': d['position'] ?? 0,
           'created_at': d['createdAt'] ?? _nowMs(),
           'updated_at': d['updatedAt'] ?? 0,
+          'status': d['status'] ?? 'draft',
+          'notes': d['notes'] ?? '',
+          'volume_id': d['volumeId'],
+        });
+      }
+    });
+    return ExternalImportResult(
+      notebooks: notebooks.length,
+      volumes: volumes.length,
+      docs: docs.length,
+    );
+  }
+
+  // ── 全量恢复导入（备份模型）───────────────────────────────
+
+  /// 全量替换导入：事务内清空各表并按快照重建（含分卷、章节状态/备注）。
+  /// 不标记脏、不触发 onMutation（调用方负责备份本地 db 文件与刷新控制器）。
+  Future<void> importFull({
+    required List<Map<String, dynamic>> notebooks,
+    required List<Map<String, dynamic>> volumes,
+    required List<Map<String, dynamic>> docs,
+    required Map<String, String> settings,
+    required Map<String, int> stats,
+  }) async {
+    await _db.transaction((txn) async {
+      await txn.delete('last_open');
+      await txn.delete('stats');
+      await txn.delete('settings');
+      await txn.delete('volumes'); // v5：分卷一并清空重建（此前漏删，会残留孤儿卷）
+      await txn.delete('documents');
+      await txn.delete('notebooks');
+      await txn.delete('sync_journal');
+      for (final n in notebooks) {
+        await txn.insert('notebooks', {
+          'id': n['id'],
+          'name': n['name'],
+          'position': n['position'] ?? 0,
+          'created_at': n['createdAt'] ?? _nowMs(),
+          'updated_at': n['updatedAt'] ?? 0,
+        });
+      }
+      for (final v in volumes) {
+        await txn.insert('volumes', {
+          'id': v['id'],
+          'notebook_id': v['notebookId'],
+          'name': v['name'] ?? '',
+          'position': v['position'] ?? 0,
+          'created_at': v['createdAt'] ?? _nowMs(),
+        });
+      }
+      for (final d in docs) {
+        await txn.insert('documents', {
+          'id': d['id'],
+          'notebook_id': d['notebookId'],
+          'title': d['title'] ?? '',
+          'content': d['content'] ?? emptyDeltaJson,
+          'words': d['words'] ?? 0,
+          'position': d['position'] ?? 0,
+          'created_at': d['createdAt'] ?? _nowMs(),
+          'updated_at': d['updatedAt'] ?? 0,
+          'status': d['status'] ?? 'draft',
+          'notes': d['notes'] ?? '',
+          'volume_id': d['volumeId'],
         });
       }
       for (final e in settings.entries) {

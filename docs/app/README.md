@@ -120,10 +120,11 @@ lib/
 │  ├─ writing_session.dart  # 写作会话追踪：本次字数/时长/速度
 │  ├─ app_logger.dart        # 本地诊断日志：启动/升级/更新/异常 + 滚动保留
 │  ├─ crash_journal.dart     # 未保存编辑缓冲的崩溃恢复日志
-│  ├─ backup/                # 云备份（见 docs/app/sync.md）
-│  │  ├─ snapshot.dart       # 全量快照导出/恢复导入
+│  ├─ backup/                # 云备份 + 本地文件备份（见 docs/app/sync.md）
+│  │  ├─ snapshot.dart       # 全量快照导出/恢复导入（v2：含分卷/状态/备注）
 │  │  ├─ s3_store.dart       # R2 直连（SigV4 签名 PUT/GET）
-│  │  └─ backup.dart         # 备份引擎：上传/下载状态机
+│  │  └─ backup.dart         # 备份引擎：上传/下载状态机 + 本地导出/恢复
+│  ├─ import_chenggua.dart   # 橙瓜码字 .db 导入器（图书/卷/章节 → 笔记本/分卷/章节，见 docs/app/import.md）
 │  └─ update.dart            # 更新检查：清单、sha256 校验、安装
 ├─ state/
 │  ├─ library_controller.dart  # 目录树 + 当前文档 + 未保存缓冲 + 今日增量

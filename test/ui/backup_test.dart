@@ -43,6 +43,8 @@ void main() {
     await settings.load();
     final library = LibraryController(db);
     await library.restore();
+    // 测试备份/设置功能需要处于工作区：启动停在书架，这里恢复进书（同旧行为）。
+    await library.openNotebook(nb.id);
     return (db, library, settings);
   }
 
@@ -250,6 +252,42 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('R2 备份'), findsOneWidget); // 备份区已定位展开
+    await settleAsync(tester);
+    await tester.pump(const Duration(seconds: 6)); // 释放挂起计时器（editor 内有 5s 计时器）
+  });
+
+  testWidgets('备份区含本地备份组：导出备份文件 / 从备份文件恢复入口', (tester) async {
+    final (db, library, settings) =
+        (await tester.runAsync(makeControllers))!;
+    final backup = BackupManager(
+      db: db,
+      dbPath: '',
+      store: makeStore(onRequest: () async => http.Response('', 200)),
+    );
+    await pumpApp(tester, library, settings, backup);
+    await openBackupSection(tester);
+
+    expect(find.text('本地备份'), findsOneWidget);
+    expect(find.text('导出备份文件'), findsOneWidget);
+    expect(find.text('从备份文件恢复'), findsOneWidget);
+    expect(find.text('导出'), findsOneWidget); // 本地导出按钮
+    await settleAsync(tester);
+    await tester.pump(const Duration(seconds: 6)); // 释放挂起计时器（editor 内有 5s 计时器）
+  });
+
+  testWidgets('数据区含导入组：从橙瓜码字导入入口', (tester) async {
+    final (db, library, settings) =
+        (await tester.runAsync(makeControllers))!;
+    final backup = BackupManager(db: db, dbPath: '');
+    await pumpApp(tester, library, settings, backup);
+    await openBackupSection(tester);
+
+    // 数据区（非备份区）在分类导航里点「数据」。
+    await tester.tap(find.text('数据').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('导入'), findsOneWidget);
+    expect(find.text('从橙瓜码字导入'), findsOneWidget);
     await settleAsync(tester);
     await tester.pump(const Duration(seconds: 6)); // 释放挂起计时器（editor 内有 5s 计时器）
   });

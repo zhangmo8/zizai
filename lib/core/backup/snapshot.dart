@@ -9,7 +9,9 @@ import 'dart:convert';
 import '../db.dart';
 
 /// 快照格式版本（独立于 DB schema；格式变更 +1，旧版可读则兼容读取）。
-const int snapshotFormatVersion = 1;
+/// v1：notebooks/docs/settings/stats；
+/// v2：+ volumes 数组、docs 补 status/notes/volumeId（v3/v4/v5 字段）。
+const int snapshotFormatVersion = 2;
 
 /// 快照内排除的本地配置前缀（设备私密/同步凭据不随备份走）。
 const List<String> _excludedPrefixes = ['sync.', 'backup.'];
@@ -26,9 +28,14 @@ class BackupException implements Exception {
 
 /// 恢复导入的结果统计（设置页提示用）。
 class ImportResult {
-  const ImportResult({required this.notebooks, required this.docs});
+  const ImportResult({
+    required this.notebooks,
+    required this.volumes,
+    required this.docs,
+  });
 
   final int notebooks;
+  final int volumes;
   final int docs;
 }
 
@@ -41,6 +48,7 @@ Future<Map<String, dynamic>> buildSnapshot(
 }) async {
   final notebooks = await db.listNotebooks();
   final docs = await db.listAllDocuments();
+  final volumes = await db.listAllVolumes();
   final allSettings = await db.allSettings();
   final settings = <String, String>{
     for (final e in allSettings.entries)
@@ -76,6 +84,19 @@ Future<Map<String, dynamic>> buildSnapshot(
             'position': d.position,
             'createdAt': d.createdAt,
             'updatedAt': d.updatedAt,
+            'status': d.status.name,
+            'notes': d.notes,
+            if (d.volumeId != null) 'volumeId': d.volumeId,
+          }
+      ],
+      'volumes': [
+        for (final v in volumes)
+          {
+            'id': v.id,
+            'notebookId': v.notebookId,
+            'name': v.name,
+            'position': v.position,
+            'createdAt': v.createdAt,
           }
       ],
       'settings': settings,
@@ -121,6 +142,9 @@ Future<ImportResult> importSnapshot(
       .cast<Map<String, dynamic>>();
   final docs = ((data['docs'] as List?) ?? const [])
       .cast<Map<String, dynamic>>();
+  // v2：分卷数组；v1 快照无此键 → 空（兼容旧备份）。
+  final volumes = ((data['volumes'] as List?) ?? const [])
+      .cast<Map<String, dynamic>>();
   final settings =
       ((data['settings'] as Map?) ?? const {}).cast<String, String>();
   final stats = ((data['stats'] as Map?) ?? const {}).cast<String, int>();
@@ -130,9 +154,14 @@ Future<ImportResult> importSnapshot(
   }
   await db.importFull(
     notebooks: notebooks,
+    volumes: volumes,
     docs: docs,
     settings: settings,
     stats: stats,
   );
-  return ImportResult(notebooks: notebooks.length, docs: docs.length);
+  return ImportResult(
+    notebooks: notebooks.length,
+    volumes: volumes.length,
+    docs: docs.length,
+  );
 }

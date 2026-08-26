@@ -5,6 +5,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
@@ -98,6 +99,28 @@ class BackupManager extends ChangeNotifier {
       _onFailure(e);
       return false;
     }
+  }
+
+  // ── 本地文件备份（不依赖 R2）──────────────────────────────
+
+  /// 导出全量备份到本地文件（快照 JSON，与 R2 上传同一格式）。
+  Future<void> exportToFile(
+    String path, {
+    String? deviceId,
+    String? appVersion,
+  }) async {
+    final snapshot = await buildSnapshot(
+      db,
+      deviceId: deviceId,
+      appVersion: appVersion,
+    );
+    await File(path).writeAsString(jsonEncode(snapshot));
+  }
+
+  /// 从本地备份文件恢复：解析校验 → 本地 db 文件 .bak → 全量导入。
+  Future<ImportResult> restoreFromFile(String path) async {
+    final text = await File(path).readAsString();
+    return importSnapshot(db, text, dbPath: dbPath);
   }
 
   bool get _busy =>
