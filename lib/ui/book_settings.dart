@@ -1,6 +1,6 @@
-/// 「针对这本书的设置」对话框：本书的写作目标 + 段落缩进 + 分卷。
+/// 「针对写作设置」对话框：本书的写作目标 + 段落缩进 + 分卷。
 ///
-/// 设计依据：需求「将【写作】设置拆进针对当前这本书的设置」——写作目标与
+/// 设计依据：需求「将【写作】设置拆进针对当前写作设置」——写作目标与
 /// 段落缩进从全局设置页迁到这里；分卷为本书独立开关 + 每卷章数（视觉分组，
 /// 不动库）。全局设置页不再含「写作」分类。
 library;
@@ -92,7 +92,7 @@ class _BookSettingsDialogState extends State<BookSettingsDialog> {
                     children: [
                       Expanded(
                         child: Text(
-                          '这本书的设置 · ${notebook.name}',
+                          '写作设置 · ${notebook.name}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(

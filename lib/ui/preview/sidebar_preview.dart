@@ -50,7 +50,7 @@ class _StaticSidebar extends StatelessWidget {
                     ),
                   ),
                   _PreviewIconButton(tooltip: '全书搜索', icon: Icons.search),
-                  _PreviewIconButton(tooltip: '这本书的设置', icon: Icons.settings_outlined),
+                  _PreviewIconButton(tooltip: '写作设置', icon: Icons.settings_outlined),
                 ],
               ),
             ),

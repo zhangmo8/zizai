@@ -81,9 +81,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// 打开侧边栏顶栏的「这本书的设置」对话框。
+  /// 打开侧边栏顶栏的「写作设置」对话框。
   Future<void> openBookSettings(WidgetTester tester) async {
-    await tester.tap(find.byTooltip('这本书的设置'));
+    await tester.tap(find.byTooltip('写作设置'));
     await tester.pumpAndSettle();
   }
 
@@ -335,7 +335,7 @@ void main() {
     expect(find.text('外观'), findsNothing);
   });
 
-  testWidgets('状态栏今日进度点击 → 打开这本书的设置并聚焦每日目标', (tester) async {
+  testWidgets('状态栏今日进度点击 → 打开写作设置并聚焦每日目标', (tester) async {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
     expect(find.text('今日 0/2000'), findsOneWidget);
@@ -343,8 +343,8 @@ void main() {
     await tester.tap(find.text('今日 0/2000'));
     await tester.pumpAndSettle();
 
-    // 「这本书的设置」对话框打开，每日目标输入框获得焦点
-    expect(find.textContaining('这本书的设置'), findsOneWidget);
+    // 「写作设置」对话框打开，每日目标输入框获得焦点
+    expect(find.textContaining('写作设置'), findsOneWidget);
     expect(find.text('每日目标字数'), findsOneWidget);
     final goalField = tester.widget<TextField>(find.byType(TextField).first);
     expect(goalField.focusNode?.hasFocus, isTrue);
@@ -352,7 +352,7 @@ void main() {
     await tester.runAsync(() => settings.load());
   });
 
-  testWidgets('这本书的设置：行首自动缩进开关即改即存并持久化', (tester) async {
+  testWidgets('写作设置：行首自动缩进开关即改即存并持久化', (tester) async {
     final (library, settings) = (await tester.runAsync(() => makeApp()))!;
     await pumpApp(tester, library, settings);
     await openBookSettings(tester);

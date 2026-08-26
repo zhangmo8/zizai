@@ -326,7 +326,7 @@ class _SidebarState extends State<Sidebar> {
     await widget.library.createDocument(notebookId, title: title);
   }
 
-  /// 打开「针对这本书的设置」对话框。
+  /// 打开「针对写作设置」对话框。
   void _openBookSettings() {
     final nb = widget.library.currentNotebook;
     if (nb == null) return;
@@ -608,7 +608,7 @@ class _BookHeader extends StatelessWidget {
             ),
           if (onOpenBookSettings != null)
             ZzIconButton(
-              tooltip: '这本书的设置',
+              tooltip: '写作设置',
               icon: Icons.settings_outlined,
               onPressed: onOpenBookSettings!,
             ),

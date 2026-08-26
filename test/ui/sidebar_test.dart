@@ -314,9 +314,9 @@ void main() {
     expect(find.text('小说'), findsOneWidget);
     await tester.tap(find.byTooltip('返回笔记本管理'));
     expect(backed, 1);
-    await tester.tap(find.byTooltip('这本书的设置'));
+    await tester.tap(find.byTooltip('写作设置'));
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.textContaining('这本书的设置'), findsOneWidget);
+    expect(find.textContaining('写作设置'), findsOneWidget);
     await tester.tap(find.byTooltip('关闭'));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.byIcon(Icons.search));
@@ -508,14 +508,14 @@ void main() {
     expect(find.text('第一章'), findsOneWidget);
   });
 
-  testWidgets('这本书的设置：写作目标 + 段落缩进 + 分卷开关', (tester) async {
+  testWidgets('写作设置：写作目标 + 段落缩进 + 分卷开关', (tester) async {
     final (library, settings) = (await tester.runAsync(
       () => makeApp(tree: [('小说', ['第一章'])]),
     ))!;
     final nbId = library.notebooks.first.id;
     await pumpSidebar(tester, library, settings, notebookId: nbId);
 
-    await tester.tap(find.byTooltip('这本书的设置'));
+    await tester.tap(find.byTooltip('写作设置'));
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('写作目标'), findsOneWidget);

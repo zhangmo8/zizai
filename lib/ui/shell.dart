@@ -198,7 +198,7 @@ class _ShellState extends State<Shell> {
   }
 
   /// 全局设置的打开出口：笔记本管理页顶栏（侧边栏不再常驻设置入口）。
-  /// 状态栏「今日进度」点击（focusDailyGoal）→ 打开「这本书的设置」（写作目标已迁入）；
+  /// 状态栏「今日进度」点击（focusDailyGoal）→ 打开「写作设置」（写作目标已迁入）；
   /// 状态栏备份指示点击（focusBackup）→ 直达设置页备份区。
   void _openSettings({bool focusDailyGoal = false, bool focusBackup = false}) {
     if (focusDailyGoal) {

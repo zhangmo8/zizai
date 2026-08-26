@@ -1,4 +1,4 @@
-/// 「这本书的设置」对话框预览（静态重建：写作目标 / 段落缩进 / 分卷）。
+/// 「写作设置」对话框预览（静态重建：写作目标 / 段落缩进 / 分卷）。
 ///
 /// 查看：`flutter widget-preview start`
 library;
@@ -8,7 +8,7 @@ import 'package:flutter/widget_previews.dart';
 
 import '../../app.dart';
 
-@Preview(group: '页面', name: '这本书的设置', size: Size(460, 560))
+@Preview(group: '页面', name: '写作设置', size: Size(460, 560))
 Widget bookSettingsPreview() {
   return MaterialApp(
     debugShowCheckedModeBanner: false,
@@ -45,7 +45,7 @@ class _StaticBookSettings extends StatelessWidget {
               children: const [
                 Expanded(
                   child: Text(
-                    '这本书的设置 · 我的小说',
+                    '写作设置 · 我的小说',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF37352F)),
