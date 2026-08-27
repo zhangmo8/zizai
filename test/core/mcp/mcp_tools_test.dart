@@ -157,4 +157,35 @@ void main() {
       isTrue,
     );
   });
+
+  test('写操作成功后触发 onWrite（create/append），读操作不触发', () async {
+    var writes = 0;
+    final withHook = buildZizaiMcpTools(
+      db,
+      snapshots: snapshots,
+      onWrite: () async => writes++,
+    );
+    Future<void> run(String name, Map<String, Object?> args) async {
+      final tool = withHook.firstWhere((t) => t.name == name);
+      final r = await tool.handler(args);
+      expect(r.isError, isFalse, reason: r.content);
+    }
+
+    final (nbId, docId) = await seedBook(docs: 1);
+    await run('list_notebooks', const {}); // 读操作
+    await run('read_document', {'documentId': docId}); // 读操作
+    expect(writes, 0); // 读不触发刷新
+
+    await run('create_document', {
+      'notebookId': nbId,
+      'title': '新章',
+    });
+    expect(writes, 1); // 建章触发刷新
+
+    await run('append_document', {
+      'documentId': docId,
+      'content': '续写。',
+    });
+    expect(writes, 2); // 追章触发刷新
+  });
 }

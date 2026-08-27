@@ -82,7 +82,12 @@ Future<void> main() async {
 
   // 本地 MCP 服务：设置里开启后在 127.0.0.1 起服务，供其他 AI agent
   // 读写你的书（仅回环可访问）；init 会读持久化配置并自动恢复。
-  final mcp = McpController(db, snapshots: snapshots);
+  // onWrite：agent 建章/追章后刷新目录树，书架与侧边栏即时可见。
+  final mcp = McpController(
+    db,
+    snapshots: snapshots,
+    onWrite: library.refreshTree,
+  );
   await mcp.init();
 
   // 更新检查：App 版本来自 package_info；URL 由构建注入。

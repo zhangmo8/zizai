@@ -12,10 +12,18 @@ import 'mcp_tools.dart';
 
 /// 字在本地 MCP 服务（Streamable HTTP，路径 /mcp）。
 class ZizaiMcpServer {
-  ZizaiMcpServer({required this.db, this.snapshots, this.port = 8765});
+  ZizaiMcpServer({
+    required this.db,
+    this.snapshots,
+    this.onWrite,
+    this.port = 8765,
+  });
 
   final Db db;
   final SnapshotHistory? snapshots;
+
+  /// 写操作成功后回调（刷新 UI 目录树，见 mcp_tools.dart）。
+  final Future<void> Function()? onWrite;
 
   /// 监听端口（可在设置里改；start 后以 [boundPort] 为准）。
   int port;
@@ -60,7 +68,11 @@ class ZizaiMcpServer {
       const Implementation(name: 'zizai-mcp', version: '1.0.0'),
       options: const McpServerOptions(protocol: McpProtocol.stable),
     );
-    for (final tool in buildZizaiMcpTools(db, snapshots: snapshots)) {
+    for (final tool in buildZizaiMcpTools(
+      db,
+      snapshots: snapshots,
+      onWrite: onWrite,
+    )) {
       server.registerTool(
         tool.name,
         description: tool.description,

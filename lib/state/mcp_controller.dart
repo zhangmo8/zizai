@@ -18,7 +18,13 @@ class McpController extends ChangeNotifier {
     this._db, {
     SnapshotHistory? snapshots,
     int initialPort = McpController.defaultPort,
-  }) : _server = ZizaiMcpServer(db: _db, snapshots: snapshots, port: initialPort);
+    Future<void> Function()? onWrite,
+  }) : _server = ZizaiMcpServer(
+          db: _db,
+          snapshots: snapshots,
+          port: initialPort,
+          onWrite: onWrite,
+        );
 
   static const String kEnabledKey = 'mcp.enabled';
   static const String kPortKey = 'mcp.port';

@@ -40,13 +40,20 @@ class ZizaiMcpTool {
 }
 
 /// 组装字在的 6 个 MCP 工具（绑定到某个 Db 实例）。
-List<ZizaiMcpTool> buildZizaiMcpTools(Db db, {SnapshotHistory? snapshots}) => [
+///
+/// [onWrite] 在有写操作成功（建章/追章）后回调，供上层刷新 UI 目录树——
+/// MCP 直接写 Db，不刷新的话书架/侧边栏看不到新内容。
+List<ZizaiMcpTool> buildZizaiMcpTools(
+  Db db, {
+  SnapshotHistory? snapshots,
+  Future<void> Function()? onWrite,
+}) => [
   _listNotebooks(db),
   _listDocuments(db),
   _readDocument(db),
   _searchDocuments(db),
-  _createDocument(db),
-  _appendDocument(db, snapshots),
+  _createDocument(db, onWrite),
+  _appendDocument(db, snapshots, onWrite),
 ];
 
 /// 纯文本 → Quill Delta JSON。空文本用标准空 delta。
@@ -203,7 +210,7 @@ ZizaiMcpTool _searchDocuments(Db db) {
   );
 }
 
-ZizaiMcpTool _createDocument(Db db) {
+ZizaiMcpTool _createDocument(Db db, Future<void> Function()? onWrite) {
   return ZizaiMcpTool(
     name: 'create_document',
     description: '在某本书里新建一个章节，可选附带初始正文（纯文本，段落用换行分隔）。',
@@ -229,6 +236,7 @@ ZizaiMcpTool _createDocument(Db db) {
         title: title,
         content: content,
       );
+      await onWrite?.call(); // 刷新 UI 目录树
       return ZizaiMcpResult(
         _json({
           'documentId': doc.id,
@@ -240,7 +248,11 @@ ZizaiMcpTool _createDocument(Db db) {
   );
 }
 
-ZizaiMcpTool _appendDocument(Db db, SnapshotHistory? snapshots) {
+ZizaiMcpTool _appendDocument(
+  Db db,
+  SnapshotHistory? snapshots,
+  Future<void> Function()? onWrite,
+) {
   return ZizaiMcpTool(
     name: 'append_document',
     description: '在章节末尾追加正文（纯文本，段落用换行分隔）。只追加、不覆盖已有内容；'
@@ -275,6 +287,7 @@ ZizaiMcpTool _appendDocument(Db db, SnapshotHistory? snapshots) {
         title: doc.title,
         content: jsonEncode(newDelta),
       );
+      await onWrite?.call(); // 刷新 UI 目录树（字数/最新内容）
       return ZizaiMcpResult(
         _json({
           'documentId': documentId,
