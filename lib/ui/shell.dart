@@ -27,6 +27,7 @@ import 'editor.dart';
 import 'glass.dart';
 import 'settings_view.dart';
 import 'sidebar.dart';
+import 'word_distribution_dialog.dart';
 
 const double _desktopSidebarWidth = 260;
 const double _androidDrawerWidth = 340;
@@ -197,6 +198,19 @@ class _ShellState extends State<Shell> {
     }
   }
 
+  /// 章节字数分布（节奏图）：点击某章跳转。
+  Future<void> _openWordDist() async {
+    await showWordDistributionDialog(
+      context,
+      library: widget.library,
+      onOpen: (documentId) async {
+        if (widget.library.currentDocument?.id != documentId) {
+          await widget.library.switchDocument(documentId);
+        }
+      },
+    );
+  }
+
   /// 返回笔记本管理页：先落盘当前缓冲，再关闭当前书；门控据此切回 LibraryHome。
   Future<void> _goBack() async {
     await widget.library.closeNotebook();
@@ -283,6 +297,7 @@ class _ShellState extends State<Shell> {
               settings: widget.settings,
               onBack: _goBack,
               onOpenBookSearch: _openBookSearch,
+              onOpenWordDist: _openWordDist,
             );
             if (desktop) {
               // 桌面形态无 Scaffold，需显式 Material 祖先；Notion 风格为固定

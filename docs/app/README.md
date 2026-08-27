@@ -194,7 +194,7 @@ update_checker ──(异步)──► update.json（GitHub Releases）  # 见 d
 | SQLite 单库存储 | 富文本 Delta 需要结构化存储；单文件易备份 | 数据封闭在 db → 用导出功能兜底 |
 | 所见即所得（flutter_quill） | 写作心智无「源码/预览」割裂；Quill 桌面移动均成熟 | 依赖第三方编辑器，样式需定制 |
 | Android 存应用支持目录 | 免存储权限 | 手机端文件不外露，靠导出 |
-| 单 ChangeNotifier + provider | 单用户单屏，复杂度低 | 后续多窗口/协同需重构 |
+| 单 ChangeNotifier + provider | 单用户单屏，复杂度低 | 多窗口/协同需重构 |
 | V1 纯文本导出 + db 备份 | 数据安全出口最小实现 | 导出 md 全集要等 V2 |
 | 云备份以 R2 直连（S3 API + SigV4 自签） | 用户指定 CF 存储；免服务端部署、无 Worker；密钥仅存本地 settings 表 | 客户端实现签名；凭据泄露需手动轮换 |
 | 全量快照上传/恢复 | 备份语义简单可预期；恢复前本地 .bak + R2 版本控制双兜底（永不丢字） | 无增量；恢复 = 全量替换 |

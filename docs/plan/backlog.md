@@ -1,17 +1,14 @@
 # Backlog（非阻塞待办）
 
+> 2026-08-27：按使用场景剔除以下条目（本地写文章工具，无服务器）：图片粘贴、表格、多人实时协同、内置中文字体包、云端修订历史浏览/回滚、编辑器光标闪烁节奏。当前无待处理项，下表为历史记录。
+
 | # | 来源 | 内容 | 状态 |
 |---|---|---|---|
 | 1 | requirements.md F4.3 | 打字机滚动（当前行居中） | 已完成（跟随「暗淡非当前行」联动，无独立开关：focusDim 开启时光标行 120ms 平滑滚动到视口中部，与 flutter_quill showCaretOnScreen 协调） |
 | 2 | requirements.md 范围 | 导出整库为 Markdown 文件集 | 已完成（exportBookMarkdownFiles + 导出对话框「Markdown · 每章一个文件」，export_dialog_test 覆盖） |
-| 3 | requirements.md F2.4 | 图片粘贴（富文本内嵌图片） | 待处理 |
 | 4 | requirements.md 范围 | 全文搜索 | 已完成（全书搜索 + 替换预览） |
-| 5 | requirements.md 范围 | 链接、表格等更多富文本格式 | 待处理（链接已随工具栏落地，表格仍缺） |
 | 6 | requirements.md F1.5 | 拖拽排序章节 | 已完成（reorderDocument DB + 上移/下移 UI + 拖拽手势：桌面手柄/触摸长按，支持跨笔记本移动） |
 | 7 | requirements.md F4.x | 焦点模式（暗淡非当前行） | 已完成（focusDim 蒙层 + 沉浸 FocusView + 设置项 + 打字机联动，2026-08-26 核实） |
-| 8 | app/README.md ADR | 多人实时协同（当前单用户架构不支持，需重构状态层） | 待处理 |
-| 9 | requirements.md 风险 | 内置中文字体包（改善跨端渲染一致） | 待处理 |
-| 10 | sync.md §5 | 云端修订历史浏览/回滚 UI（数据层 R2 版本控制已留） | 待处理 |
 | 11 | store-001 评审 | 增量跨日无测试且 saveDocument 时钟不可注入 | 已完成（`Db.open(clock:)` 可注入 + db_test 跨日用例） |
 | 12 | store-001 评审 | settings 损坏值回退默认无显式单测 | 已完成（db_test「损坏的 settings 值回退默认」） |
 | 13 | store-001 评审 | deltaToPlainText 对非 map op 抛 TypeError 而非承诺的 FormatException | 已完成（parseDeltaOps 校验 op 为 Map；export_test `[42]` 用例） |
@@ -33,7 +30,7 @@
 | 29 | set-004 评审 | 导出失败路径 / Esc 关闭 / 状态栏点击聚焦入口无专门测试 | 已完成（export_dialog_test 抛异常 → toast 失败；settings_test Esc 关闭 + 状态栏今日进度点击聚焦，2026-08-21） |
 | 30 | set-004 评审 | Android Drawer 底部设置入口未实现（ui-settings.md Entry Points） | 已完成（桌面与 Drawer 共用 Sidebar，_SidebarFooter 即底部设置入口） |
 | 31 | design.md §6 | 全局圆角审计：只允许 4/6/8 | 已完成（审计仅 2/9 两处，均为开关轨道/进度条的全圆角惯例，符合控件规范） |
-| 32 | design.md §6 | 编辑器光标：输入时不闪、停顿后 1s 周期闪烁 | 待处理（宽度/颜色已做；闪烁节奏由 flutter_quill 控制，自定需改其光标动画） |
 | 33 | 需求「分卷」 | 分卷 v2：自动/手动分卷 + volumes 表真分组（DB v5 + documents.volume_id；自动 = 纯视觉推导可重命名，手动 = 侧边栏建卷/删卷/重命名 + 章节拖拽与「移动到分卷」+ 未分卷区；自动→手动一次性建卷归章；侧边栏分卷/平铺视图切换 + 笔记本管理视图切换动画与持久化；H1-H3 工具栏反选修复；preview 同步；ui-sidebar/ui-settings/README 更新，2026-08-26） | 已完成 |
 | 34 | edit-review | 编辑器 H1/H2/H3 工具条与斜杠菜单无法反选（header 块级独占，flutter_quill 无 paragraph 常量） | 已完成（toggle：已是该级 → clone(header, null) 转回正文；editor.dart `_toggleHeader` 复用，2026-08-26） |
 | 35 | 需求「启动/排序」 | 启动总是停在书架（restore 不自动进书，进书才恢复 last_open 章节）；每本书章节排序（正序/倒序，大书倒序看最新）；「+ 新建章节」按钮随序列末尾端移动；新章节标题直接按整本章节数 +1（不再出现「新章节」） | 已完成（docsOrder.<id> 设置 + 设置对话框「目录」组下拉；倒序 = 整章序列反转后再分卷、手动卷反转；按钮正序树底/倒序树顶；2026-08-26） |
+| 36 | 用户需求「节奏图」 | 章节字数分布：侧边栏列表 footer 小 icon 入口 → 对话框目录正序逐章条形（长度 ∝ 字数）+ 章/总字/均值汇总，点击跳转、当前章高亮，随自动保存刷新；core `buildWordDistribution` 纯函数固定 position 升序（不受倒序偏好影响）+ 单测；无 DB 改动（2026-08-27） | 已完成 |

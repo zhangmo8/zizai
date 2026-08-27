@@ -243,6 +243,7 @@ class Sidebar extends StatefulWidget {
     required this.settings,
     this.onBack,
     this.onOpenBookSearch,
+    this.onOpenWordDist,
   });
 
   final LibraryController library;
@@ -253,6 +254,9 @@ class Sidebar extends StatefulWidget {
 
   /// 全书搜索入口（null = 未接线，如测试；顶栏隐藏搜索按钮）。
   final VoidCallback? onOpenBookSearch;
+
+  /// 章节字数分布入口（null = 未接线，如测试；顶栏隐藏该按钮）。
+  final VoidCallback? onOpenWordDist;
 
   @override
   State<Sidebar> createState() => _SidebarState();
@@ -475,6 +479,7 @@ class _SidebarState extends State<Sidebar> {
               onBack: widget.onBack,
               onOpenBookSettings: _openBookSettings,
               onOpenBookSearch: widget.onOpenBookSearch,
+              onOpenWordDist: widget.onOpenWordDist,
               volumeEnabled:
                   nb != null &&
                   widget.settings.volumeForNotebook(nb.id).enabled,
@@ -497,6 +502,11 @@ class _SidebarState extends State<Sidebar> {
                   ? const _LoadingSkeleton()
                   : _buildTree(nb),
             ),
+            // 章节列表底部工具行：空书/加载中不显示。
+            if (nb != null &&
+                !widget.library.loading &&
+                widget.library.documentsOf(nb.id).isNotEmpty)
+              _TreeFooter(onOpenWordDist: widget.onOpenWordDist),
           ],
         ),
       ),
@@ -930,6 +940,7 @@ class _BookHeader extends StatelessWidget {
     this.onBack,
     this.onOpenBookSettings,
     this.onOpenBookSearch,
+    this.onOpenWordDist,
     this.volumeEnabled = false,
     this.volumeViewGrouped = true,
     this.volumeMode = VolumeMode.auto,
@@ -941,6 +952,9 @@ class _BookHeader extends StatelessWidget {
   final VoidCallback? onBack;
   final VoidCallback? onOpenBookSettings;
   final VoidCallback? onOpenBookSearch;
+
+  /// 章节字数分布入口（null = 未接线；顶栏隐藏该按钮）。
+  final VoidCallback? onOpenWordDist;
 
   /// 分卷是否开启（开启才显示「分卷展示/平铺展示」切换与「新建分卷」）。
   final bool volumeEnabled;
@@ -1009,6 +1023,36 @@ class _BookHeader extends StatelessWidget {
               tooltip: '写作设置',
               icon: Icons.settings_outlined,
               onPressed: onOpenBookSettings!,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 章节列表底部工具行：安静的查看类入口（字数分布等），右对齐小 icon。
+class _TreeFooter extends StatelessWidget {
+  const _TreeFooter({this.onOpenWordDist});
+
+  final VoidCallback? onOpenWordDist;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: Theme.of(context).colorScheme.outline),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Spacer(),
+          if (onOpenWordDist != null)
+            ZzIconButton(
+              tooltip: '章节字数分布',
+              icon: Icons.bar_chart,
+              onPressed: onOpenWordDist!,
             ),
         ],
       ),
