@@ -33,6 +33,12 @@ class _WordDistributionPanel extends StatelessWidget {
   final LibraryController library;
   final void Function(String documentId) onOpen;
 
+  /// 点击某章：先关闭对话框，再触发跳转回调。
+  void _openChapter(BuildContext context, String documentId) {
+    Navigator.of(context).pop();
+    onOpen(documentId);
+  }
+
   @override
   Widget build(BuildContext context) {
     final appColors = appColorsOf(context);
@@ -100,7 +106,8 @@ class _WordDistributionPanel extends StatelessWidget {
                             chapter: chapter,
                             maxWords: dist.maxWords,
                             active: chapter.id == currentId,
-                            onTap: () => onOpen(chapter.id),
+                            // 先关再跳：与全书搜索一致（对话框关闭后才触发 onOpen）。
+                            onTap: () => _openChapter(context, chapter.id),
                           );
                         },
                       ),

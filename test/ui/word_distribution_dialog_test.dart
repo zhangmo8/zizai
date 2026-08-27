@@ -97,10 +97,12 @@ void main() {
 
     final id = library.documentsOf(library.currentNotebook!.id).toList()[1].id;
     await tester.tap(find.text('高潮'));
-    await tester.pumpAndSettle(); // 等关闭动画走完，否则 route 仍在树上
+    // 定长跳帧越过关闭动画（fake-async 下 pumpAndSettle 曾悬挂，见 backlog）。
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(LibraryDialogProbe.openedId, id);
-    expect(find.text('章节字数分布'), findsNothing);
+    expect(find.text('章节字数分布', skipOffstage: false), findsNothing);
   });
 
   testWidgets('当前打开的章节高亮', (tester) async {
