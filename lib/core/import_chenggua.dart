@@ -80,6 +80,12 @@ String _newId(String prefix) {
   return '$prefix-$now-${_seq++}';
 }
 
+// 容错取值：SQLite 动态类型，GUID/NTEXT 列若存成整数/浮点（如空 parent/volume
+// 存 0），强转会抛 TypeError。全部走 toString 兜底。
+String _str(Object? v) => v == null ? '' : v.toString();
+String? _strOrNull(Object? v) => v?.toString();
+int _int(Object? v) => v is int ? v : (int.tryParse(v?.toString() ?? '') ?? 0);
+
 /// 按 `sorts` 数组（去重）排序，缺项按 created_at 兜底。
 List<String> _orderFromSorts(String? sortsJson, Map<String, int> createdAtBy) {
   final ordered = <String>[];
@@ -142,29 +148,29 @@ Future<Map<String, dynamic>> parseChengguaDb(String dbPath) async {
 
     final categories = <_CategoryRow>[];
     for (final r in categoryRows) {
-      if ((r['is_deleted'] as int? ?? 0) != 0) continue; // 跳过已删除
+      if (_int(r['is_deleted']) != 0) continue; // 跳过已删除
       categories.add(
         _CategoryRow(
-          uuid: r['client_uuid']! as String,
-          parentUuid: (r['parent_client_uuid'] as String?) ?? '',
-          type: r['type']! as int,
-          title: (r['title'] as String?) ?? '',
-          sorts: r['sorts'] as String?,
-          createdAt: (r['created_at'] as int?) ?? 0,
-          updatedAt: (r['updated_at'] as int?) ?? 0,
+          uuid: _str(r['client_uuid']),
+          parentUuid: _str(r['parent_client_uuid']),
+          type: _int(r['type']),
+          title: _str(r['title']),
+          sorts: _strOrNull(r['sorts']),
+          createdAt: _int(r['created_at']),
+          updatedAt: _int(r['updated_at']),
         ),
       );
     }
     final contents = <String, _ContentRow>{
       for (final r in contentRows)
-        if ((r['is_deleted'] as int? ?? 0) == 0)
-          r['chapter_uuid']! as String: _ContentRow(
-            chapterUuid: r['chapter_uuid']! as String,
-            volumeUuid: r['volume_uuid'] as String?,
-            bookUuid: r['category_id']! as String,
-            content: (r['content'] as String?) ?? '',
-            createdAt: (r['created_at'] as int?) ?? 0,
-            updatedAt: (r['updated_at'] as int?) ?? 0,
+        if (_int(r['is_deleted']) == 0)
+          _str(r['chapter_uuid']): _ContentRow(
+            chapterUuid: _str(r['chapter_uuid']),
+            volumeUuid: _strOrNull(r['volume_uuid']),
+            bookUuid: _str(r['category_id']),
+            content: _str(r['content']),
+            createdAt: _int(r['created_at']),
+            updatedAt: _int(r['updated_at']),
           ),
     };
 

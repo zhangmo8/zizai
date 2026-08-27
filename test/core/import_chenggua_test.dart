@@ -251,4 +251,35 @@ void main() {
     expect(found, isNot(contains(wal.path)));
     expect(found, isNot(contains(shm.path)));
   });
+
+  test('容错：GUID 列存整数（空 parent/volume = 0）不崩溃', () async {
+    final target = await openTarget('target');
+    final srcPath = '${tempDir.path}/source2/chenggua.db';
+    await Directory('${tempDir.path}/source2').create(recursive: true);
+    final db = await databaseFactory.openDatabase(srcPath);
+    await seedChengguaDb(db);
+    // 模拟橙瓜动态类型：空 parent / 未归卷 volume 存成整数 0（此前强转会抛 TypeError）。
+    await db.update(
+      'book_category',
+      {'parent_client_uuid': 0},
+      where: 'type = 1',
+    );
+    await db.update(
+      'chapter_content',
+      {'volume_uuid': 0},
+      where: 'chapter_uuid = ?',
+      whereArgs: ['1ed7102a-fad5-458f-953c-8907d54ce182'],
+    );
+    await db.close();
+
+    final result = await importChenggua(
+      target,
+      srcPath,
+      tempDir: Directory('${tempDir.path}/work'),
+    );
+    expect(result.notebooks, 1);
+    expect(result.volumes, 3);
+    expect(result.docs, 4);
+    await target.close();
+  });
 }
