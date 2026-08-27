@@ -71,7 +71,15 @@ class TreeRowRef {
 ///
 /// [refs] 与列表 children 一一对应；[oldIndex] 为被拖行，[newIndex] 为
 /// onReorderItem 语义（移除被拖行后的插入位，无需再处理移除偏移）。
-(String?, int)? reorderTarget(List<TreeRowRef> refs, int oldIndex, int newIndex) {
+/// 返回的 position 恒为**数据序**（position ASC 基准）：倒序展示（章节排序
+/// 为 desc）时展示序与数据序相反，内部按 `docCount - 展示位` 换算，保证
+/// 落库后与用户看到的方向一致。
+(String?, int)? reorderTarget(
+  List<TreeRowRef> refs,
+  int oldIndex,
+  int newIndex, {
+  bool ascending = true,
+}) {
   if (oldIndex < 0 || oldIndex >= refs.length) return null;
   final dragged = refs[oldIndex];
   if (dragged.docId == null) return null; // 仅章节行可拖
@@ -83,9 +91,17 @@ class TreeRowRef {
 
   // 目标位置 = 目标笔记本内、插入点之前的章节数。
   var position = 0;
+  var docCount = 0;
   for (var i = 0; i < insertAt; i++) {
     final r = remaining[i];
     if (r.notebookId == targetNb && r.docId != null) position++;
+  }
+  for (final r in remaining) {
+    if (r.notebookId == targetNb && r.docId != null) docCount++;
+  }
+  if (!ascending) {
+    // 倒序展示：视觉顶部 = 数据末尾，插入位换算回数据序。
+    position = docCount - position;
   }
   if (targetNb == dragged.notebookId) {
     // 同笔记本且落点未变 → 不写库。
@@ -94,6 +110,7 @@ class TreeRowRef {
       final r = refs[i];
       if (r.notebookId == targetNb && r.docId != null) current++;
     }
+    if (!ascending) current = docCount - current;
     if (position == current) return null;
   }
   return (targetNb, position);
@@ -120,11 +137,14 @@ String? _notebookOfInsertion(List<TreeRowRef> remaining, int insertAt) {
 /// - 落到章节行上方 = 移入该章所在卷的对应序号；
 /// - 落到列表末尾/按钮行 = 落入最后一个分区末尾。
 /// volumeId = null 表示「未分卷」区。无拖动（newIndex == oldIndex）不写库。
+/// 返回的卷内序号恒为**数据序**基准：倒序展示时卷内展示序与数据序相反，
+/// 内部按「卷内章节数 - 展示位」换算，保证落库后与用户看到的方向一致。
 (String, String?, int)? manualReorderTarget(
   List<TreeRowRef> refs,
   int oldIndex,
-  int newIndex,
-) {
+  int newIndex, {
+  bool ascending = true,
+}) {
   if (oldIndex < 0 || oldIndex >= refs.length) return null;
   final dragged = refs[oldIndex];
   if (dragged.docId == null || dragged.notebookId == null) return null;
@@ -185,10 +205,15 @@ String? _notebookOfInsertion(List<TreeRowRef> remaining, int insertAt) {
     targetVolume = currentVolume;
     indexInVolume = sectionCount;
   }
+  if (!ascending) {
+    // 倒序展示：卷内展示序与数据序相反，插入位换算回数据序。
+    indexInVolume = (counts[targetVolume] ?? 0) - indexInVolume;
+  }
   // 同卷且位置未变 → 不写库。
-  if (targetVolume == dragged.volumeId &&
-      _volumeIndexIn(refs, oldIndex) == indexInVolume) {
-    return null;
+  if (targetVolume == dragged.volumeId) {
+    var current = _volumeIndexIn(refs, oldIndex);
+    if (!ascending) current = (counts[targetVolume] ?? 0) - current;
+    if (current == indexInVolume) return null;
   }
   return (nbId, targetVolume, indexInVolume);
 }
@@ -480,7 +505,8 @@ class _SidebarState extends State<Sidebar> {
 
   /// 单书章节树。
   /// - 分卷关闭 / 视图「平铺展示」→ 平铺章节列表。
-  /// - 自动分卷 → 按每卷章数插入「第 N 卷」分组标题（纯推导，不写库，可重命名）。
+  /// - 自动分卷 → 按每卷章数插入「第 N 卷」分组标题（纯推导，不写库，可重命名）；
+  ///   分组按数据序固定，倒序只反转卷序与卷内章节，卷名不随排序漂移。
   /// - 手动分卷 → 按 volumes 表真实分组；卷头可新建/重命名/删除，章节可移动。
   /// - 章节排序（设置 → 目录 → 章节排序）：倒序时最新章在上，
   ///   「+ 新建章节」按钮随「序列末尾端」移动（正序在最下，倒序在最上）。
@@ -504,14 +530,40 @@ class _SidebarState extends State<Sidebar> {
     final manual = grouped && volume.mode == VolumeMode.manual;
     final volumes = library.volumesOf(nb.id);
 
+    // 「+ 新建章节」跟随序列末尾端：正序在树末，倒序在树顶（与最新章节相邻）。
+    // 倒序时**先插入**——章节行的列表下标必须与 children 实际位置一致
+    // （拖拽 listener 依赖 index，后插到 0 位会让所有章节行的 index 错位一位）。
+    if (!ascending && docs.isNotEmpty) {
+      add(
+        _NewDocumentButton(
+          key: ValueKey('new-doc-${nb.id}'),
+          onPressed: () => _createDocumentDirect(nb.id),
+        ),
+        TreeRowRef(notebookId: nb.id),
+      );
+    }
+
     if (manual) {
-      _buildManualTree(nb, orderedDocs, volumes, add);
+      _buildManualTree(nb, orderedDocs, volumes, add, indexOf: () => children.length);
     } else {
-      var docIndex = 0;
-      var volumeNumber = 1;
-      for (final doc in orderedDocs) {
-        if (grouped && docIndex % volume.chapters == 0) {
-          final number = volumeNumber; // 捕获当前值（闭包内不能引用循环变量）
+      // 自动分卷：分组按**数据序**推导（第 N 卷 = 数据序第 N 组），与排序方向
+      // 无关；倒序时卷序与卷内章节都反转（与手动分卷语义一致），卷名与
+      // 章节归属不随排序方向漂移。平铺视图视为单个大卷、不插卷头。
+      final chunks = <List<Document>>[];
+      if (grouped) {
+        for (var i = 0; i < docs.length; i += volume.chapters) {
+          final end = (i + volume.chapters).clamp(0, docs.length);
+          chunks.add(docs.sublist(i, end));
+        }
+      } else if (docs.isNotEmpty) {
+        chunks.add(docs);
+      }
+      final orderedChunks = ascending ? chunks : chunks.reversed.toList();
+      for (var ci = 0; ci < orderedChunks.length; ci++) {
+        final chunk = orderedChunks[ci];
+        if (grouped) {
+          // 卷序号按数据序固定：倒序展示时最后一个数据块（最新章）在最上。
+          final number = ascending ? ci + 1 : chunks.length - ci;
           if (_isEditingVolume('$number')) {
             add(
               _editField(
@@ -527,7 +579,7 @@ class _SidebarState extends State<Sidebar> {
               _VolumeHeader(
                 key: ValueKey('vol-${nb.id}-$number'),
                 title: widget.settings.autoVolumeName(nb.id, number),
-                count: '${volume.chapters.clamp(0, orderedDocs.length - docIndex)} 章',
+                count: '${chunk.length} 章',
                 menuItems: [
                   _MenuEntry(
                     '重命名',
@@ -549,42 +601,39 @@ class _SidebarState extends State<Sidebar> {
               TreeRowRef(notebookId: nb.id, isHeader: true),
             );
           }
-          volumeNumber++;
         }
-        if (_isEditingDocument(doc.id)) {
-          add(
-            _editField(
-              _editing!,
-              doc.id,
-              notebookId: nb.id,
-              key: ValueKey('edit-doc-${doc.id}'),
-            ),
-            TreeRowRef(notebookId: nb.id, docId: doc.id),
-          );
-        } else {
-          final index = children.length;
-          add(
-            _documentRow(nb, doc, index),
-            TreeRowRef(notebookId: nb.id, docId: doc.id),
-          );
+        final chunkDocs = ascending ? chunk : chunk.reversed.toList();
+        for (final doc in chunkDocs) {
+          if (_isEditingDocument(doc.id)) {
+            add(
+              _editField(
+                _editing!,
+                doc.id,
+                notebookId: nb.id,
+                key: ValueKey('edit-doc-${doc.id}'),
+              ),
+              TreeRowRef(notebookId: nb.id, docId: doc.id),
+            );
+          } else {
+            final index = children.length;
+            add(
+              _documentRow(nb, doc, index),
+              TreeRowRef(notebookId: nb.id, docId: doc.id),
+            );
+          }
         }
-        docIndex++;
       }
     }
 
-    // 「+ 新建章节」跟随序列末尾端：正序在树末，倒序在树顶（与最新章节相邻）。
-    if (docs.isNotEmpty) {
-      final newButton = _NewDocumentButton(
-        key: ValueKey('new-doc-${nb.id}'),
-        onPressed: () => _createDocumentDirect(nb.id),
+    // 「+ 新建章节」跟随序列末尾端：正序在树末（倒序已在树顶先行插入）。
+    if (ascending && docs.isNotEmpty) {
+      add(
+        _NewDocumentButton(
+          key: ValueKey('new-doc-${nb.id}'),
+          onPressed: () => _createDocumentDirect(nb.id),
+        ),
+        TreeRowRef(notebookId: nb.id),
       );
-      final ref = TreeRowRef(notebookId: nb.id);
-      if (ascending) {
-        add(newButton, ref);
-      } else {
-        children.insert(0, newButton);
-        refs.insert(0, ref);
-      }
     }
     _rowRefs = refs;
 
@@ -607,12 +656,15 @@ class _SidebarState extends State<Sidebar> {
   /// 手动分卷树：卷序 → 卷内章节。
   /// 无「未归卷」概念——章节永远属于某卷（新章节自动落卷；脏数据卷 id 回退最后一卷）。
   /// 排序：倒序时卷与卷内章节都反转（最后一卷、最新章在最上）。
+  /// [indexOf] 返回「下一个章节行的列表下标」（children 当前长度），
+  /// 供拖拽 listener 使用——必须与 ReorderableListView 的实际位置一致。
   void _buildManualTree(
     Notebook nb,
     List<Document> docs,
     List<Volume> volumes,
-    void Function(Widget child, TreeRowRef ref) add,
-  ) {
+    void Function(Widget child, TreeRowRef ref) add, {
+    required int Function() indexOf,
+  }) {
     // 分桶：卷序 → 章节（docs 已按展示序传入，桶内保持该顺序）。
     final buckets = <String, List<Document>>{
       for (final vol in volumes) vol.id: <Document>[],
@@ -684,12 +736,12 @@ class _SidebarState extends State<Sidebar> {
         );
       }
       for (final doc in bucket) {
-        _addManualDocRow(nb, doc, add);
+        _addManualDocRow(nb, doc, add, indexOf);
       }
     }
     // 兜底：无卷残留章节平铺在卷列表末尾（不崩溃，建卷后可用「移动到分卷」归章）。
     for (final doc in orphan) {
-      _addManualDocRow(nb, doc, add);
+      _addManualDocRow(nb, doc, add, indexOf);
     }
   }
 
@@ -697,6 +749,7 @@ class _SidebarState extends State<Sidebar> {
     Notebook nb,
     Document doc,
     void Function(Widget child, TreeRowRef ref) add,
+    int Function() indexOf,
   ) {
     if (_isEditingDocument(doc.id)) {
       add(
@@ -711,7 +764,7 @@ class _SidebarState extends State<Sidebar> {
       return;
     }
     add(
-      _documentRow(nb, doc, _rowRefs.length + 1),
+      _documentRow(nb, doc, indexOf()),
       TreeRowRef(notebookId: nb.id, docId: doc.id, volumeId: doc.volumeId),
     );
   }
@@ -777,8 +830,14 @@ class _SidebarState extends State<Sidebar> {
     final nbId = widget.library.currentNotebook?.id;
     final volume = widget.settings.volumeForNotebook(nbId);
     final grouped = volume.enabled && widget.settings.volumeViewGrouped;
+    final ascending = widget.settings.docsAscending(nbId);
     if (grouped && volume.mode == VolumeMode.manual) {
-      final target = manualReorderTarget(refs, oldIndex, newIndex);
+      final target = manualReorderTarget(
+        refs,
+        oldIndex,
+        newIndex,
+        ascending: ascending,
+      );
       if (target == null) return;
       final (targetNb, volumeId, indexInVolume) = target;
       widget.library.moveDocumentToVolume(
@@ -788,7 +847,7 @@ class _SidebarState extends State<Sidebar> {
       );
       return;
     }
-    final target = reorderTarget(refs, oldIndex, newIndex);
+    final target = reorderTarget(refs, oldIndex, newIndex, ascending: ascending);
     if (target == null) return;
     final (targetNb, position) = target;
     widget.library.reorderDocument(

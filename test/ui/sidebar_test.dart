@@ -199,6 +199,37 @@ void main() {
     test('新建按钮行不可拖', () {
       expect(reorderTarget(refs, 3, 1), isNull);
     });
+
+    test('倒序展示：拖到视觉顶部 = 数据末尾（最新），与用户看到的方向一致', () {
+      // 数据序 [d1,d2,d3]；倒序展示 [d3(顶), d2, d1(底)]
+      final desc = [doc('A', 'd3'), doc('A', 'd2'), doc('A', 'd1')];
+      // d1（视觉最底）拖到顶部 → 数据序末尾（d1 变最新）
+      expect(reorderTarget(desc, 2, 0, ascending: false), ('A', 2));
+      // d3（视觉最顶）拖到底部 → 数据序开头（d3 变最老）
+      expect(reorderTarget(desc, 0, 3, ascending: false), ('A', 0));
+      // 落点未变 → null（不写库）
+      expect(reorderTarget(desc, 1, 1, ascending: false), isNull);
+    });
+
+    test('倒序 + 自动分卷卷头：卷头行跳过，位置按数据序换算', () {
+      // 数据序 [d1..d5]，每卷 2 章；倒序展示：
+      // [第3卷头, d5, d4, 第2卷头, d3, d2, 第1卷头, d1, 新建]
+      final desc = [
+        nb('A'), // 第 3 卷头
+        doc('A', 'd5'),
+        doc('A', 'd4'),
+        nb('A'), // 第 2 卷头
+        doc('A', 'd3'),
+        doc('A', 'd2'),
+        nb('A'), // 第 1 卷头
+        doc('A', 'd1'),
+        btn('A'),
+      ];
+      // d1（视觉最底）拖到第 3 卷头下方（d5 前）→ 数据序最末（d1 变最新）
+      expect(reorderTarget(desc, 7, 1, ascending: false), ('A', 4));
+      // d4（第 3 卷内）拖到列表最末（d1 之后、按钮前）→ 数据序开头（d4 变最老）
+      expect(reorderTarget(desc, 2, 7, ascending: false), ('A', 0));
+    });
   });
 
   group('manualReorderTarget 手动分卷拖拽落点映射', () {
@@ -250,6 +281,25 @@ void main() {
 
     test('落到列表末尾 → 最后一个分区末尾（未分卷）', () {
       expect(manualReorderTarget(refs, 1, 8), ('A', null, 1));
+    });
+
+    test('倒序展示：卷内序号按数据序换算，方向与用户看到的一致', () {
+      // 数据序 卷一[d1,d2] 卷二[d3]；倒序展示：
+      // [卷二头, d3, 卷一头, d2, d1, 新建]
+      final desc = [
+        vh('v2'),
+        doc('A', 'd3', 'v2'),
+        vh('v1'),
+        doc('A', 'd2', 'v1'),
+        doc('A', 'd1', 'v1'),
+        btn(),
+      ];
+      // d3（视觉顶）拖到卷一视觉末尾（d1 后、按钮前）→ 卷一数据序开头
+      expect(manualReorderTarget(desc, 1, 5, ascending: false), ('A', 'v1', 0));
+      // d2（卷一中位）拖到卷二视觉顶部（d3 前）→ 卷二数据序末尾
+      expect(manualReorderTarget(desc, 3, 1, ascending: false), ('A', 'v2', 1));
+      // 无拖动 → null
+      expect(manualReorderTarget(desc, 1, 1, ascending: false), isNull);
     });
   });
 
@@ -884,5 +934,72 @@ void main() {
     await tester.tap(find.text('倒序（新章在上）').last);
     await settle(tester);
     expect(settings.docsOrderFor(nbId), 'desc');
+  });
+
+  testWidgets('自动分卷 + 章节排序：分组不随排序翻转，倒序只反转展示，卷名稳定', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['第一章','第二章','第三章','第四章','第五章'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await tester.runAsync(
+      () => settings.setVolumeForNotebook(nbId, enabled: true, chapters: 2),
+    );
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+
+    double dy(String t) => tester.getTopLeft(find.text(t)).dy;
+
+    // 正序：第 1 卷 = 第一章/第二章，在最上
+    expect(dy('第一卷') < dy('第一章'), isTrue);
+    expect(dy('第一章') < dy('第二章'), isTrue);
+    expect(dy('第二章') < dy('第二卷'), isTrue);
+
+    // 重命名第 1 卷 → 「开篇卷」，用于验证切排序后卷名不漂移
+    await openRowMenu(tester, 0); // 第一卷的 ⋮
+    await renameViaMenu(tester, '开篇卷');
+    expect(settings.autoVolumeName(nbId, 1), '开篇卷');
+
+    // 切倒序：卷序反转（最新块第三卷在最上）+ 卷内章节反转；
+    // 「开篇卷」仍含第一章/第二章（分组按数据序，不随排序翻转）。
+    await tester.runAsync(() => settings.setDocsOrder(nbId, 'desc'));
+    await tester.pump();
+    await settle(tester);
+    expect(dy('第三卷') < dy('开篇卷'), isTrue); // 最新卷在最上
+    expect(dy('第五章') < dy('第四章'), isTrue); // 第三卷内：第五章在上
+    expect(dy('第四章') < dy('第三章'), isTrue); // 第二卷内反转
+    expect(dy('第二章') < dy('第一章'), isTrue); // 开篇卷内反转
+    expect(dy('开篇卷') < dy('第一章'), isTrue); // 开篇卷仍在最下，归的是第一章/第二章
+  });
+
+  testWidgets('章节排序倒序 + 拖拽：拖到视觉底部 = 变为最老章，方向不反向', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['第一章', '第二章', '第三章'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await tester.runAsync(() => settings.setDocsOrder(nbId, 'desc'));
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+
+    double dy(String t) => tester.getTopLeft(find.text(t)).dy;
+    // 倒序：第三章（最新）在最上
+    expect(dy('第三章') < dy('第一章'), isTrue);
+
+    // 把第三章（视觉顶）拖到列表底部（越过第一章）
+    final grip = find.byIcon(Icons.drag_indicator).first;
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.moveTo(tester.getCenter(grip));
+    await tester.pump(const Duration(milliseconds: 120));
+    await gesture.down(tester.getCenter(grip));
+    await tester.pump();
+    for (var i = 0; i < 8; i++) {
+      await gesture.moveBy(const Offset(0, 18));
+      await tester.pump();
+    }
+    await gesture.up();
+    await tester.pump();
+    await gesture.removePointer();
+    await settle(tester);
+
+    // 修复后：第三章变最老（数据序开头）→ 显示在底部
+    expect(library.documentsOf(nbId).first.title, '第三章');
+    expect(dy('第一章') < dy('第三章'), isTrue);
   });
 }
