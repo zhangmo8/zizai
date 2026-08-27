@@ -115,12 +115,19 @@ void main() {
   });
 
   testWidgets('空书：提示无章节', (tester) async {
-    final tempDir = await Directory.systemTemp.createTemp('zizai_worddist_e');
-    final db = await Db.open('${tempDir.path}/test.db');
-    final nb = await db.createNotebook('空书');
-    final library = LibraryController(db);
-    await library.restore();
-    await library.openNotebook(nb.id);
+    // 全部真实 I/O 必须包进 runAsync：fake-async zone 内直连 FFI db 会
+    // 劫持测试时钟导致整测 10 分钟挂死（曾致 CI 偶发超时）。
+    final library = (await tester.runAsync(() async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'zizai_worddist_e',
+      );
+      final db = await Db.open('${tempDir.path}/test.db');
+      final nb = await db.createNotebook('空书');
+      final lib = LibraryController(db);
+      await lib.restore();
+      await lib.openNotebook(nb.id);
+      return lib;
+    }))!;
 
     await pumpDialog(tester, library);
 
