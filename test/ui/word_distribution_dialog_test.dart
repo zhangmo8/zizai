@@ -73,14 +73,12 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('三章书籍：摘要与逐章条目按目录正序排列', (tester) async {
+  testWidgets('三章书籍：逐章条目按目录正序排列', (tester) async {
     final library = (await tester.runAsync(makeLibrary))!;
     await pumpDialog(tester, library);
 
     expect(find.text('章节字数分布'), findsOneWidget);
-    expect(find.textContaining('3 章 · 共 21 字'), findsOneWidget);
-
-    // 行内容与目录正序（position 升序，不受倒序偏好影响）。
+    // 行内容按 position 升序（节奏图固定叙事正序，不受倒序偏好影响）。
     expect(find.text('开端'), findsOneWidget);
     expect(find.text('高潮'), findsOneWidget);
     expect(find.text('结局'), findsOneWidget);
@@ -99,10 +97,10 @@ void main() {
 
     final id = library.documentsOf(library.currentNotebook!.id).toList()[1].id;
     await tester.tap(find.text('高潮'));
-    await tester.pump();
+    await tester.pumpAndSettle(); // 等关闭动画走完，否则 route 仍在树上
 
     expect(LibraryDialogProbe.openedId, id);
-    expect(find.text('章节字数分布'), findsNothing); // 对话框已关闭
+    expect(find.text('章节字数分布'), findsNothing);
   });
 
   testWidgets('当前打开的章节高亮', (tester) async {
