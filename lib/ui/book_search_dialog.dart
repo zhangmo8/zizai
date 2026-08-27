@@ -179,7 +179,13 @@ class _BookSearchPanelState extends State<_BookSearchPanel> {
         error: total == 0,
       );
       Navigator.of(context).pop();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      await widget.library.logger?.error(
+        'book.replace.failed',
+        e,
+        stackTrace,
+        data: {'query': _replacement.text},
+      );
       if (!mounted) return;
       showZzToast(context, '替换失败，请重试', error: true);
     } finally {

@@ -8,6 +8,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/app_logger.dart';
 import '../core/db.dart';
 import '../core/mcp/mcp_server.dart';
 import '../core/snapshot_history.dart';
@@ -19,11 +20,13 @@ class McpController extends ChangeNotifier {
     SnapshotHistory? snapshots,
     int initialPort = McpController.defaultPort,
     Future<void> Function()? onWrite,
+    this.logger,
   }) : _server = ZizaiMcpServer(
           db: _db,
           snapshots: snapshots,
           port: initialPort,
           onWrite: onWrite,
+          logger: logger,
         );
 
   static const String kEnabledKey = 'mcp.enabled';
@@ -32,6 +35,9 @@ class McpController extends ChangeNotifier {
 
   final Db _db;
   final ZizaiMcpServer _server;
+
+  /// 诊断日志（可选）：服务启动/工具调用失败入日志。
+  final AppLogger? logger;
 
   bool _enabled = false;
   bool _starting = false;
@@ -105,16 +111,25 @@ class McpController extends ChangeNotifier {
     try {
       await _server.start();
       _running = true;
-    } catch (e) {
+      await logger?.info(
+        'mcp.started',
+        data: {'url': _server.url, 'port': _server.boundPort},
+      );
+    } catch (e, stackTrace) {
       _lastError = '启动失败：$e';
       _running = false;
+      await logger?.error('mcp.start.failed', e, stackTrace);
     } finally {
       _starting = false;
     }
   }
 
   Future<void> _stop() async {
-    await _server.stop();
+    try {
+      await _server.stop();
+    } catch (e, stackTrace) {
+      await logger?.error('mcp.stop.failed', e, stackTrace);
+    }
     _running = false;
     _lastError = null;
   }

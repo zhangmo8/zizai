@@ -67,7 +67,7 @@ Future<void> main() async {
     return;
   }
   final settings = SettingsController(db);
-  final library = LibraryController(db);
+  final library = LibraryController(db, logger: logger);
   await settings.load();
   await library.restore();
   final backup = BackupManager(
@@ -87,6 +87,7 @@ Future<void> main() async {
     db,
     snapshots: snapshots,
     onWrite: library.refreshTree,
+    logger: logger,
   );
   await mcp.init();
 

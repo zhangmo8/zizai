@@ -148,8 +148,10 @@ class _SettingsViewState extends State<SettingsView> {
       final handler = widget.exporter ?? _defaultExport;
       await handler(doc, text);
       if (mounted) showZzToast(context, '文档已导出');
-    } catch (_) {
-      if (mounted) showZzToast(context, '导出失败，请稍后重试', error: true);
+    } catch (error, stackTrace) {
+      await widget.logger?.error('export.current.failed', error, stackTrace,
+          data: {'documentId': doc.id});
+      if (mounted) showZzToast(context, '导出失败：$error', error: true);
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -412,7 +414,7 @@ class _SettingsViewState extends State<SettingsView> {
         children: [
           _row('数据库路径', _dbPathRow()),
           if (widget.logger != null)
-            _row('诊断日志', _logPathRow(), description: '记录启动、升级、更新和未处理异常'),
+            _row('诊断日志', _logPathRow(), description: '记录启动、升级、更新、导出/备份/MCP 等操作的错误与未处理异常'),
         ],
       ),
       _SettingsGroup(
@@ -904,7 +906,8 @@ class _SettingsViewState extends State<SettingsView> {
         await widget.backup!.exportToFile(loc.path);
       }
       if (mounted) showZzToast(context, '备份已导出');
-    } catch (e) {
+    } catch (e, stackTrace) {
+      await widget.logger?.error('backup.export.failed', e, stackTrace);
       if (mounted) showZzToast(context, '导出备份失败：$e', error: true);
     } finally {
       if (mounted) setState(() => _localExporting = false);
@@ -946,7 +949,9 @@ class _SettingsViewState extends State<SettingsView> {
           '已从备份恢复（${result.notebooks} 本 / ${result.volumes} 卷 / ${result.docs} 章）',
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      await widget.logger?.error('backup.restore.failed', e, stackTrace,
+          data: {'path': loc.path});
       if (mounted) showZzToast(context, '恢复失败：$e', error: true);
     }
   }
@@ -998,7 +1003,9 @@ class _SettingsViewState extends State<SettingsView> {
           '导入完成：${result.notebooks} 本 / ${result.volumes} 卷 / ${result.docs} 章',
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      await widget.logger?.error('import.chenggua.failed', e, stackTrace,
+          data: {'path': chosen});
       if (mounted) showZzToast(context, '导入失败：$e', error: true);
     } finally {
       if (mounted) setState(() => _chengguaImporting = false);

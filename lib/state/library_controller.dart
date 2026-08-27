@@ -6,6 +6,7 @@ library;
 
 import 'package:flutter/foundation.dart';
 
+import '../core/app_logger.dart';
 import '../core/chapter_ops.dart';
 import '../core/db.dart';
 import '../core/models.dart';
@@ -27,9 +28,12 @@ class DeletionRequest {
 }
 
 class LibraryController extends ChangeNotifier {
-  LibraryController(this._db);
+  LibraryController(this._db, {this.logger});
 
   final Db _db;
+
+  /// 诊断日志（可选）：恢复失败等内部错误入日志，便于事后排查。
+  final AppLogger? logger;
 
   List<Notebook> _notebooks = const [];
   List<Notebook> get notebooks => _notebooks;
@@ -113,7 +117,8 @@ class LibraryController extends ChangeNotifier {
     try {
       await _reloadTree();
       await _refreshTodayDelta();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      await logger?.error('library.restore.failed', e, stackTrace);
       _error = '加载失败: $e';
     } finally {
       _loading = false;

@@ -124,6 +124,19 @@ class _BookExportPanelState extends State<_BookExportPanel> {
     }
     setState(() => _exporting = true);
     try {
+      // 导出前体检：内容不是合法 Delta 的章节记日志（宽容导出不阻断），
+      // 便于定位「写坏了」的问题章节；导出本身按纯文本兜底。
+      for (final doc in documents) {
+        try {
+          parseDeltaOps(doc.content);
+        } on FormatException {
+          await widget.library.logger?.warning(
+            'export.corrupt.document',
+            message: doc.title,
+            data: {'documentId': doc.id},
+          );
+        }
+      }
       final bool done;
       switch (_format) {
         case _BookFormat.txt:
@@ -146,8 +159,19 @@ class _BookExportPanelState extends State<_BookExportPanel> {
         Navigator.of(context).pop();
         showZzToast(context, '已导出 ${documents.length} 章');
       }
-    } catch (_) {
-      if (mounted) showZzToast(context, '导出失败，请稍后重试', error: true);
+    } catch (error, stackTrace) {
+      // 之前这里只弹提示、不记日志，导出失败在日志里完全不可见。
+      await widget.library.logger?.error(
+        'export.book.failed',
+        error,
+        stackTrace,
+        data: {
+          'scope': _scope,
+          'format': _format.name,
+          'documents': documents.length,
+        },
+      );
+      if (mounted) showZzToast(context, '导出失败：$error', error: true);
     } finally {
       if (mounted) setState(() => _exporting = false);
     }

@@ -6,6 +6,7 @@ library;
 
 import 'package:mcp_dart/mcp_dart.dart';
 
+import '../app_logger.dart';
 import '../db.dart';
 import '../snapshot_history.dart';
 import 'mcp_tools.dart';
@@ -16,6 +17,7 @@ class ZizaiMcpServer {
     required this.db,
     this.snapshots,
     this.onWrite,
+    this.logger,
     this.port = 8765,
   });
 
@@ -24,6 +26,9 @@ class ZizaiMcpServer {
 
   /// 写操作成功后回调（刷新 UI 目录树，见 mcp_tools.dart）。
   final Future<void> Function()? onWrite;
+
+  /// 诊断日志（可选）：工具调用与失败入日志。
+  final AppLogger? logger;
 
   /// 监听端口（可在设置里改；start 后以 [boundPort] 为准）。
   int port;
@@ -78,7 +83,29 @@ class ZizaiMcpServer {
         description: tool.description,
         inputSchema: tool.inputSchema,
         callback: (args, extra) async {
-          final result = await tool.handler(args);
+          final ZizaiMcpResult result;
+          try {
+            result = await tool.handler(args);
+          } catch (error, stackTrace) {
+            // handler 抛错（如 db 异常）时记日志，并回 agent 一个错误结果，
+            // 避免协议级失败让 agent 拿不到可读信息。
+            await logger?.error(
+              'mcp.tool.failed',
+              error,
+              stackTrace,
+              data: {'tool': tool.name},
+            );
+            return CallToolResult(
+              content: [TextContent(text: '工具执行失败：$error')],
+              isError: true,
+            );
+          }
+          // 每次工具调用留痕（不含入参内容，避免正文进日志）：
+          // 排查「agent 到底调了哪个工具、成功没有」一查便知。
+          await logger?.info(
+            'mcp.tool.call',
+            data: {'tool': tool.name, 'isError': result.isError},
+          );
           return CallToolResult(
             content: [TextContent(text: result.content)],
             isError: result.isError,
