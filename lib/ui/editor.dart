@@ -28,7 +28,7 @@ import '../app.dart' show appColorsOf;
 import '../core/app_logger.dart';
 import '../core/backup/backup.dart';
 import '../core/crash_journal.dart';
-import '../core/export.dart' show emptyDeltaJson, parseDeltaOps;
+import '../core/export.dart' show emptyDeltaJson, parseDeltaOpsLenient;
 import '../core/find.dart';
 import '../core/models.dart' as m;
 import '../core/outline.dart';
@@ -451,7 +451,7 @@ class _EditorViewState extends State<EditorView> {
   q.Document _documentFromJson(String json) {
     if (json.isEmpty || json == emptyDeltaJson) return q.Document();
     try {
-      final ops = parseDeltaOps(json);
+      final ops = parseDeltaOpsLenient(json);
       if (ops.isEmpty) return q.Document();
       return q.Document.fromJson(ops);
     } on FormatException {
@@ -472,7 +472,7 @@ class _EditorViewState extends State<EditorView> {
   q.Document _loadContent(String json) {
     if (json.isEmpty || json == emptyDeltaJson) return _documentFromJson(json);
     try {
-      final ops = parseDeltaOps(json);
+      final ops = parseDeltaOpsLenient(json);
       if (ops.isEmpty) return _documentFromJson(json);
       final effective = _indentEnabled() ? _injectIndentOps(ops) : ops;
       return q.Document.fromJson(effective);

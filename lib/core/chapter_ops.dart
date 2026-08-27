@@ -9,7 +9,7 @@ import 'dart:convert';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:flutter_quill/quill_delta.dart' show Delta;
 
-import 'export.dart' show parseDeltaOps;
+import 'export.dart' show parseDeltaOpsLenient;
 
 /// 拆分结果：前半段 + 后半段 Delta JSON。
 class SplitResult {
@@ -25,7 +25,7 @@ class SplitResult {
 /// 前半段保留 offset 之前的内容，后半段保留 offset 之后的内容。
 /// 两段均规范化为合法 Delta（末尾换行）。
 SplitResult splitDocumentContent(String content, int splitOffset) {
-  final ops = parseDeltaOps(content);
+  final ops = parseDeltaOpsLenient(content);
   if (ops.isEmpty) {
     return const SplitResult(firstContent: '{}', secondContent: '{}');
   }
@@ -88,8 +88,8 @@ String _opsToJson(List<Map<String, dynamic>> ops) {
 /// 若 [first] 为空文档（`{}`），直接返回 [second]。
 /// 合并时在两段之间保留段落分隔（确保 [first] 末尾有换行）。
 String mergeDocumentContent(String first, String second) {
-  final firstOps = parseDeltaOps(first);
-  final secondOps = parseDeltaOps(second);
+  final firstOps = parseDeltaOpsLenient(first);
+  final secondOps = parseDeltaOpsLenient(second);
   if (firstOps.isEmpty) return second;
   if (secondOps.isEmpty) return first;
 

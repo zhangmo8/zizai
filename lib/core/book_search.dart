@@ -8,7 +8,7 @@ import 'dart:convert';
 
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 
-import 'export.dart' show deltaToPlainText, parseDeltaOps;
+import 'export.dart' show deltaToPlainText, parseDeltaOpsLenient;
 import 'find.dart';
 import 'models.dart';
 
@@ -221,7 +221,7 @@ DocumentReplaceResult replaceInDocument({
       newContent: document.content,
     );
   }
-  final ops = parseDeltaOps(document.content);
+  final ops = parseDeltaOpsLenient(document.content);
   if (ops.isEmpty) {
     return DocumentReplaceResult(
       documentId: document.id,

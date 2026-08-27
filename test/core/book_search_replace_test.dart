@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zi_zai/core/book_search.dart';
+import 'package:zi_zai/core/export.dart' show parseDeltaOps;
 import 'package:zi_zai/core/models.dart';
 
 void main() {
@@ -96,7 +97,7 @@ void main() {
       expect(result.newContent, isNot(contains('林渊')));
     });
 
-    test('坏文档抛 FormatException', () {
+    test('非 JSON 正文按纯文本宽容处理，可替换不抛错', () {
       final bad = Document(
         id: 'bad',
         notebookId: 'n1',
@@ -107,14 +108,15 @@ void main() {
         createdAt: 0,
         updatedAt: 0,
       );
-      expect(
-        () => replaceInDocument(
-          document: bad,
-          query: '词',
-          replacement: '新',
-        ),
-        throwsA(isA<FormatException>()),
+      final result = replaceInDocument(
+        document: bad,
+        query: 'json',
+        replacement: 'JSON',
       );
+      expect(result.replacedCount, 1);
+      expect(result.newContent, contains('JSON'));
+      // 替换产物是合法 Delta JSON。
+      expect(() => parseDeltaOps(result.newContent), returnsNormally);
     });
 
     test('空文档返回原内容', () {

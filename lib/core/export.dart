@@ -14,6 +14,9 @@ const String emptyDeltaJson = '{}';
 
 /// 将 Quill Delta JSON 解析为规范化 ops；非法 JSON 或非 Delta 结构抛 [FormatException]。
 ///
+/// 严格校验版：任何不合法输入都抛错，供「需要确认内容健康」的场景
+/// （导出前体检、测试）使用。宽容版见 [parseDeltaOpsLenient]。
+///
 /// Quill 文档要求末位 op 为 insert 且以换行结尾，缺则补 `\n`（规范化）。
 /// `'{}'` 与 `''`（空文档占位）返回空列表。
 List<Map<String, dynamic>> parseDeltaOps(String deltaJson) {
@@ -35,7 +38,43 @@ List<Map<String, dynamic>> parseDeltaOps(String deltaJson) {
       throw FormatException('非法 Delta JSON: op 缺少 insert', deltaJson);
     }
   }
-  var ops = data.cast<Map<String, dynamic>>();
+  return _normalizeOps(data.cast<Map<String, dynamic>>());
+}
+
+/// 宽容版解析：与 [parseDeltaOps] 相同，但**完全不是 JSON 的字符串按纯文本
+/// 兜底**为单个 insert op，保证用户手打/异常写入的正文能继续被读取与导出。
+///
+/// 兜底动机：content 列曾被外部路径写入过非 Delta 裸文本（真实事故），
+/// 若读路径一律抛错，整书导出/搜索/编辑器都会整段失败；把可读文本当作
+/// 正文导出，数据不丢。结构上错误的 JSON（非数组、op 非对象、缺 insert）
+/// 仍抛 [FormatException]——那是坏数据，按文本兜底反而掩盖问题。
+List<Map<String, dynamic>> parseDeltaOpsLenient(String deltaJson) {
+  if (deltaJson.isEmpty || deltaJson == emptyDeltaJson) return [];
+  final Object? data;
+  try {
+    data = jsonDecode(deltaJson);
+  } on FormatException {
+    // 完全不是 JSON：当作纯文本正文，保全内容（导出/搜索/编辑器可见）。
+    return _normalizeOps([
+      {'insert': deltaJson},
+    ]);
+  }
+  if (data is! List) {
+    throw FormatException('非法 Delta JSON: 期望数组', deltaJson);
+  }
+  for (final op in data) {
+    if (op is! Map) {
+      throw FormatException('非法 Delta JSON: op 必须是对象', deltaJson);
+    }
+    if (op['insert'] == null) {
+      throw FormatException('非法 Delta JSON: op 缺少 insert', deltaJson);
+    }
+  }
+  return _normalizeOps(data.cast<Map<String, dynamic>>());
+}
+
+/// 规范化：空列表原样返回；末位 insert 不是字符串或未以换行结尾时补 `\n`。
+List<Map<String, dynamic>> _normalizeOps(List<Map<String, dynamic>> ops) {
   if (ops.isEmpty) return ops;
   final last = ops.last;
   final lastInsert = last['insert'];
@@ -45,11 +84,12 @@ List<Map<String, dynamic>> parseDeltaOps(String deltaJson) {
   return ops;
 }
 
-/// 将 Quill Delta JSON 转为纯文本；非法结构抛 [FormatException]。
+/// 将 Quill Delta JSON 转为纯文本；宽容解析（见 [parseDeltaOpsLenient]），
+/// 非 JSON 正文按纯文本原样返回；结构错误仍抛 [FormatException]。
 ///
 /// `'{}'` 与 `''`（空文档占位）返回空串。
 String deltaToPlainText(String deltaJson) {
-  final ops = parseDeltaOps(deltaJson);
+  final ops = parseDeltaOpsLenient(deltaJson);
   if (ops.isEmpty) return '';
   var text = quill.Document.fromJson(ops).toPlainText();
   // Quill 文档始终以换行结尾，toPlainText 会带出末尾 '\n'，剥掉它。

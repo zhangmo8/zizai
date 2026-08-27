@@ -64,10 +64,17 @@ String plainToDelta(String text) {
 }
 
 /// 解析 delta JSON 的 ops 列表；解析失败按空列表处理。
+///
+/// 历史坏数据（content 列存了非 JSON 裸文本）按纯文本单 op 解析，
+/// 保证追加时保留原文而不整体覆盖（永不丢字）。
 List<Object?> _opsOf(String deltaJson) {
   try {
     final decoded = jsonDecode(deltaJson);
     if (decoded is List) return decoded;
+  } on FormatException {
+    return [
+      {'insert': deltaJson},
+    ];
   } catch (_) {}
   return [];
 }

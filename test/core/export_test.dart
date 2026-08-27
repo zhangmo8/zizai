@@ -25,10 +25,43 @@ void main() {
     });
 
     test('非法结构抛 FormatException', () {
-      expect(() => deltaToPlainText('{"a":1}'), throwsFormatException);
-      expect(() => deltaToPlainText('不是json'), throwsFormatException);
+      expect(() => deltaToPlainText('{"a":1}'), throwsFormatException); // 合法 JSON 但非数组
       expect(() => deltaToPlainText('[42]'), throwsFormatException); // op 非对象
       expect(() => deltaToPlainText('[{"delete":1}]'), throwsFormatException); // 缺 insert
+    });
+
+    test('非 JSON 正文按纯文本兜底，不抛错', () {
+      // 真实事故：content 列被外部路径写入裸文本，宽容解析保证导出不整段失败。
+      expect(
+        deltaToPlainText('迷天阵是上古大阵。\n\n林昭点点头。'),
+        '迷天阵是上古大阵。\n\n林昭点点头。',
+      );
+      expect(deltaToPlainText('不是json'), '不是json');
+      expect(deltaToPlainText('正文。\n'), '正文。'); // 末尾换行剥掉
+    });
+  });
+
+  group('parseDeltaOps / parseDeltaOpsLenient', () {
+    test('严格版对非 JSON 抛 FormatException', () {
+      expect(() => parseDeltaOps('不是json'), throwsFormatException);
+      expect(() => parseDeltaOps('{"a":1}'), throwsFormatException);
+    });
+
+    test('宽容版对非 JSON 返回单个 insert op（补末尾换行）', () {
+      final ops = parseDeltaOpsLenient('不是json');
+      expect(ops, hasLength(2));
+      expect(ops.first['insert'], '不是json');
+      expect(ops.last['insert'], '\n');
+      expect(parseDeltaOpsLenient(''), isEmpty);
+      expect(parseDeltaOpsLenient('{}'), isEmpty);
+    });
+
+    test('宽容版对结构错误的 JSON 仍抛 FormatException', () {
+      expect(() => parseDeltaOpsLenient('[42]'), throwsFormatException);
+      expect(
+        () => parseDeltaOpsLenient('[{"delete":1}]'),
+        throwsFormatException,
+      );
     });
   });
 
