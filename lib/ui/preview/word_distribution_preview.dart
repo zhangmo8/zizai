@@ -116,34 +116,36 @@ class _PreviewWordRow extends StatelessWidget {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.3,
-                      fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-                      color: active
-                          ? colors.primary
-                          : colors.onSurfaceVariant,
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.3,
+                        fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                        color: active
+                            ? colors.primary
+                            : colors.onSurfaceVariant,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '$words',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: active ? colors.primary : const Color(0xFF9B9A97),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$words',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: active ? colors.primary : const Color(0xFF9B9A97),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],

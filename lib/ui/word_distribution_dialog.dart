@@ -173,9 +173,12 @@ class _WordRowState extends State<_WordRow> {
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Row(
+              // 文字层占满行高：Row 默认垂直居中（否则 Stack topStart
+              // 让非定位子项按固有高度贴顶，字偏上）。
+              Positioned.fill(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Row(
                   children: [
                     Expanded(
                       child: Text(
@@ -206,6 +209,7 @@ class _WordRowState extends State<_WordRow> {
                       ),
                     ),
                   ],
+                  ),
                 ),
               ),
             ],
