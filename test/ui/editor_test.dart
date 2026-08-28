@@ -555,7 +555,7 @@ void main() {
     // 回滚前的第二稿也自动留底（条件式等待留底落盘）
     await waitUntilAsync(tester, () async {
       final after = await snapshots.list(docId);
-      return after!.any(
+      return after.any(
         (s) => deltaToPlainText(s.content) == '第二稿的内容',
       );
     }, reason: '回滚前的第二稿应自动留底');
