@@ -1,4 +1,4 @@
-/// 单书侧边栏预览（静态重建：分卷开启、当前章节高亮）。
+/// 单书侧边栏预览（静态重建：分卷开启、当前章节高亮、标题筛选行）。
 ///
 /// 查看：`flutter widget-preview start`
 library;
@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/widget_previews.dart';
 
 import '../../app.dart';
+import '../zz.dart';
 
 @Preview(name: 'Sidebar', group: '页面', size: Size(280, 620))
 Widget sidebarPreview() {
@@ -14,6 +15,16 @@ Widget sidebarPreview() {
     debugShowCheckedModeBanner: false,
     theme: AppTheme.light(),
     home: const _StaticSidebar(),
+  );
+}
+
+/// 标题筛选态：平铺只读命中列表（无卷头/新建/拖拽），✕ 清除。
+@Preview(name: 'Sidebar 标题筛选', group: '页面', size: Size(280, 620))
+Widget sidebarFilterPreview() {
+  return MaterialApp(
+    debugShowCheckedModeBanner: false,
+    theme: AppTheme.light(),
+    home: const _StaticSidebarFilter(),
   );
 }
 
@@ -66,6 +77,7 @@ class _StaticSidebarManual extends StatelessWidget {
               ),
             ),
             const Divider(height: 1, color: Color(0xFFE6E4DF)),
+            const _PreviewFilterField(),
             // 手动卷（真数据，卷头 ⋮ 可重命名/删除卷）；无「未分卷」区
             const _PreviewManualVolume(title: '第一卷', count: '2 章'),
             const _PreviewDocument(title: '第 1 章', selected: true),
@@ -75,6 +87,7 @@ class _StaticSidebarManual extends StatelessWidget {
             const _PreviewManualVolume(title: '第三卷', count: '1 章'),
             const _PreviewDocument(title: '第 4 章'),
             const Spacer(),
+            const _PreviewFooter(),
           ],
         ),
       ),
@@ -160,6 +173,8 @@ class _StaticSidebar extends StatelessWidget {
               ),
             ),
             const Divider(height: 1, color: Color(0xFFE6E4DF)),
+            // 标题筛选行（有章节的书常驻）
+            const _PreviewFilterField(),
             // 自动分卷标题（可重命名，⋮ 菜单）+ 章节
             const _PreviewVolume(title: '第一卷', count: '2 章'),
             const _PreviewDocument(title: '第 1 章', selected: true),
@@ -180,6 +195,7 @@ class _StaticSidebar extends StatelessWidget {
               ),
             ),
             const Spacer(),
+            const _PreviewFooter(),
           ],
         ),
       ),
@@ -204,6 +220,115 @@ class _PreviewIconButton extends StatelessWidget {
           width: 28,
           height: 28,
           child: Icon(icon, size: 18, color: const Color(0xFF787774)),
+        ),
+      ),
+    );
+  }
+}
+
+/// 标题筛选行：带值时尾随 ✕ 清除（对齐 ZzTextField suffix 渲染）。
+class _PreviewFilterField extends StatelessWidget {
+  const _PreviewFilterField({this.text = '', this.showClear = false});
+
+  final String text;
+  final bool showClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+      child: ZzTextField(
+        controller: TextEditingController(text: text),
+        hint: '筛选章节标题…',
+        compact: true,
+        suffix: showClear
+            ? Tooltip(
+                message: '清除筛选',
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.cancel,
+                    size: 16,
+                    color: appColorsOf(context).textTertiary,
+                  ),
+                ),
+              )
+            : null,
+      ),
+    );
+  }
+}
+
+/// 章节列表 footer：hairline 上边框 + 右侧「章节字数分布」小 icon。
+class _PreviewFooter extends StatelessWidget {
+  const _PreviewFooter();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Color(0xFFE6E4DF))),
+      ),
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+      child: const Row(
+        children: [
+          Spacer(),
+          _PreviewIconButton(tooltip: '章节字数分布', icon: Icons.bar_chart),
+        ],
+      ),
+    );
+  }
+}
+
+/// 标题筛选态（平铺只读）：命中章列表，无卷头/新建/拖拽。
+class _StaticSidebarFilter extends StatelessWidget {
+  const _StaticSidebarFilter();
+
+  @override
+  Widget build(BuildContext context) {
+    final appColors = appColorsOf(context);
+    return ColoredBox(
+      color: appColors.sidebar,
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 8, 8, 6),
+              child: Row(
+                children: const [
+                  _PreviewIconButton(
+                    tooltip: '返回笔记本管理',
+                    icon: Icons.arrow_back,
+                  ),
+                  SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      '我的小说',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF37352F),
+                      ),
+                    ),
+                  ),
+                  _PreviewIconButton(tooltip: '全书搜索', icon: Icons.search),
+                  _PreviewIconButton(
+                    tooltip: '写作设置',
+                    icon: Icons.settings_outlined,
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Color(0xFFE6E4DF)),
+            const _PreviewFilterField(text: '林渊', showClear: true),
+            const _PreviewDocument(title: '第 2 章 林渊入门'),
+            const _PreviewDocument(title: '第 5 章 林渊负伤'),
+            const Spacer(),
+          ],
         ),
       ),
     );
