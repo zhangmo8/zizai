@@ -922,7 +922,14 @@ class _SidebarState extends State<Sidebar> {
       moveVolumeItems: moveItems,
     );
     if (!isDesktopPlatform && draggable) {
-      return ReorderableDelayedDragStartListener(index: index, child: tile);
+      // ReorderableListView 要求顶层 child 必须有 key：release 下缺 key
+      // 不报 assert，而是列表变化（新建/删除）时 element diff 错位 →
+      // Android Drawer 整块白屏（真机回归）。key 与章节行一致。
+      return ReorderableDelayedDragStartListener(
+        key: ValueKey('doc-${doc.id}'),
+        index: index,
+        child: tile,
+      );
     }
     return tile;
   }
