@@ -23,7 +23,7 @@
 | 22 | edit-003 评审 | 编辑器光标色/选中底色未按 style.md 显式配置 | 已完成（TextSelectionThemeData accent 光标/选区 + 桌面 Material 2px 光标） |
 | 23 | edit-003 评审 | 沉浸模式退出后焦点未自动回编辑器 | 已完成（EditorView.didUpdateWidget 在退出沉浸时 requestFocus） |
 | 24 | edit-003 评审 | 保存失败重试成功后错误条清除的 UI 测试缺失 | 已完成（editor_test 用 SQLite 触发器注入瞬时失败 → 重试成功 → 错误条清除，2026-08-21） |
-| 25 | edit-003 评审 | 全量套件偶发 flake（复跑即绿，未定位） | 未复现（settings 落库队列已随 81a1fec 排空；2026-08-21 连续两轮全量 273/273 通过） |
+| 25 | edit-003 评审 | 全量套件偶发 flake（复跑即绿，未定位） | 线索（2026-08-27）：fake-async zone 内裸跑 sqflite_ffi 会劫持测试时钟致挂死（见 #37 空书用例修复模式）；全量审计 test/ 中同类模式可根治 |
 | 26 | edit-003 评审 | Ctrl/Cmd+S 在侧边栏输入框聚焦时也触发保存（全局 handler 范围） | 已完成（全局 handler 对 TextField 子树焦点让位；Quill 编辑器非 TextField 不受影响，2026-08-21） |
 | 27 | set-004 评审 | 字体列表为预设候选而非系统字体枚举（Flutter 无跨端枚举 API） | 已确认接受 |
 | 28 | set-004 评审 | 对话框圆角/阴影为 M3 默认值（style.md §6 8px 待 M5 打磨） | 已完成（app.dart dialogTheme 8px + hairline 描边；zzConfirm 6px + hairline；surfaceTint 透明） |
@@ -34,3 +34,4 @@
 | 34 | edit-review | 编辑器 H1/H2/H3 工具条与斜杠菜单无法反选（header 块级独占，flutter_quill 无 paragraph 常量） | 已完成（toggle：已是该级 → clone(header, null) 转回正文；editor.dart `_toggleHeader` 复用，2026-08-26） |
 | 35 | 需求「启动/排序」 | 启动总是停在书架（restore 不自动进书，进书才恢复 last_open 章节）；每本书章节排序（正序/倒序，大书倒序看最新）；「+ 新建章节」按钮随序列末尾端移动；新章节标题直接按整本章节数 +1（不再出现「新章节」） | 已完成（docsOrder.<id> 设置 + 设置对话框「目录」组下拉；倒序 = 整章序列反转后再分卷、手动卷反转；按钮正序树底/倒序树顶；2026-08-26） |
 | 36 | 用户需求「节奏图」 | 章节字数分布：侧边栏列表 footer 小 icon 入口 → 对话框目录正序逐章条形（长度 ∝ 字数）+ 章/总字/均值汇总，点击跳转、当前章高亮，随自动保存刷新；core `buildWordDistribution` 纯函数固定 position 升序（不受倒序偏好影响）+ 单测；无 DB 改动（2026-08-27） | 已完成 |
+| 37 | v2.1.0 发布评审 | 字数分布对话框测试补强：①恢复头部汇总的精确文本断言（v2.1.0 曾在 CI 命不中，降级处理，原因未定位）；②「点击跳转后编辑器切换正确」的端到端断言（现只测回调 id） | 待处理 |

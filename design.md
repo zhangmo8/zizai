@@ -107,4 +107,4 @@ CupertinoSwitch/Slider/Dialog、毛玻璃层次、系统蓝 accent。目标是�
 - [x] sidebar.dart：底部设置入口（§5.1，_SidebarFooter 桌面与 Android Drawer 共用）
 - [x] editor.dart：光标参数（§5.3，accent 2px Material 光标）；文字按钮 → icon+tooltip（H1–H3 保留文本按钮为 Notion 惯例，统一 30×30 密度）
 - [x] 全局圆角审计：只允许 4/6/8（审计通过；开关轨道 9px、进度条 2px 为全圆角惯例）
-- [ ] 编辑器光标闪烁节奏（§5.3「输入时不闪、停顿后 1s 周期闪烁」）——受 flutter_quill 光标动画控制，见 backlog #32
+- [x] 编辑器光标闪烁节奏——2026-08-27 裁定不做（现实现已足够），backlog 同步剔除
