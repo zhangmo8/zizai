@@ -517,6 +517,7 @@ class _SidebarState extends State<Sidebar> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
                 child: ZzTextField(
+                  key: const ValueKey('sidebar-title-filter'),
                   controller: _filterController,
                   hint: '筛选章节标题…',
                   compact: true,
@@ -1531,6 +1532,7 @@ class _InlineEditFieldState extends State<_InlineEditField> {
             children: [
               Expanded(
                 child: ZzTextField(
+                  key: const ValueKey('inline-edit-field'),
                   controller: _controller,
                   hint: '',
                   autofocus: true,

@@ -992,8 +992,12 @@ void main() {
     // Ctrl/Cmd+P 打开搜索
     await press(tester, [modifierKey(), LogicalKeyboardKey.keyP]);
     await tester.pump();
-    expect(find.byType(TextField), findsOneWidget);
-    await tester.enterText(find.byType(TextField), '李四');
+    final searchField = find.descendant(
+      of: find.byType(Dialog),
+      matching: find.byType(TextField),
+    );
+    expect(searchField, findsOneWidget);
+    await tester.enterText(searchField, '李四');
     await tester.pump(const Duration(milliseconds: 300)); // 防抖
     await settle(tester);
 

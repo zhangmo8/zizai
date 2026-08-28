@@ -19,6 +19,12 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
+  /// 写作设置里的每日目标输入框（与侧边栏标题筛选框区分）。
+  final goalFieldFinder = find.descendant(
+    of: find.byKey(const ValueKey('daily-goal-field')),
+    matching: find.byType(TextField),
+  );
+
   Future<(LibraryController, SettingsController)> makeApp({
     bool seed = true,
   }) async {
@@ -146,7 +152,7 @@ void main() {
     await pumpApp(tester, library, settings);
     await openBookSettings(tester);
 
-    await tester.enterText(find.byType(TextField).first, '3000');
+    await tester.enterText(goalFieldFinder, '3000');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
     await drain(tester);
@@ -164,7 +170,7 @@ void main() {
     await pumpApp(tester, library, settings);
     await openBookSettings(tester);
 
-    await tester.enterText(find.byType(TextField).first, '50'); // 低于下限
+    await tester.enterText(goalFieldFinder, '50'); // 低于下限
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
     final notebookId = library.currentNotebook!.id;
@@ -350,7 +356,7 @@ void main() {
     // 「写作设置」对话框打开，每日目标输入框获得焦点
     expect(find.textContaining('写作设置'), findsOneWidget);
     expect(find.text('每日目标字数'), findsOneWidget);
-    final goalField = tester.widget<TextField>(find.byType(TextField).first);
+    final goalField = tester.widget<TextField>(goalFieldFinder);
     expect(goalField.focusNode?.hasFocus, isTrue);
     // 排空 sqflite 落库队列，避免定时器残留 flake。
     await tester.runAsync(() => settings.load());

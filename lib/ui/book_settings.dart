@@ -137,6 +137,7 @@ class _BookSettingsDialogState extends State<BookSettingsDialog> {
                                 SizedBox(
                                   width: 140,
                                   child: ZzTextField(
+                                    key: const ValueKey('daily-goal-field'),
                                     controller: _goalController,
                                     focusNode: _goalFocus,
                                     hint: '100–50000',

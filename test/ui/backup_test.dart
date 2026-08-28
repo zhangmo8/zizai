@@ -122,7 +122,11 @@ void main() {
     await pumpApp(tester, library, settings, backup);
     await openBackupSection(tester);
 
-    final fields = find.byType(TextField);
+    // 凭据字段限定在设置对话框内（工作区侧边栏还有标题筛选框）。
+    final fields = find.descendant(
+      of: find.byType(Dialog),
+      matching: find.byType(TextField),
+    );
     Future<void> submit(int index, String text) async {
       await tester.enterText(fields.at(index), text);
       await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -150,7 +154,14 @@ void main() {
     await openBackupSection(tester);
     await settleAsync(tester);
     expect(
-      tester.widget<TextField>(find.byType(TextField).at(0)).controller?.text,
+      tester
+          .widget<TextField>(
+            find.descendant(
+              of: find.byType(Dialog),
+              matching: find.byType(TextField),
+            ).at(0),
+          )
+          .controller?.text,
       'acc123',
     );
   });

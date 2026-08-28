@@ -31,6 +31,18 @@ void main() {
     }
   }
 
+  /// 行内编辑框（重命名/新建命名）：与常驻标题筛选框区分。
+  final editFieldFinder = find.descendant(
+    of: find.byKey(const ValueKey('inline-edit-field')),
+    matching: find.byType(TextField),
+  );
+
+  /// 章节标题筛选框。
+  final filterFieldFinder = find.descendant(
+    of: find.byKey(const ValueKey('sidebar-title-filter')),
+    matching: find.byType(TextField),
+  );
+
   Future<(LibraryController, SettingsController)> makeApp({
     List<(String, List<String>)> tree = const [],
   }) async {
@@ -115,7 +127,7 @@ void main() {
   Future<void> renameViaMenu(WidgetTester tester, String toName) async {
     await tester.tap(find.text('重命名'));
     await tester.pump();
-    await tester.enterText(find.byType(TextField), toName);
+    await tester.enterText(editFieldFinder, toName);
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
   }
@@ -401,7 +413,7 @@ void main() {
     final nbId = library.notebooks.first.id;
     await pumpSidebar(tester, library, settings, notebookId: nbId);
 
-    await tester.enterText(find.byType(TextField), '林渊');
+    await tester.enterText(filterFieldFinder, '林渊');
     await tester.pump();
 
     expect(find.text('林渊入门'), findsOneWidget);
@@ -418,7 +430,7 @@ void main() {
     final nbId = library.notebooks.first.id;
     await pumpSidebar(tester, library, settings, notebookId: nbId);
 
-    await tester.enterText(find.byType(TextField), '林渊');
+    await tester.enterText(filterFieldFinder, '林渊');
     await tester.pump();
     expect(find.text('序章'), findsNothing);
 
@@ -436,7 +448,7 @@ void main() {
     final nbId = library.notebooks.first.id;
     await pumpSidebar(tester, library, settings, notebookId: nbId);
 
-    await tester.enterText(find.byType(TextField), '不存在的章');
+    await tester.enterText(filterFieldFinder, '不存在的章');
     await tester.pump();
 
     expect(find.text('没有匹配「不存在的章」的章节'), findsOneWidget);
@@ -454,7 +466,7 @@ void main() {
     final nbB = library.notebooks[1].id;
     await pumpSidebar(tester, library, settings, notebookId: nbA);
 
-    await tester.enterText(find.byType(TextField), '甲一');
+    await tester.enterText(filterFieldFinder, '甲一');
     await tester.pump();
     expect(find.text('甲一章'), findsOneWidget);
     expect(find.text('甲二章'), findsNothing);
@@ -462,7 +474,13 @@ void main() {
     // 切到书乙：筛选自动清空，显示书乙全部章节
     await tester.runAsync(() => library.openNotebook(nbB));
     await settle(tester);
-    expect(find.widgetWithText(TextField, ''), findsOneWidget); // 输入框已空
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('sidebar-title-filter')),
+        matching: find.widgetWithText(TextField, ''),
+      ),
+      findsOneWidget,
+    ); // 输入框已空
     expect(find.text('乙一章'), findsOneWidget);
   });
 
@@ -521,7 +539,7 @@ void main() {
       library.documentsOf(nbId).map((d) => d.title),
       ['第 1 章', '第 2 章', '第 3 章', '第 4 章'],
     );
-    expect(find.byType(TextField), findsNothing);
+    expect(editFieldFinder, findsNothing);
   });
 
   testWidgets('重命名文档：⋮ → 重命名 → Enter', (tester) async {
@@ -575,11 +593,11 @@ void main() {
     await openRowMenu(tester, 0);
     await tester.tap(find.text('重命名'));
     await tester.pump();
-    await tester.enterText(find.byType(TextField), '临时');
+    await tester.enterText(editFieldFinder, '临时');
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
 
-    expect(find.byType(TextField), findsNothing);
+    expect(editFieldFinder, findsNothing);
     expect(find.text('第一章'), findsOneWidget);
   });
 
