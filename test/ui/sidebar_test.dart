@@ -14,6 +14,7 @@ import 'package:zi_zai/state/settings_controller.dart';
 import 'package:zi_zai/ui/shell.dart';
 import 'package:zi_zai/ui/sidebar.dart';
 import 'package:zi_zai/ui/zz.dart';
+import 'package:zi_zai/util/platform.dart';
 
 void main() {
   setUpAll(() {
@@ -1091,5 +1092,60 @@ void main() {
     // 修复后：第三章变最老（数据序开头）→ 显示在底部
     expect(library.documentsOf(nbId).first.title, '第三章');
     expect(dy('第一章') < dy('第三章'), isTrue);
+  });
+
+  // ── 移动端（Android Drawer）分支：CI 在 Linux 上原生判定恒为桌面，
+  // 以下用例经 debugIsDesktopPlatformOverride 强制走移动端渲染路径。
+
+  /// 移动端 Drawer 形态：Scaffold + Drawer(width 340) 包侧边栏。
+  Future<void> pumpMobileDrawer(
+    WidgetTester tester,
+    LibraryController library,
+    SettingsController settings,
+  ) async {
+    debugIsDesktopPlatformOverride = false;
+    addTearDown(() => debugIsDesktopPlatformOverride = null);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          drawer: Drawer(
+            width: 340,
+            child: Sidebar(library: library, settings: settings),
+          ),
+          body: const SizedBox.shrink(),
+        ),
+      ),
+    );
+    await tester.pump();
+  }
+
+  testWidgets('移动端：已有章节的书点「新建章节」不崩、新章入树', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['第一章'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await tester.runAsync(() => library.openNotebook(nbId));
+    await pumpMobileDrawer(tester, library, settings);
+
+    await tester.tap(find.text('新建章节'));
+    await settle(tester);
+
+    expect(library.documentsOf(nbId).length, 2);
+    expect(find.text('第 2 章'), findsOneWidget);
+  });
+
+  testWidgets('移动端：空书新建第一章不崩', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', [])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await tester.runAsync(() => library.openNotebook(nbId));
+    await pumpMobileDrawer(tester, library, settings);
+
+    await tester.tap(find.text('新建第一章'));
+    await settle(tester);
+
+    expect(library.documentsOf(nbId).length, 1);
   });
 }
