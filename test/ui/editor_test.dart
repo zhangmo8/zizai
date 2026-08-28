@@ -32,6 +32,27 @@ void main() {
     }
   }
 
+  /// 轮询等待异步条件成立（最长 [timeout]）：替代「固定 settle 时长赌
+  /// 异步链路跑完」——CI runner 慢时固定时长偶发不够（backlog #25/#38
+  /// 同族 flake）。条件内做真实 IO 时经 runAsync 出假时钟区。
+  Future<void> waitUntilAsync(
+    WidgetTester tester,
+    Future<bool> Function() condition, {
+    Duration timeout = const Duration(seconds: 10),
+    String reason = '条件在超时内未成立',
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    var ok = await tester.runAsync(condition);
+    while (ok != true && DateTime.now().isBefore(deadline)) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pump();
+      ok = await tester.runAsync(condition);
+    }
+    expect(ok, isTrue, reason: reason);
+  }
+
   late Directory tempDir;
 
   Future<(LibraryController, SettingsController, Db, CrashJournal, String)>
@@ -381,13 +402,15 @@ void main() {
     // 确认条出现
     expect(find.textContaining('未保存内容，恢复？'), findsOneWidget);
     await tester.tap(find.text('恢复'));
-    await settle(tester);
 
-    final doc = await tester.runAsync(() => db.getDocument(docId));
-    expect(deltaToPlainText(doc!.content), '未保存的正文');
-    // journal 已清除
-    final entry = await tester.runAsync(() => journal.read());
-    expect(entry, isNull);
+    // 恢复链路（入库 + journal 清除）条件式等待，不赌 runner 速度
+    await waitUntilAsync(tester, () async {
+      final doc = await db.getDocument(docId);
+      final entry = await journal.read();
+      return doc != null &&
+          deltaToPlainText(doc.content) == '未保存的正文' &&
+          entry == null;
+    }, reason: '恢复后内容应入库且 journal 清除');
   });
 
   testWidgets('保存失败：错误条 + 缓冲保留', (tester) async {
@@ -501,13 +524,17 @@ void main() {
     expect((await tester.runAsync(() => snapshots.list(docId)))!, isEmpty);
 
     // 第二次保存：写库前自动留基线快照（= 初稿）。
-    // 快照 + 写库是长真实 IO 链，加大 settle 轮次推完。
+    // 快照 + 写库是长真实 IO 链：条件式等待基线出现（手动保存与自动
+    // 防抖保存存在竞态，契约是「存在内容=初稿的基线」而非精确张数）。
     await typeText(tester, '第二稿的内容');
     await press(tester, [modifierKey(), LogicalKeyboardKey.keyS]);
-    await settle(tester, 40, 15);
-    final baseline = await tester.runAsync(() => snapshots.list(docId));
-    expect(baseline!.length, 1);
-    expect(deltaToPlainText(baseline.single.content), '初稿的内容');
+    var baseline = await tester.runAsync(() => snapshots.list(docId));
+    await waitUntilAsync(tester, () async {
+      baseline = await snapshots.list(docId);
+      return baseline!.any(
+        (s) => deltaToPlainText(s.content) == '初稿的内容',
+      );
+    }, reason: '基线快照（内容=初稿）未生成');
 
     // 顶栏入口 → 对话框：列表 + 右侧预览
     await tester.tap(find.byTooltip('版本历史'));
@@ -525,9 +552,13 @@ void main() {
     expect(find.text('回滚到此版本'), findsNothing);
     final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
     expect(editor.controller.document.toPlainText().trim(), '初稿的内容');
-    // 回滚前的第二稿也自动留底
-    final after = await tester.runAsync(() => snapshots.list(docId));
-    expect(after!.length, 2);
+    // 回滚前的第二稿也自动留底（条件式等待留底落盘）
+    await waitUntilAsync(tester, () async {
+      final after = await snapshots.list(docId);
+      return after!.any(
+        (s) => deltaToPlainText(s.content) == '第二稿的内容',
+      );
+    }, reason: '回滚前的第二稿应自动留底');
 
     // 关键回归：旧缓冲不得经 Cmd+S / 防抖保存覆盖回滚结果
     await press(tester, [modifierKey(), LogicalKeyboardKey.keyS]);
