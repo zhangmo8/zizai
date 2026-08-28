@@ -209,6 +209,13 @@ class _EditorViewState extends State<EditorView> {
   int _pendingWrittenWords = 0;
   int _lastObservedWords = 0;
 
+  /// 实时字数节流：长章节下每键 toPlainText + 全文正则的代价可感知，
+  /// 150ms 防抖后统计（IME 组合结束的那次变更立即补算，见 _onDocChange）。
+  final Debouncer _wordsDebounce = Debouncer(
+    const Duration(milliseconds: 150),
+  );
+  bool _wasImeComposing = false;
+
   /// 保存串行化，防止自动保存与切换前保存竞态。
   Future<void>? _saveInFlight;
 
@@ -388,6 +395,7 @@ class _EditorViewState extends State<EditorView> {
     _journalDebounce.cancel();
     _outlineDebounce.cancel();
     _notesDebounce.cancel();
+    _wordsDebounce.cancel();
     widget.toolbarDismissTick?.removeListener(_onDismissToolbar);
     widget.saveTick?.removeListener(_onSaveTick);
     widget.findTick?.removeListener(_onFindTick);
@@ -545,6 +553,9 @@ class _EditorViewState extends State<EditorView> {
     _saveDebounce.cancel();
     _journalDebounce.cancel();
     _notesDebounce.cancel();
+    // 切章前把挂起的字数计算补算完——flush 必须发生在 _quill 换文档前，
+    // 否则会把新章字数当旧章差值累计。
+    _wordsDebounce.flush(_recomputeWords);
     _closeSlash();
     _changesSub?.cancel();
     _quill.document = _loadContent(doc.content);
@@ -568,15 +579,8 @@ class _EditorViewState extends State<EditorView> {
       wordCount(_quill.document.toPlainText(),
           countPunctuation: widget.settings.settings.countPunctuation);
 
-  void _onDocChange(q.DocChange change) {
-    // IME 组合阶段（拼音未确认）的变更不触发保存/字数/大纲刷新，
-    // 避免中间态写入崩溃日志或触发自动保存。组合结束后会再触发一次变更。
-    if (isImeComposing) {
-      _handleSlashTrigger(change);
-      return;
-    }
-    _handleParagraphIndent(change);
-    _handleBracketPair(change);
+  /// 节流后的字数重算：差值累计、实时上报。
+  void _recomputeWords() {
     final words = _countWords();
     final delta = words > _lastObservedWords ? words - _lastObservedWords : 0;
     if (delta > 0) {
@@ -585,6 +589,26 @@ class _EditorViewState extends State<EditorView> {
     }
     _lastObservedWords = words;
     widget.library.reportLiveWords(words);
+  }
+
+  void _onDocChange(q.DocChange change) {
+    // IME 组合阶段（拼音未确认）的变更不触发保存/字数/大纲刷新，
+    // 避免中间态写入崩溃日志或触发自动保存。组合结束后会再触发一次变更。
+    if (isImeComposing) {
+      _wasImeComposing = true;
+      _handleSlashTrigger(change);
+      return;
+    }
+    _handleParagraphIndent(change);
+    _handleBracketPair(change);
+    // 组合结束（上屏）的那次变更立即补算，保证上屏字数即时；
+    // 其余变更 150ms 节流（差值基于上次观察值，节流不损正确性）。
+    if (_wasImeComposing) {
+      _wasImeComposing = false;
+      _wordsDebounce.flush(_recomputeWords);
+    } else {
+      _wordsDebounce.schedule(_recomputeWords);
+    }
     _saveDebounce.schedule(_saveNow);
     _journalDebounce.schedule(_writeJournal);
     _outlineDebounce.schedule(_refreshOutline);
@@ -605,6 +629,10 @@ class _EditorViewState extends State<EditorView> {
   Future<void> _saveNow() async {
     final activeSave = _saveInFlight;
     if (activeSave != null) await activeSave;
+
+    // 字数快照必须精确：失焦/Cmd+S 保存可能落在 150ms 节流窗内，
+    // 不补算会永久少计窗口内的输入（之后没有更多保存来纠正）。
+    _wordsDebounce.flush(_recomputeWords);
 
     final cur = widget.library.currentDocument;
     final documentId = _loadedDocumentId;

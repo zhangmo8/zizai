@@ -113,6 +113,8 @@ void main() {
     await tester.pump();
 
     await typeText(tester, '你好世界');
+    // 实时字数 150ms 节流上报
+    await tester.pump(const Duration(milliseconds: 200));
     expect(library.liveDocWords, 4); // 实时字数
 
     // 1s 防抖内未保存
