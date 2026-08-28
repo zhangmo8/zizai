@@ -151,6 +151,41 @@ void main() {
       expect(groups.single.documentId, 'd2');
     });
 
+    test('缓存失效：同 id 章节内容更新后必须反映新内容', () async {
+      // 搜索缓存以 content 全等失效——保存后旧关键词必须不再命中、
+      // 新关键词必须命中（不存在读到旧文本的路径）。
+      final notebooks = [nb('n1', '书')];
+      var text = '旧章节里有林渊';
+      Document d() => doc('d1', 'n1', '第一章', text);
+
+      expect(
+        await searchBook(
+          notebooks: notebooks,
+          documentsOf: (_) => [d()],
+          query: '林渊',
+        ),
+        isNotEmpty,
+      );
+
+      text = '新章节只有林小雨';
+      expect(
+        await searchBook(
+          notebooks: notebooks,
+          documentsOf: (_) => [d()],
+          query: '林渊',
+        ),
+        isEmpty,
+      );
+      expect(
+        await searchBook(
+          notebooks: notebooks,
+          documentsOf: (_) => [d()],
+          query: '林小雨',
+        ),
+        isNotEmpty,
+      );
+    });
+
     test('章节顺序沿用侧边栏（笔记本序 + 文档序）', () async {
       final groups = await searchBook(
         notebooks: [nb('n1', '卷一'), nb('n2', '卷二')],

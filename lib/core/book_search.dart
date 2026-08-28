@@ -76,6 +76,28 @@ BookSearchHit _hitFor(String documentId, String plain, FindMatch match) {
   );
 }
 
+/// 纯文本缓存：同一章节的 Delta 解析只做一次，搜索/替换预览复用。
+///
+/// 千章大书下每次按键查询都全量重解析数 MB JSON 是搜索卡顿的主因；
+/// 以 content 全等作为失效依据——保存后树缓存里的 content 必然变化，
+/// 下次取文本自动重解析，不存在读到旧文本的路径；删章残留由 FIFO
+/// 上限兜底（LinkedHashMap 迭代序 = 插入序）。
+final _plainTextCache = <String, ({String content, String plain})>{};
+const int _plainTextCacheLimit = 512;
+
+/// 取章节纯文本（带缓存）。坏 Delta 抛 [FormatException]（失败不缓存，
+/// 由调用方决定跳过），与既有跳过语义一致。
+String _plainTextOf(Document doc) {
+  final cached = _plainTextCache[doc.id];
+  if (cached != null && cached.content == doc.content) return cached.plain;
+  final plain = deltaToPlainText(doc.content);
+  while (_plainTextCache.length >= _plainTextCacheLimit) {
+    _plainTextCache.remove(_plainTextCache.keys.first);
+  }
+  _plainTextCache[doc.id] = (content: doc.content, plain: plain);
+  return plain;
+}
+
 /// 全书搜索。章节顺序沿用侧边栏；[query] 忽略首尾空白，空查询返回空。
 /// 单章命中截断到 [maxHitsPerDocument]，全书截断到 [maxTotalHits]
 /// （截断时组的 [BookSearchGroup.totalMatches] 仍是真实数）。
@@ -96,7 +118,7 @@ Future<List<BookSearchGroup>> searchBook({
       if (total >= maxTotalHits) return groups;
       final String plain;
       try {
-        plain = deltaToPlainText(doc.content);
+        plain = _plainTextOf(doc);
       } on FormatException {
         continue; // 坏文档跳过，不阻塞全书搜索。
       }
@@ -158,7 +180,7 @@ Future<List<ReplacePreview>> previewReplaceInBook({
     for (final doc in documentsOf(notebook.id)) {
       final String plain;
       try {
-        plain = deltaToPlainText(doc.content);
+        plain = _plainTextOf(doc);
       } on FormatException {
         continue;
       }
