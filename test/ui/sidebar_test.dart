@@ -394,6 +394,78 @@ void main() {
     expect(find.text('新建章节'), findsOneWidget);
   });
 
+  testWidgets('标题筛选：平铺只列匹配章，隐藏新建按钮', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['序章', '林渊入门', '比试', '林渊负伤'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+
+    await tester.enterText(find.byType(TextField), '林渊');
+    await tester.pump();
+
+    expect(find.text('林渊入门'), findsOneWidget);
+    expect(find.text('林渊负伤'), findsOneWidget);
+    expect(find.text('序章'), findsNothing);
+    expect(find.text('比试'), findsNothing);
+    expect(find.text('新建章节'), findsNothing); // 筛选态隐藏
+  });
+
+  testWidgets('标题筛选：清除后恢复完整树', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['序章', '林渊入门'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+
+    await tester.enterText(find.byType(TextField), '林渊');
+    await tester.pump();
+    expect(find.text('序章'), findsNothing);
+
+    await tester.tap(find.byTooltip('清除筛选'));
+    await settle(tester);
+    expect(find.text('序章'), findsOneWidget);
+    expect(find.text('林渊入门'), findsOneWidget);
+    expect(find.text('新建章节'), findsOneWidget);
+  });
+
+  testWidgets('标题筛选：无匹配显示空态', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [('小说', ['第一章'])]),
+    ))!;
+    final nbId = library.notebooks.first.id;
+    await pumpSidebar(tester, library, settings, notebookId: nbId);
+
+    await tester.enterText(find.byType(TextField), '不存在的章');
+    await tester.pump();
+
+    expect(find.text('没有匹配「不存在的章」的章节'), findsOneWidget);
+    expect(find.text('第一章'), findsNothing);
+  });
+
+  testWidgets('标题筛选：切书自动清空', (tester) async {
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(tree: [
+        ('书甲', ['甲一章', '甲二章']),
+        ('书乙', ['乙一章']),
+      ]),
+    ))!;
+    final nbA = library.notebooks[0].id;
+    final nbB = library.notebooks[1].id;
+    await pumpSidebar(tester, library, settings, notebookId: nbA);
+
+    await tester.enterText(find.byType(TextField), '甲一');
+    await tester.pump();
+    expect(find.text('甲一章'), findsOneWidget);
+    expect(find.text('甲二章'), findsNothing);
+
+    // 切到书乙：筛选自动清空，显示书乙全部章节
+    await tester.runAsync(() => library.openNotebook(nbB));
+    await settle(tester);
+    expect(find.widgetWithText(TextField, ''), findsOneWidget); // 输入框已空
+    expect(find.text('乙一章'), findsOneWidget);
+  });
+
   testWidgets('空书：显示章节空态，点「新建第一章」生成', (tester) async {
     final (library, settings) = (await tester.runAsync(
       () => makeApp(tree: [('小说', [])]),

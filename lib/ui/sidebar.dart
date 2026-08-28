@@ -265,6 +265,13 @@ class Sidebar extends StatefulWidget {
 class _SidebarState extends State<Sidebar> {
   _EditSession? _editing;
 
+  // ── 章节标题筛选（平铺只读视图，见 ui-sidebar.md §章节标题筛选）──
+  final TextEditingController _filterController = TextEditingController();
+  String _filterQuery = '';
+
+  /// 筛选框绑定的书：切书即清空（筛选态只属于当前书的会话）。
+  String? _filterNotebookId;
+
   /// 最近一次构建的行引用（拖拽落点时把扁平索引映射回位置）。
   List<TreeRowRef> _rowRefs = const [];
 
@@ -292,11 +299,19 @@ class _SidebarState extends State<Sidebar> {
   void dispose() {
     widget.library.removeListener(_onLibraryChanged);
     widget.settings.removeListener(_onLibraryChanged);
+    _filterController.dispose();
     super.dispose();
   }
 
   /// 树数据来自 controller，任何变更都刷新自身（壳层 ListenableBuilder 之外也自洽）。
   void _onLibraryChanged() {
+    // 切书清空标题筛选。
+    final nbId = widget.library.currentNotebook?.id;
+    if (nbId != _filterNotebookId && _filterQuery.isNotEmpty) {
+      _filterController.clear();
+      _filterQuery = '';
+    }
+    _filterNotebookId = nbId;
     if (mounted) setState(() {});
   }
 
@@ -495,6 +510,39 @@ class _SidebarState extends State<Sidebar> {
                   ? null
                   : () => _createVolume(nb.id),
             ),
+            // 章节标题筛选行（有章节的书才显示；平铺只读视图，见 _buildFilteredTree）。
+            if (nb != null &&
+                !widget.library.loading &&
+                widget.library.documentsOf(nb.id).isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                child: ZzTextField(
+                  controller: _filterController,
+                  hint: '筛选章节标题…',
+                  compact: true,
+                  onChanged: _onFilterChanged,
+                  suffix: _filterQuery.isEmpty
+                      ? null
+                      : Tooltip(
+                          message: '清除筛选',
+                          child: InkWell(
+                            onTap: () {
+                              _filterController.clear();
+                              _onFilterChanged('');
+                            },
+                            borderRadius: BorderRadius.circular(4),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.cancel,
+                                size: 16,
+                                color: appColorsOf(context).textTertiary,
+                              ),
+                            ),
+                          ),
+                        ),
+                ),
+              ),
             Expanded(
               child: nb == null
                   ? const SizedBox.shrink()
@@ -513,6 +561,45 @@ class _SidebarState extends State<Sidebar> {
     );
   }
 
+  /// 筛选词变化（trim 后存态；千章 contains 毫秒级，无需防抖）。
+  void _onFilterChanged(String value) =>
+      setState(() => _filterQuery = value.trim());
+
+  /// 章节标题筛选（平铺只读视图）：只列标题命中的章节。
+  ///
+  /// 完全绕开 ReorderableListView 与拖拽 ref——被过滤破坏的顺序视图里
+  /// 拖拽语义不明；点击照常跳转，当前章高亮保留，其余交互（新建/拖拽/
+  /// 卷头）在筛选态全部隐藏。
+  Widget _buildFilteredTree(Notebook nb, String query) {
+    final needle = query.toLowerCase();
+    final matches = [
+      for (final doc in widget.library.documentsOf(nb.id))
+        if (doc.title.toLowerCase().contains(needle)) doc,
+    ];
+    if (matches.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            '没有匹配「$query」的章节',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.6,
+              color: appColorsOf(context).textTertiary,
+            ),
+          ),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 18),
+      itemCount: matches.length,
+      itemBuilder: (context, i) =>
+          _documentRow(nb, matches[i], i, draggable: false),
+    );
+  }
+
   /// 单书章节树。
   /// - 分卷关闭 / 视图「平铺展示」→ 平铺章节列表。
   /// - 自动分卷 → 按每卷章数插入「第 N 卷」分组标题（纯推导，不写库，可重命名）；
@@ -521,6 +608,9 @@ class _SidebarState extends State<Sidebar> {
   /// - 章节排序（设置 → 目录 → 章节排序）：倒序时最新章在上，
   ///   「+ 新建章节」按钮随「序列末尾端」移动（正序在最下，倒序在最上）。
   Widget _buildTree(Notebook nb) {
+    // 标题筛选态：平铺只读分支，完全绕开拖拽与新建（顺序视图被过滤破坏）。
+    final filterQuery = _filterQuery;
+    if (filterQuery.isNotEmpty) return _buildFilteredTree(nb, filterQuery);
     final library = widget.library;
     final colors = Theme.of(context).colorScheme;
     final appColors = appColorsOf(context);
@@ -781,7 +871,12 @@ class _SidebarState extends State<Sidebar> {
 
   /// 章节行 + 拖拽接线：桌面端仅手柄可拖（行体点击不受干扰），
   /// 触摸端整行长按拖拽（短按仍是切换文档）。
-  Widget _documentRow(Notebook nb, Document doc, int index) {
+  Widget _documentRow(
+    Notebook nb,
+    Document doc,
+    int index, {
+    bool draggable = true,
+  }) {
     final library = widget.library;
     final volume = widget.settings.volumeForNotebook(nb.id);
     final grouped = volume.enabled && widget.settings.volumeViewGrouped;
@@ -799,6 +894,7 @@ class _SidebarState extends State<Sidebar> {
     final tile = _DocumentTile(
       key: ValueKey('doc-${doc.id}'),
       index: index,
+      draggable: draggable,
       document: doc,
       selected: library.currentDocument?.id == doc.id,
       onTap: () => library.switchDocument(doc.id),
@@ -824,7 +920,7 @@ class _SidebarState extends State<Sidebar> {
       ),
       moveVolumeItems: moveItems,
     );
-    if (!isDesktopPlatform) {
+    if (!isDesktopPlatform && draggable) {
       return ReorderableDelayedDragStartListener(index: index, child: tile);
     }
     return tile;
@@ -1188,6 +1284,7 @@ class _DocumentTile extends StatefulWidget {
     required this.onMoveUp,
     required this.onMoveDown,
     this.moveVolumeItems,
+    this.draggable = true,
   });
 
   /// 在 ReorderableListView 中的行索引（拖拽手柄定位用）。
@@ -1202,6 +1299,9 @@ class _DocumentTile extends StatefulWidget {
 
   /// 手动分卷模式：章节菜单里的「移动到分卷」二级菜单项（卷 + 未分卷）。
   final List<({String label, VoidCallback action})>? moveVolumeItems;
+
+  /// false = 不可拖拽（标题筛选态）：不渲染拖拽手柄，不包装拖拽 listener。
+  final bool draggable;
 
   @override
   State<_DocumentTile> createState() => _DocumentTileState();
@@ -1264,7 +1364,7 @@ class _DocumentTileState extends State<_DocumentTile> {
       size: 15,
       color: iconColor,
     );
-    if (!isDesktopPlatform) return chapterIcon; // 触摸端整行长按拖拽，无需手柄
+    if (!isDesktopPlatform || !widget.draggable) return chapterIcon; // 触摸端整行长按拖拽，无需手柄
     return SizedBox(
       width: 18,
       child: Stack(

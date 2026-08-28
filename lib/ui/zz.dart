@@ -361,6 +361,7 @@ class ZzTextField extends StatelessWidget {
     this.onSubmitted,
     this.onChanged,
     this.onEditingComplete,
+    this.suffix,
   });
 
   final TextEditingController controller;
@@ -394,6 +395,9 @@ class ZzTextField extends StatelessWidget {
   final ValueChanged<String>? onSubmitted;
   final ValueChanged<String>? onChanged;
   final VoidCallback? onEditingComplete;
+
+  /// 输入框尾部小部件（如筛选框的清除按钮）；null 不显示。
+  final Widget? suffix;
 
   @override
   Widget build(BuildContext context) {
@@ -438,6 +442,7 @@ class ZzTextField extends StatelessWidget {
         ),
         contentPadding:
             contentPadding ?? const EdgeInsets.symmetric(horizontal: 8),
+        suffix: suffix,
         enabledBorder: OutlineInputBorder(
           borderRadius: radius,
           borderSide: error ? BorderSide(color: colors.error) : BorderSide.none,
