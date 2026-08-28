@@ -1105,10 +1105,12 @@ void main() {
   ) async {
     debugIsDesktopPlatformOverride = false;
     addTearDown(() => debugIsDesktopPlatformOverride = null);
+    final scaffoldKey = GlobalKey<ScaffoldState>();
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(),
         home: Scaffold(
+          key: scaffoldKey,
           drawer: Drawer(
             width: 340,
             child: Sidebar(library: library, settings: settings),
@@ -1118,6 +1120,9 @@ void main() {
       ),
     );
     await tester.pump();
+    // 打开 Drawer（内容经滑入动画完整上树）。
+    scaffoldKey.currentState!.openDrawer();
+    await tester.pumpAndSettle();
   }
 
   testWidgets('移动端：已有章节的书点「新建章节」不崩、新章入树', (tester) async {
