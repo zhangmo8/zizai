@@ -53,6 +53,26 @@ void main() {
     expect(ok, isTrue, reason: reason);
   }
 
+  /// 轮询等待 finder 命中（最长 [timeout]）：真实 IO 链最后一个 continuation
+  /// （setState 点亮 UI）可能落在最后一次 settle pump 之后，慢 runner 上
+  /// 单次 expect 是瞬时断言、必然偶发落空（backlog #25/#38 同族 flake）。
+  /// 每轮「真实等待 + pump 重绘」对表，命中即返回；超时给出 [reason]。
+  Future<void> waitUntilFound(
+    WidgetTester tester,
+    Finder finder, {
+    Duration timeout = const Duration(seconds: 10),
+    String reason = '目标 widget 在超时内未出现',
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pump();
+    }
+    expect(finder, findsOneWidget, reason: reason);
+  }
+
   late Directory tempDir;
 
   Future<(LibraryController, SettingsController, Db, CrashJournal, String)>
@@ -167,7 +187,13 @@ void main() {
 
     final doc = await tester.runAsync(() => db.getDocument(docId));
     expect(deltaToPlainText(doc!.content), '立刻保存');
-    expect(find.text('已保存'), findsOneWidget);
+    // 「已保存」由保存链末尾的 continuation 点亮，可能晚于最后一次
+    // settle pump（慢 runner 竞态）→ 条件轮询等它出现再断言消失时机。
+    await waitUntilFound(
+      tester,
+      find.text('已保存'),
+      reason: '保存后未闪现「已保存」',
+    );
 
     // 1s 后闪消失
     await tester.pump(const Duration(seconds: 2));
@@ -540,7 +566,12 @@ void main() {
     await tester.tap(find.byTooltip('版本历史'));
     await settle(tester, 40, 15);
     expect(find.text('第一章 · 版本历史'), findsOneWidget);
-    expect(find.textContaining('初稿的内容'), findsOneWidget);
+    // 预览内容经真实文件 IO 异步加载，固定 settle 轮数可能跑在 IO 前
+    await waitUntilFound(
+      tester,
+      find.textContaining('初稿的内容'),
+      reason: '版本历史预览未显示初稿内容',
+    );
 
     // 回滚 → 确认
     await tester.tap(find.text('回滚到此版本'));
@@ -550,8 +581,16 @@ void main() {
 
     // 对话框关闭；编辑器就地重载为初稿（同文档 id，必须显式重载）
     expect(find.text('回滚到此版本'), findsNothing);
-    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
-    expect(editor.controller.document.toPlainText().trim(), '初稿的内容');
+    // 重载经真实 IO + continuation，同样条件轮询
+    await waitUntilFound(
+      tester,
+      find.byWidgetPredicate(
+        (w) =>
+            w is q.QuillEditor &&
+            w.controller.document.toPlainText().trim() == '初稿的内容',
+      ),
+      reason: '回滚后编辑器未重载为初稿',
+    );
     // 回滚前的第二稿也自动留底（条件式等待留底落盘）
     await waitUntilAsync(tester, () async {
       final after = await snapshots.list(docId);
