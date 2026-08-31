@@ -582,12 +582,17 @@
         var platEl = document.getElementById('plat-' + os);
         if (platEl) platEl.classList.add('reco');
         var btn = document.getElementById('cta-btn');
-        btn.dataset.os = os;
-        btn.dataset.file = PRIMARY[os].file;
-        document.getElementById('cta-label').textContent = PRIMARY[os].label;
+        if (btn) { btn.dataset.os = os; btn.dataset.file = PRIMARY[os].file; }
+        setText('cta-label', PRIMARY[os].label);
       }
 
       /* ── 拉取发布清单 update.json，填充全部下载地址 ── */
+      // 缺元素只跳过对应 UI，不让单个 null 拖垮整个清单应用
+      function setText(id, text) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = text;
+      }
+
       function fileUrl(file) {
         // update.json 只带三端主文件；zip/pkg 等次级文件按 R2 目录约定拼出
         for (var k in manifest.platforms) {
@@ -599,8 +604,8 @@
       function applyManifest(m) {
         manifest = m;
         var v = 'v' + m.latest;
-        document.getElementById('ver-chip').textContent = v + ' · 最新版';
-        document.getElementById('log-ver').textContent = '字在 ' + v;
+        setText('ver-chip', v + ' · 最新版');
+        setText('log-ver', '字在 ' + v);
 
         ['windows', 'macos', 'android'].forEach(function (p) {
           var info = m.platforms[p];
@@ -622,12 +627,14 @@
         if (winSha && winSetup && winSetup.sha256) winSha.textContent = winSetup.sha256;
 
         // 首屏主按钮：统一指向「首次安装」包（macOS 用 pkg，不用自更新 zip）
-        if (os) {
-          document.getElementById('cta-btn').href = fileUrl(PRIMARY[os].file);
+        var cta = document.getElementById('cta-btn');
+        if (os && cta) {
+          cta.href = fileUrl(PRIMARY[os].file);
         }
 
-        // changelog："一行一条 markdown 列表"
+        // changelog："一行一条 markdown 列表"（区块可能已被移除，跳过即可）
         var list = document.getElementById('log-list');
+        if (!list) return;
         list.innerHTML = '';
         var lines = String(m.changelog || '').split('\n')
           .map(function (s) { return s.replace(/^[-*]\s*/, '').trim(); })
@@ -642,7 +649,9 @@
       }
 
       function fallback() {
-        document.getElementById('log-list').innerHTML =
+        var list = document.getElementById('log-list');
+        if (!list) return;
+        list.innerHTML =
           '<li>未能读取在线版本清单，请前往 <a href="' + RELEASES + '" target="_blank" rel="noopener">GitHub Releases</a> 下载最新版。</li>';
       }
 
