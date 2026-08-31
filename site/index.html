@@ -648,9 +648,13 @@
 
       if (BASE) {
         fetch(BASE + '/update.json', { cache: 'no-store' })
-          .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
           .then(applyManifest)
-          .catch(fallback);
+          .catch(function (err) {
+            // 站主排障入口：常见原因是 R2 桶未配 CORS（浏览器拦截）或域名填错
+            console.warn('[字在] update.json 拉取失败，已回退 GitHub Releases。URL:', BASE + '/update.json', '原因:', err);
+            fallback();
+          });
       } else {
         fallback();
       }
