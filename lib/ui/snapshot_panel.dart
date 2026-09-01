@@ -10,6 +10,7 @@ import '../app.dart' show appColorsOf;
 import '../core/export.dart' show deltaToPlainText;
 import '../core/models.dart' as m;
 import '../core/snapshot_history.dart';
+import '../util/date_format.dart' show formatSnapshotTime;
 import 'zz.dart';
 
 /// 打开版本历史对话框。[document] 应为已 flush 保存的当前文档；
@@ -80,7 +81,7 @@ class _SnapshotPanelState extends State<_SnapshotPanel> {
     final ok = await zzConfirm(
       context,
       title: '删除此版本？',
-      message: '仅删除 ${_formatTime(snapshot.createdAt)} 的历史留底，不影响正文。',
+      message: '仅删除 ${formatSnapshotTime(snapshot.createdAt)} 的历史留底，不影响正文。',
       confirmLabel: '删除',
       danger: true,
     );
@@ -94,7 +95,7 @@ class _SnapshotPanelState extends State<_SnapshotPanel> {
       context,
       title: '回滚到此版本？',
       message:
-          '正文将回到 ${_formatTime(snapshot.createdAt)}（${snapshot.words} 字）。'
+          '正文将回到 ${formatSnapshotTime(snapshot.createdAt)}（${snapshot.words} 字）。'
           '当前内容会先自动留底，可随时再回来。',
       confirmLabel: '回滚',
     );
@@ -192,7 +193,7 @@ class _SnapshotPanelState extends State<_SnapshotPanel> {
             itemCount: snapshots.length,
             itemBuilder: (context, index) => _SnapshotTile(
               snapshot: snapshots[index],
-              time: _formatTime(snapshots[index].createdAt),
+              time: formatSnapshotTime(snapshots[index].createdAt),
               selected: index == _selected,
               onTap: () => setState(() => _selected = index),
             ),
@@ -245,7 +246,7 @@ class _SnapshotPanelState extends State<_SnapshotPanel> {
           child: Row(
             children: [
               Text(
-                '${_formatTime(snapshot.createdAt)} · ${snapshot.words} 字',
+                '${formatSnapshotTime(snapshot.createdAt)} · ${snapshot.words} 字',
                 style: TextStyle(fontSize: 12, color: appColors.textTertiary),
               ),
               const Spacer(),
@@ -265,18 +266,6 @@ class _SnapshotPanelState extends State<_SnapshotPanel> {
         ),
       ],
     );
-  }
-
-  static String _formatTime(DateTime time) {
-    final t = time.toLocal();
-    final now = DateTime.now();
-    final sameDay =
-        t.year == now.year && t.month == now.month && t.day == now.day;
-    final hm =
-        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-    if (sameDay) return '今天 $hm';
-    if (t.year == now.year) return '${t.month} 月 ${t.day} 日 $hm';
-    return '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')} $hm';
   }
 }
 

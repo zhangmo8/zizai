@@ -28,7 +28,7 @@ import '../app.dart' show appColorsOf;
 import '../core/app_logger.dart';
 import '../core/backup/backup.dart';
 import '../core/crash_journal.dart';
-import '../core/export.dart' show emptyDeltaJson, parseDeltaOpsLenient;
+import '../core/export.dart' show parseDeltaOpsLenient;
 import '../core/find.dart';
 import '../core/models.dart' as m;
 import '../core/outline.dart';
@@ -307,9 +307,7 @@ class _EditorViewState extends State<EditorView> {
       _journalDebounce.cancel();
       _notesDebounce.cancel();
       _closeSlash();
-      _changesSub?.cancel();
-      _quill.document = q.Document();
-      _changesSub = _quill.document.changes.listen(_onDocChange);
+      _swapDocument(q.Document());
       _lastSavedContent = '';
       _pendingWrittenWords = 0;
       _lastObservedWords = 0;
@@ -327,14 +325,11 @@ class _EditorViewState extends State<EditorView> {
     if (enabled == _indentSetting) return;
     _indentSetting = enabled;
     final rawOps = _quill.document.toDelta().toJson();
-    final ops = enabled ? _injectIndentOps(rawOps) : _stripIndentOps(rawOps);
-    final sel = _quill.selection;
-    _changesSub?.cancel();
-    _quill.document = q.Document.fromJson(ops);
-    _changesSub = _quill.document.changes.listen(_onDocChange);
-    if (sel.isValid) {
-      _quill.updateSelection(sel, q.ChangeSource.local);
-    }
+    final ops = _transformIndentOps(rawOps, inject: enabled);
+    _swapDocument(
+      q.Document.fromJson(ops),
+      restoreSelection: _quill.selection.isValid ? _quill.selection : null,
+    );
     _refreshOutline();
   }
 
@@ -456,43 +451,49 @@ class _EditorViewState extends State<EditorView> {
     return _loadContent(doc.content);
   }
 
-  q.Document _documentFromJson(String json) {
-    if (json.isEmpty || json == emptyDeltaJson) return q.Document();
-    try {
-      final ops = parseDeltaOpsLenient(json);
-      if (ops.isEmpty) return q.Document();
-      return q.Document.fromJson(ops);
-    } on FormatException {
-      return q.Document();
-    }
-  }
-
   /// 当前笔记本是否开启「行首自动缩进」。
   bool _indentEnabled() {
     final nb = widget.library.currentDocument?.notebookId;
     return nb != null && widget.settings.indentForNotebook(nb);
   }
 
+  /// 换内存文档（不经 compose，不进 undo 栈）：
+  /// 取消变更订阅 → 替换 → 重新订阅；[restoreSelection] 非空时恢复光标。
+  void _swapDocument(q.Document doc, {TextSelection? restoreSelection}) {
+    _changesSub?.cancel();
+    _quill.document = doc;
+    _changesSub = _quill.document.changes.listen(_onDocChange);
+    if (restoreSelection != null) {
+      _quill.updateSelection(restoreSelection, q.ChangeSource.local);
+    }
+  }
+
   /// 把干净 Delta JSON 装载进编辑器内存文档（hybrid）：
   /// 笔记本开启缩进时注入行首全角空格，否则原样装载。
   /// 注入的是真实字符（渲染/光标与文档一致），但落库/导出时由
   /// [_stripIndentOps] 剥离，磁盘原文保持干净。
+  /// 空文档、坏 JSON 一律回退空文档，不让单个脏条目拖垮装载。
   q.Document _loadContent(String json) {
-    if (json.isEmpty || json == emptyDeltaJson) return _documentFromJson(json);
     try {
       final ops = parseDeltaOpsLenient(json);
-      if (ops.isEmpty) return _documentFromJson(json);
-      final effective = _indentEnabled() ? _injectIndentOps(ops) : ops;
+      if (ops.isEmpty) return q.Document();
+      final effective = _indentEnabled()
+          ? _transformIndentOps(ops, inject: true)
+          : ops;
       return q.Document.fromJson(effective);
     } on FormatException {
-      return _documentFromJson(json);
+      return q.Document();
     }
   }
 
-  /// 给每行行首补两个全角空格（跳过已是全角空格/空行/markdown 触发词开头的行）。
-  static List<Map<String, dynamic>> _injectIndentOps(
-    List<Map<String, dynamic>> ops,
-  ) {
+  /// 行首缩进的注入/剥离互为镜像（hybrid 缩进方案的两半）：
+  /// 注入在行首补两个全角空格（跳过已有缩进/空行/markdown 触发词）；
+  /// 剥离在行首吞掉全角空格，还原干净原文（落库/导出用）。
+  /// 两半必须对「行首」的判定保持一致，故合并为一个变换。
+  static List<Map<String, dynamic>> _transformIndentOps(
+    List<Map<String, dynamic>> ops, {
+    required bool inject,
+  }) {
     final result = <Map<String, dynamic>>[];
     for (final op in ops) {
       final insert = op['insert'];
@@ -505,42 +506,19 @@ class _EditorViewState extends State<EditorView> {
       for (final rune in insert.runes) {
         final ch = String.fromCharCode(rune);
         if (atLineStart) {
-          if (ch != '\u3000' && ch != '\n' && !_blockTriggerChars.contains(ch)) {
-            sb.write('\u3000\u3000');
+          if (inject) {
+            if (ch != '\u3000' && ch != '\n' && !_blockTriggerChars.contains(ch)) {
+              sb.write('\u3000\u3000');
+            }
+            sb.write(ch);
+          } else {
+            if (ch == '\u3000') continue; // 行首全角空格（缩进）不写入干净文本
+            sb.write(ch);
           }
-          atLineStart = false;
-        }
-        sb.write(ch);
-        if (ch == '\n') atLineStart = true;
-      }
-      result.add({...op, 'insert': sb.toString()});
-    }
-    return result;
-  }
-
-  /// 剥离每行行首的全角空格（hybrid：落库/导出时还原干净原文）。
-  static List<Map<String, dynamic>> _stripIndentOps(
-    List<Map<String, dynamic>> ops,
-  ) {
-    final result = <Map<String, dynamic>>[];
-    for (final op in ops) {
-      final insert = op['insert'];
-      if (insert is! String || insert.isEmpty) {
-        result.add(op);
-        continue;
-      }
-      final sb = StringBuffer();
-      var atLineStart = true;
-      for (final rune in insert.runes) {
-        final ch = String.fromCharCode(rune);
-        if (atLineStart && ch == '\u3000') {
-          continue; // 行首全角空格（缩进）不写入干净文本
-        }
-        sb.write(ch);
-        if (ch == '\n') {
-          atLineStart = true;
+          atLineStart = ch == '\n';
         } else {
-          atLineStart = false;
+          sb.write(ch);
+          if (ch == '\n') atLineStart = true;
         }
       }
       result.add({...op, 'insert': sb.toString()});
@@ -557,13 +535,10 @@ class _EditorViewState extends State<EditorView> {
     // 否则会把新章字数当旧章差值累计。
     _wordsDebounce.flush(_recomputeWords);
     _closeSlash();
-    _changesSub?.cancel();
-    _quill.document = _loadContent(doc.content);
-    _quill.updateSelection(
-      const TextSelection.collapsed(offset: 0),
-      q.ChangeSource.local,
+    _swapDocument(
+      _loadContent(doc.content),
+      restoreSelection: const TextSelection.collapsed(offset: 0),
     );
-    _changesSub = _quill.document.changes.listen(_onDocChange);
     _lastSavedContent = doc.content;
     _pendingWrittenWords = 0;
     _lastObservedWords = _countWords();
@@ -626,6 +601,13 @@ class _EditorViewState extends State<EditorView> {
   ///
   /// 入口到 `_saveInFlight` 赋值之间不得有 await：Cmd+S 会经全局 handler
   /// 与编辑器 Shortcuts 两条路径各触发一次，靠该同步窗口串行化去重。
+  /// 落库/崩溃日志共用的干净文本 JSON。
+  /// hybrid：内存含注入的缩进，序列化前剥离行首全角空格，原文保持干净。
+  /// 保存与日志必须用同一序列化，否则恢复条目会和落库内容对不上。
+  String get _cleanContentJson => _indentEnabled()
+      ? jsonEncode(_transformIndentOps(_quill.document.toDelta().toJson(), inject: false))
+      : jsonEncode(_quill.document.toDelta().toJson());
+
   Future<void> _saveNow() async {
     final activeSave = _saveInFlight;
     if (activeSave != null) await activeSave;
@@ -637,10 +619,7 @@ class _EditorViewState extends State<EditorView> {
     final cur = widget.library.currentDocument;
     final documentId = _loadedDocumentId;
     if (cur == null || documentId == null || cur.id != documentId) return;
-    // hybrid：内存含注入的缩进，落库前剥离行首全角空格，原文保持干净。
-    final content = _indentEnabled()
-        ? jsonEncode(_stripIndentOps(_quill.document.toDelta().toJson()))
-        : jsonEncode(_quill.document.toDelta().toJson());
+    final content = _cleanContentJson;
     final writtenWords = _pendingWrittenWords;
     if (content == _lastSavedContent && writtenWords == 0) return;
 
@@ -705,9 +684,7 @@ class _EditorViewState extends State<EditorView> {
     final cur = widget.library.currentDocument;
     if (journal == null || cur == null) return;
     // 与落库一致：崩溃日志也存干净文本，恢复时经 _loadContent 重新注入。
-    final content = _indentEnabled()
-        ? jsonEncode(_stripIndentOps(_quill.document.toDelta().toJson()))
-        : jsonEncode(_quill.document.toDelta().toJson());
+    final content = _cleanContentJson;
     await journal.write(
       CrashJournalEntry(
         documentId: cur.id,
@@ -736,9 +713,7 @@ class _EditorViewState extends State<EditorView> {
   void _restoreRecovery() {
     final entry = _pendingRecover;
     if (entry == null) return;
-    _changesSub?.cancel();
-    _quill.document = _loadContent(entry.content);
-    _changesSub = _quill.document.changes.listen(_onDocChange);
+    _swapDocument(_loadContent(entry.content));
     _lastSavedContent = entry.content; // 已是最新缓冲
     setState(() => _pendingRecover = null);
     _saveNow(); // 立即落库
@@ -1562,12 +1537,7 @@ class _EditorViewState extends State<EditorView> {
   void _replaceCurrent(String replacement) {
     if (_findIndex < 0 || _findIndex >= _findMatches.length) return;
     final match = _findMatches[_findIndex];
-    _quill.replaceText(
-      match.offset,
-      match.length,
-      replacement,
-      TextSelection.collapsed(offset: match.offset + replacement.length),
-    );
+    _replaceMatch(match, replacement);
     // 文档变更监听已刷新匹配；定位到下一个（偏移承接替换后文本）。
     final matches = findMatches(_quill.document.toPlainText(), _findQuery);
     final index = nextMatchIndex(matches, match.offset + replacement.length);
@@ -1578,17 +1548,22 @@ class _EditorViewState extends State<EditorView> {
     if (index >= 0) _selectMatch(index);
   }
 
+  /// 把单个命中替换为 [replacement]（光标落在替换文本之后）。
+  void _replaceMatch(FindMatch match, String replacement) {
+    _quill.replaceText(
+      match.offset,
+      match.length,
+      replacement,
+      TextSelection.collapsed(offset: match.offset + replacement.length),
+    );
+  }
+
   void _replaceAll(String replacement) {
     final matches = List.of(_findMatches);
     if (matches.isEmpty) return;
     // 从后往前替换，前面的偏移不受影响。
     for (final match in matches.reversed) {
-      _quill.replaceText(
-        match.offset,
-        match.length,
-        replacement,
-        TextSelection.collapsed(offset: match.offset + replacement.length),
-      );
+      _replaceMatch(match, replacement);
     }
     setState(() {
       _findMatches = const [];

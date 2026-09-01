@@ -12,10 +12,7 @@ class GlassSurface extends StatelessWidget {
   const GlassSurface({
     super.key,
     required this.child,
-    this.blur = 0,
     this.radius = 0,
-    this.lightOpacity = 1,
-    this.darkOpacity = 1,
     this.border,
     this.padding,
     this.color,
@@ -23,12 +20,7 @@ class GlassSurface extends StatelessWidget {
   });
 
   final Widget child;
-
-  /// 兼容旧调用参数；Notion flat surface 不使用 blur。
-  final double blur;
   final double radius;
-  final double lightOpacity;
-  final double darkOpacity;
   final Border? border;
   final EdgeInsetsGeometry? padding;
   final Color? color;

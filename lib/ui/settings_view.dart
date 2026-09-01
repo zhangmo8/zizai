@@ -26,6 +26,7 @@ import '../core/update.dart';
 import '../state/library_controller.dart';
 import '../state/mcp_controller.dart';
 import '../state/settings_controller.dart';
+import '../util/date_format.dart' show localDateKey, relativeTime;
 import '../util/platform.dart';
 import 'export_dialog.dart';
 import 'zz.dart';
@@ -47,6 +48,27 @@ const List<String> kFontChoices = [
 typedef ExportHandler = Future<void> Function(Document doc, String plainText);
 
 enum _SettingsCategory { appearance, backup, data, mcp, about }
+
+/// 备份凭据输入项定义：initState 回填与备份区表单行共用同一份定义，
+/// 新增凭据只改 [_SettingsViewState._backupCredentialSpecs]。
+class _CredentialSpec {
+  const _CredentialSpec({
+    required this.key,
+    required this.label,
+    required this.hint,
+    required this.controller,
+    this.description,
+    this.obscure = false,
+  });
+
+  /// settings 表键（backup.* 前缀不进快照）。
+  final String key;
+  final String label;
+  final String hint;
+  final String? description;
+  final bool obscure;
+  final TextEditingController controller;
+}
 
 class SettingsView extends StatefulWidget {
   const SettingsView({
@@ -112,18 +134,11 @@ class _SettingsViewState extends State<SettingsView> {
     // 回填已保存的备份凭据（仅本地 settings 表；备份区未接线时跳过）。
     if (widget.backup != null) {
       final db = widget.settings.db;
-      db.getSetting('backup.accountId').then((v) {
-        if (mounted) _backupAccountController.text = v ?? '';
-      });
-      db.getSetting('backup.bucket').then((v) {
-        if (mounted) _backupBucketController.text = v ?? '';
-      });
-      db.getSetting('backup.accessKey').then((v) {
-        if (mounted) _backupAccessController.text = v ?? '';
-      });
-      db.getSetting('backup.secretKey').then((v) {
-        if (mounted) _backupSecretController.text = v ?? '';
-      });
+      for (final spec in _backupCredentialSpecs) {
+        db.getSetting(spec.key).then((v) {
+          if (mounted) spec.controller.text = v ?? '';
+        });
+      }
     }
   }
 
@@ -377,14 +392,12 @@ class _SettingsViewState extends State<SettingsView> {
       _SettingsGroup(
         label: 'R2 备份',
         children: [
-          _row(
-            'Account ID',
-            _backupAccountField(),
-            description: 'Cloudflare R2 账户标识',
-          ),
-          _row('Bucket', _backupBucketField()),
-          _row('Access Key', _backupAccessField()),
-          _row('Secret Key', _backupSecretField()),
+          for (final spec in _backupCredentialSpecs)
+            _row(
+              spec.label,
+              _credentialField(spec),
+              description: spec.description,
+            ),
           _row('上次备份', _lastBackupRow()),
           Padding(padding: const EdgeInsets.only(top: 8), child: _backupActions()),
         ],
@@ -699,55 +712,43 @@ class _SettingsViewState extends State<SettingsView> {
     await widget.backup!.reloadConfig();
   }
 
-  /// Notion 式输入框（浅底、focus accent 描边；见 zz.dart）。
-  Widget _notionField({
-    required TextEditingController controller,
-    required String hint,
-    bool obscure = false,
-    TextInputType? keyboardType,
-    FocusNode? focusNode,
-    required ValueChanged<String> onSubmitted,
-  }) {
-    return ZzTextField(
-      controller: controller,
-      focusNode: focusNode,
-      keyboardType: keyboardType,
-      obscure: obscure,
-      hint: hint,
-      onSubmitted: onSubmitted,
-    );
-  }
-
-  Widget _backupAccountField() {
-    return _notionField(
-      controller: _backupAccountController,
+  /// 备份凭据四件套（回填与表单行共用；掩码项凭据仅存本地 settings 表，绝不进快照）。
+  List<_CredentialSpec> get _backupCredentialSpecs => [
+    _CredentialSpec(
+      key: 'backup.accountId',
+      label: 'Account ID',
       hint: 'R2 Account ID（10 位十六进制）',
-      onSubmitted: (v) => _saveBackupConfig('backup.accountId', v),
-    );
-  }
-
-  Widget _backupBucketField() {
-    return _notionField(
-      controller: _backupBucketController,
+      description: 'Cloudflare R2 账户标识',
+      controller: _backupAccountController,
+    ),
+    _CredentialSpec(
+      key: 'backup.bucket',
+      label: 'Bucket',
       hint: 'R2 Bucket 名',
-      onSubmitted: (v) => _saveBackupConfig('backup.bucket', v),
-    );
-  }
-
-  Widget _backupAccessField() {
-    return _notionField(
-      controller: _backupAccessController,
+      controller: _backupBucketController,
+    ),
+    _CredentialSpec(
+      key: 'backup.accessKey',
+      label: 'Access Key',
       hint: 'R2 Access Key ID',
-      onSubmitted: (v) => _saveBackupConfig('backup.accessKey', v),
-    );
-  }
-
-  Widget _backupSecretField() {
-    return _notionField(
-      controller: _backupSecretController,
+      controller: _backupAccessController,
+    ),
+    _CredentialSpec(
+      key: 'backup.secretKey',
+      label: 'Secret Key',
       hint: 'R2 Secret Access Key',
-      obscure: true, // 掩码显示；凭据仅存本地 settings 表，绝不进快照
-      onSubmitted: (v) => _saveBackupConfig('backup.secretKey', v),
+      obscure: true,
+      controller: _backupSecretController,
+    ),
+  ];
+
+  /// 凭据输入行（Notion 式浅底输入框，见 zz.dart）。
+  Widget _credentialField(_CredentialSpec spec) {
+    return ZzTextField(
+      controller: spec.controller,
+      hint: spec.hint,
+      obscure: spec.obscure,
+      onSubmitted: (v) => _saveBackupConfig(spec.key, v),
     );
   }
 
@@ -758,7 +759,7 @@ class _SettingsViewState extends State<SettingsView> {
       builder: (context, _) {
         final at = backup.lastBackupAt.value;
         return Text(
-          at == null ? '从未备份' : '${_relativeTime(at)}（${at.toLocal()}）',
+          at == null ? '从未备份' : '${relativeTime(at)}（${at.toLocal()}）',
           style: TextStyle(
             fontSize: 12,
             color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -766,14 +767,6 @@ class _SettingsViewState extends State<SettingsView> {
         );
       },
     );
-  }
-
-  static String _relativeTime(DateTime at) {
-    final diff = DateTime.now().difference(at);
-    if (diff.inMinutes < 1) return '刚刚';
-    if (diff.inMinutes < 60) return '${diff.inMinutes} 分钟前';
-    if (diff.inHours < 24) return '${diff.inHours} 小时前';
-    return '${diff.inDays} 天前';
   }
 
   Widget _backupActions() {
@@ -853,6 +846,13 @@ class _SettingsViewState extends State<SettingsView> {
     showZzToast(context, ok ? '备份已上传' : '备份失败，请稍后重试', error: !ok);
   }
 
+  /// 恢复后的固定收尾：刷新库与设置控制器（顺序不可换，先库后设置）。
+  /// 云端/本地恢复两条管线共用。
+  Future<void> _reloadAfterRestore() async {
+    await widget.library.restore();
+    await widget.settings.load();
+  }
+
   /// 下载恢复会覆盖本地数据 → 二次确认；恢复后刷新库与设置控制器。
   Future<void> _confirmDownload() async {
     final confirmed = await zzConfirm(
@@ -867,8 +867,7 @@ class _SettingsViewState extends State<SettingsView> {
     if (!confirmed || !mounted) return;
     final ok = await widget.backup!.download();
     if (ok && mounted) {
-      await widget.library.restore();
-      await widget.settings.load();
+      await _reloadAfterRestore();
       if (mounted) {
         showZzToast(context, '已从云端备份恢复');
       }
@@ -890,7 +889,8 @@ class _SettingsViewState extends State<SettingsView> {
   Future<void> _runLocalExport() async {
     setState(() => _localExporting = true);
     try {
-      final stamp = DateTime.now().toIso8601String().split('T').first;
+      // 与逐日统计键同一本地时区口径；此前用 toIso8601String 误取 UTC 日期
+      final stamp = localDateKey(DateTime.now());
       if (isAndroidPlatform) {
         final dir = await getApplicationDocumentsDirectory();
         final file = File('${dir.path}/zizai-backup-$stamp.json');
@@ -941,8 +941,7 @@ class _SettingsViewState extends State<SettingsView> {
     if (!confirmed || !mounted) return;
     try {
       final result = await widget.backup!.restoreFromFile(loc.path);
-      await widget.library.restore();
-      await widget.settings.load();
+      await _reloadAfterRestore();
       if (mounted) {
         showZzToast(
           context,
