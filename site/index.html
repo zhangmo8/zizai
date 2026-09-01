@@ -21,7 +21,6 @@
       --line: rgba(55, 53, 47, 0.09);
       --accent: #2383e2;
       --accent-soft: rgba(35, 131, 226, 0.07);
-      --danger: #eb5757;
       --callout: #f7f6f3;
       --code: #f1f1ef;
       --shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -311,6 +310,12 @@
   </style>
 </head>
 <body>
+  <!-- 公共图标定义：仅含路径数据，描边属性由引用处的 <svg> 决定 -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+  </svg>
   <header class="topbar">
     <div class="topbar-in">
       <a class="brand" href="#" style="text-decoration:none">
@@ -332,12 +337,12 @@
   <main>
     <!-- ── Hero ─────────────────────────────────────────── -->
     <section class="hero wrap">
-      <span class="chip rise"><span class="dot" aria-hidden="true"></span><span id="ver-chip">v2.2.1 · 最新版</span></span>
+      <span class="chip rise"><span class="dot" aria-hidden="true"></span><!-- 发版时手动同步 pubspec.yaml；update.json 拉取成功后会被覆盖 --><span id="ver-chip">v2.2.1 · 最新版</span></span>
       <h1 class="rise d1">字在</h1>
       <p class="sub rise d2">打开就写，所见即所得，写完就走，<br/>数据在自己手里。</p>
       <div class="cta rise d3">
-        <a class="btn-primary" id="cta-btn" href="https://github.com/zhangmo8/zizai/releases/latest" data-os="unknown">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>
+        <a class="btn-primary" id="cta-btn" href="https://github.com/zhangmo8/zizai/releases/latest">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-download"/></svg>
           <span id="cta-label">下载字在</span>
         </a>
         <a class="btn-ghost" href="#download">全部平台 ↓</a>
@@ -353,17 +358,17 @@
             <div class="avatar">字</div>
             <div><div class="t">长夜将尽</div><div class="s">写作空间</div></div>
           </div>
-          <div class="mrow folder"><span>▾</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="label">第一卷 · 潮生</span></div>
-          <div class="mrow sel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg><span class="label">第一章 · 雨后的街道</span></div>
-          <div class="mrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg><span class="label">第二章 · 旧录音带</span></div>
+          <div class="mrow folder"><span>▾</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-folder"/></svg><span class="label">第一卷 · 潮生</span></div>
+          <div class="mrow sel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-file"/></svg><span class="label">第一章 · 雨后的街道</span></div>
+          <div class="mrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-file"/></svg><span class="label">第二章 · 旧录音带</span></div>
           <div class="mrow new"><span>＋</span><span class="label">新建章节</span></div>
-          <div class="mrow folder"><span>▸</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="label">第二卷 · 汐落</span></div>
-          <div class="mrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg><span class="label">人物小传</span></div>
-          <div class="mrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg><span class="label">世界观设定</span></div>
+          <div class="mrow folder"><span>▸</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-folder"/></svg><span class="label">第二卷 · 汐落</span></div>
+          <div class="mrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-file"/></svg><span class="label">人物小传</span></div>
+          <div class="mrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-file"/></svg><span class="label">世界观设定</span></div>
         </aside>
         <div class="editor">
           <div class="mtop">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-file"/></svg>
             <span class="t">第一章 · 雨后的街道</span>
             <span class="act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>沉浸</span>
             <span class="act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>设置</span>
@@ -410,8 +415,8 @@
               <div class="fname">安装向导 setup.exe</div>
               <div class="fdesc">推荐 · 下一步安装，自带卸载项，亦用于自动更新</div>
             </div>
-            <a class="dl" id="dl-win-setup" href="https://github.com/zhangmo8/zizai/releases/latest" data-file="zizai-windows-setup.exe">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>下载
+            <a class="dl" id="dl-win-setup" href="https://github.com/zhangmo8/zizai/releases/latest">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-download"/></svg>下载
             </a>
           </div>
           <div class="file">
@@ -419,11 +424,11 @@
               <div class="fname">免安装 zip</div>
               <div class="fdesc">解压即用，不写注册表</div>
             </div>
-            <a class="dl sec-dl" id="dl-win-zip" href="https://github.com/zhangmo8/zizai/releases/latest" data-file="zizai-windows.zip">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>下载
+            <a class="dl sec-dl" id="dl-win-zip" href="https://github.com/zhangmo8/zizai/releases/latest">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-download"/></svg>下载
             </a>
           </div>
-          <details class="sha"><summary>SHA-256 校验</summary><code id="sha-win" data-file="zizai-windows-setup.exe">—</code></details>
+          <details class="sha"><summary>SHA-256 校验</summary><code id="sha-windows">—</code></details>
           <p class="hint">64 位 · 首次运行如遇 SmartScreen，选择「仍要运行」</p>
         </article>
 
@@ -441,8 +446,8 @@
               <div class="fname">安装向导 .pkg</div>
               <div class="fdesc">推荐 · 装入「应用程序」，需管理员权限</div>
             </div>
-            <a class="dl" id="dl-mac-pkg" href="https://github.com/zhangmo8/zizai/releases/latest" data-file="zizai-macos.pkg">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>下载
+            <a class="dl" id="dl-mac-pkg" href="https://github.com/zhangmo8/zizai/releases/latest">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-download"/></svg>下载
             </a>
           </div>
           <div class="file">
@@ -450,11 +455,11 @@
               <div class="fname">zizai-macos.zip</div>
               <div class="fdesc">拖入应用程序即可；应用内自动更新使用此包</div>
             </div>
-            <a class="dl sec-dl" id="dl-mac-zip" href="https://github.com/zhangmo8/zizai/releases/latest" data-file="zizai-macos.zip">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>下载
+            <a class="dl sec-dl" id="dl-mac-zip" href="https://github.com/zhangmo8/zizai/releases/latest">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-download"/></svg>下载
             </a>
           </div>
-          <details class="sha"><summary>SHA-256 校验</summary><code id="sha-macos" data-file="zizai-macos.zip">—</code></details>
+          <details class="sha"><summary>SHA-256 校验</summary><code id="sha-macos">—</code></details>
           <p class="hint">Apple Silicon / Intel · 首次运行请「右键 → 打开」</p>
         </article>
 
@@ -473,11 +478,11 @@
               <div class="fname">app-release.apk</div>
               <div class="fdesc">签名稳定，覆盖安装即可升级</div>
             </div>
-            <a class="dl" id="dl-android" href="https://github.com/zhangmo8/zizai/releases/latest" data-file="app-release.apk">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>下载
+            <a class="dl" id="dl-android" href="https://github.com/zhangmo8/zizai/releases/latest">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-download"/></svg>下载
             </a>
           </div>
-          <details class="sha"><summary>SHA-256 校验</summary><code id="sha-android" data-file="app-release.apk">—</code></details>
+          <details class="sha"><summary>SHA-256 校验</summary><code id="sha-android">—</code></details>
           <p class="hint">需允许「安装未知应用」；升级直接覆盖安装，数据保留</p>
         </article>
       </div>
@@ -569,8 +574,6 @@
       if (os) {
         var platEl = document.getElementById('plat-' + os);
         if (platEl) platEl.classList.add('reco');
-        var btn = document.getElementById('cta-btn');
-        if (btn) { btn.dataset.os = os; btn.dataset.file = PRIMARY[os].file; }
         setText('cta-label', PRIMARY[os].label);
       }
 
@@ -589,35 +592,35 @@
         return BASE + '/releases/v' + manifest.latest + '/' + file;
       }
 
+      // 下载位一览：file 是安装包文件名的唯一事实来源（页面不再重复维护 data-file）
+      // plat 指向 update.json 的 platforms 键：有则链接用清单 url、SHA 用其校验值
+      var DOWNLOADS = [
+        { id: 'dl-win-setup', file: 'zizai-windows-setup.exe', plat: 'windows' },
+        { id: 'dl-win-zip',   file: 'zizai-windows.zip' },
+        { id: 'dl-mac-pkg',   file: 'zizai-macos.pkg' },
+        { id: 'dl-mac-zip',   file: 'zizai-macos.zip', plat: 'macos' },
+        { id: 'dl-android',   file: 'app-release.apk', plat: 'android' }
+      ];
+
       function applyManifest(m) {
         manifest = m;
-        var v = 'v' + m.latest;
-        setText('ver-chip', v + ' · 最新版');
+        m.platforms = m.platforms || {};
+        setText('ver-chip', 'v' + m.latest + ' · 最新版');
 
-        ['windows', 'macos', 'android'].forEach(function (p) {
-          var info = m.platforms[p];
-          if (info) {
-            var map = { windows: 'dl-win-setup', macos: 'dl-mac-zip', android: 'dl-android' };
-            var a = document.getElementById(map[p]);
-            if (a) a.href = info.url;
-            var sha = document.getElementById('sha-' + p);
-            if (sha && info.sha256) sha.textContent = info.sha256;
+        DOWNLOADS.forEach(function (d) {
+          var info = d.plat ? m.platforms[d.plat] : null;
+          var a = document.getElementById(d.id);
+          if (a) {
+            // 主文件以清单 url 为准，条目缺失则维持 GitHub Releases 兜底；次级文件固定按 R2 约定拼出
+            if (info && info.url) a.href = info.url;
+            else if (!d.plat) a.href = fileUrl(d.file);
           }
+          if (info && info.sha256) setText('sha-' + d.plat, info.sha256);
         });
-        // 次级文件（不在 update.json platforms 里）
-        [['dl-win-zip', 'zizai-windows.zip'], ['dl-mac-pkg', 'zizai-macos.pkg']].forEach(function (pair) {
-          var a = document.getElementById(pair[0]);
-          if (a) a.href = fileUrl(pair[1]);
-        });
-        var winSha = document.getElementById('sha-win');
-        var winSetup = m.platforms.windows;
-        if (winSha && winSetup && winSetup.sha256) winSha.textContent = winSetup.sha256;
 
         // 首屏主按钮：统一指向「首次安装」包（macOS 用 pkg，不用自更新 zip）
         var cta = document.getElementById('cta-btn');
-        if (os && cta) {
-          cta.href = fileUrl(PRIMARY[os].file);
-        }
+        if (os && cta) cta.href = fileUrl(PRIMARY[os].file);
       }
 
       // 拉取失败无需特殊处理：下载按钮的初始 href 已指向 GitHub Releases
