@@ -80,39 +80,6 @@ class FindBarState extends State<FindBar> {
     );
   }
 
-  Widget _iconBtn({
-    required IconData icon,
-    required String tooltip,
-    VoidCallback? onTap,
-    bool active = false,
-  }) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(4),
-        onTap: onTap,
-        child: Container(
-          width: 28,
-          height: 28,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: active ? appColors.rowSelected : Colors.transparent,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Icon(
-            icon,
-            size: 15,
-            color: onTap == null
-                ? appColors.textTertiary
-                : colors.onSurfaceVariant,
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _field({
     required TextEditingController controller,
     required String hint,
@@ -173,11 +140,12 @@ class FindBarState extends State<FindBar> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _iconBtn(
+              ZzIconButton(
                 icon: _showReplace ? Icons.expand_less : Icons.expand_more,
                 tooltip: _showReplace ? '收起替换' : '展开替换',
                 active: _showReplace,
-                onTap: () => setState(() => _showReplace = !_showReplace),
+                size: 15,
+                onPressed: () => setState(() => _showReplace = !_showReplace),
               ),
               const SizedBox(width: 4),
               _field(
@@ -209,20 +177,23 @@ class FindBarState extends State<FindBar> {
                   ),
                 ),
               ),
-              _iconBtn(
+              ZzIconButton(
                 icon: Icons.keyboard_arrow_up,
                 tooltip: '上一个 (Shift+Enter)',
-                onTap: hasMatch ? widget.onPrev : null,
+                size: 15,
+                onPressed: hasMatch ? widget.onPrev : null,
               ),
-              _iconBtn(
+              ZzIconButton(
                 icon: Icons.keyboard_arrow_down,
                 tooltip: '下一个 (Enter)',
-                onTap: hasMatch ? widget.onNext : null,
+                size: 15,
+                onPressed: hasMatch ? widget.onNext : null,
               ),
-              _iconBtn(
+              ZzIconButton(
                 icon: Icons.close,
                 tooltip: '关闭 (Esc)',
-                onTap: widget.onClose,
+                size: 15,
+                onPressed: widget.onClose,
               ),
             ],
           ),

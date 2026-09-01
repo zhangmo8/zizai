@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import '../app.dart' show appColorsOf;
 import '../core/word_distribution.dart';
 import '../state/library_controller.dart';
+import 'zz.dart';
 
 /// 打开字数分布对话框。[onOpen] 收到被点中的章节 id（对话框已关闭后调用）。
 Future<void> showWordDistributionDialog(
@@ -42,7 +43,13 @@ class _WordDistributionPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final appColors = appColorsOf(context);
-    final size = MediaQuery.sizeOf(context);
+    final size = zzDialogSize(
+      context,
+      minW: 360,
+      maxW: 560,
+      minH: 240,
+      maxH: 560,
+    );
     return ListenableBuilder(
       listenable: library,
       builder: (context, _) {
@@ -52,8 +59,8 @@ class _WordDistributionPanel extends StatelessWidget {
         );
         final currentId = library.currentDocument?.id;
         return SizedBox(
-          width: (size.width - 48).clamp(360.0, 560.0),
-          height: (size.height - 96).clamp(240.0, 560.0),
+          width: size.width,
+          height: size.height,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [

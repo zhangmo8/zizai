@@ -1899,15 +1899,8 @@ class _EditorViewState extends State<EditorView> {
           Positioned(
             top: 10,
             right: 14,
-            child: Focus(
-              onKeyEvent: (_, event) {
-                if (event is KeyDownEvent &&
-                    event.logicalKey == LogicalKeyboardKey.escape) {
-                  _closeFind();
-                  return KeyEventResult.handled;
-                }
-                return KeyEventResult.ignored;
-              },
+            child: EscapeFocus(
+              onEscape: _closeFind,
               child: FindBar(
                 key: _findBarKey,
                 initialQuery: _findQuery,
@@ -2175,7 +2168,8 @@ class _EditorHeader extends StatelessWidget {
             // Interactions）。tooltip 带快捷键提示，兼顾「快捷键 + 可见入口」。
             if (onToggleSidebar != null) ...[
               const SizedBox(width: 6),
-              _HeaderAction(
+              ZzIconButton(
+                size: 16,
                 onPressed: onToggleSidebar!,
                 tooltip: isDesktopPlatform
                     ? (sidebarVisible
@@ -2240,14 +2234,16 @@ class _EditorHeader extends StatelessWidget {
                     ),
             ),
             if (onOpenFind != null)
-              _HeaderAction(
+              ZzIconButton(
+                size: 16,
                 onPressed: onOpenFind!,
                 tooltip: '查找/替换 (${isMacOS ? '⌘' : 'Ctrl'}+F)',
                 icon: Icons.search,
               ),
             if (onShowHistory != null) ...[
               const SizedBox(width: 2),
-              _HeaderAction(
+              ZzIconButton(
+                size: 16,
                 onPressed: onShowHistory!,
                 tooltip: '版本历史',
                 icon: Icons.history,
@@ -2255,7 +2251,8 @@ class _EditorHeader extends StatelessWidget {
             ],
             if (onToggleOutline != null) ...[
               const SizedBox(width: 2),
-              _HeaderAction(
+              ZzIconButton(
+                size: 16,
                 onPressed: onToggleOutline!,
                 tooltip: outlineOpen ? '收起大纲' : '展开大纲',
                 icon: Icons.toc,
@@ -2264,7 +2261,8 @@ class _EditorHeader extends StatelessWidget {
             ],
             if (onToggleNotes != null) ...[
               const SizedBox(width: 2),
-              _HeaderAction(
+              ZzIconButton(
+                size: 16,
                 onPressed: onToggleNotes!,
                 tooltip: notesOpen ? '收起备注' : '展开备注',
                 icon: Icons.sticky_note_2_outlined,
@@ -2273,7 +2271,8 @@ class _EditorHeader extends StatelessWidget {
             ],
             if (onToggleFocusDim != null) ...[
               const SizedBox(width: 2),
-              _HeaderAction(
+              ZzIconButton(
+                size: 16,
                 onPressed: onToggleFocusDim!,
                 tooltip: focusDim ? '关闭暗淡非当前行' : '暗淡非当前行',
                 icon: Icons.contrast,
@@ -2281,7 +2280,8 @@ class _EditorHeader extends StatelessWidget {
               ),
             ],
             const SizedBox(width: 2),
-            _HeaderAction(
+            ZzIconButton(
+              size: 16,
               onPressed: onToggleFocusMode,
               tooltip: '沉浸模式 (${isMacOS ? '⌘' : 'Ctrl'}+Shift+F)',
               icon: Icons.open_in_full,
@@ -2420,15 +2420,8 @@ class _EditableHeaderTitleState extends State<_EditableHeaderTitle> {
         ),
       );
     }
-    return Focus(
-      onKeyEvent: (_, event) {
-        if (event is KeyDownEvent &&
-            event.logicalKey == LogicalKeyboardKey.escape) {
-          _cancel();
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
+    return EscapeFocus(
+      onEscape: _cancel,
       child: SizedBox(
         height: 28,
         child: ZzTextField(
@@ -2439,65 +2432,6 @@ class _EditableHeaderTitleState extends State<_EditableHeaderTitle> {
           compact: true,
           textInputAction: TextInputAction.done,
           onSubmitted: (_) => _finish(),
-        ),
-      ),
-    );
-  }
-}
-
-class _HeaderAction extends StatefulWidget {
-  const _HeaderAction({
-    required this.onPressed,
-    required this.tooltip,
-    required this.icon,
-    this.active = false,
-  });
-
-  final VoidCallback onPressed;
-  final String tooltip;
-  final IconData icon;
-
-  /// 常亮态（如大纲面板展开时的入口 icon）。
-  final bool active;
-
-  @override
-  State<_HeaderAction> createState() => _HeaderActionState();
-}
-
-class _HeaderActionState extends State<_HeaderAction> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final appColors = appColorsOf(context);
-    return Tooltip(
-      message: widget.tooltip,
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(4),
-          onTap: widget.onPressed,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 90),
-            width: 28,
-            height: 28,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: _hover
-                  ? appColors.surfaceHover
-                  : widget.active
-                  ? appColors.rowSelected
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Icon(
-              widget.icon,
-              size: 16,
-              color: widget.active ? colors.onSurface : colors.onSurfaceVariant,
-            ),
-          ),
         ),
       ),
     );

@@ -110,11 +110,17 @@ class _SnapshotPanelState extends State<_SnapshotPanel> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final size = MediaQuery.sizeOf(context);
+    final size = zzDialogSize(
+      context,
+      minW: 320,
+      maxW: 680,
+      minH: 280,
+      maxH: 480,
+    );
     final snapshots = _snapshots;
     return SizedBox(
-      width: (size.width - 48).clamp(320.0, 680.0),
-      height: (size.height - 96).clamp(280.0, 480.0),
+      width: size.width,
+      height: size.height,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

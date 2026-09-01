@@ -7,7 +7,6 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../app.dart' show AppColors, appColorsOf;
 import '../core/models.dart';
@@ -635,13 +634,7 @@ class _SidebarState extends State<Sidebar> {
     // 倒序时**先插入**——章节行的列表下标必须与 children 实际位置一致
     // （拖拽 listener 依赖 index，后插到 0 位会让所有章节行的 index 错位一位）。
     if (!ascending && docs.isNotEmpty) {
-      add(
-        _NewDocumentButton(
-          key: ValueKey('new-doc-${nb.id}'),
-          onPressed: () => _createDocumentDirect(nb.id),
-        ),
-        TreeRowRef(notebookId: nb.id),
-      );
+      _addNewDocButton(nb, add);
     }
 
     if (manual) {
@@ -728,13 +721,7 @@ class _SidebarState extends State<Sidebar> {
 
     // 「+ 新建章节」跟随序列末尾端：正序在树末（倒序已在树顶先行插入）。
     if (ascending && docs.isNotEmpty) {
-      add(
-        _NewDocumentButton(
-          key: ValueKey('new-doc-${nb.id}'),
-          onPressed: () => _createDocumentDirect(nb.id),
-        ),
-        TreeRowRef(notebookId: nb.id),
-      );
+      _addNewDocButton(nb, add);
     }
     _rowRefs = refs;
 
@@ -751,6 +738,20 @@ class _SidebarState extends State<Sidebar> {
       proxyDecorator: (child, index, animation) =>
           _dragProxyDecorator(child, animation, colors, appColors),
       children: children,
+    );
+  }
+
+  /// 「+ 新建章节」行：正序插树末、倒序插树顶共用同一接线。
+  void _addNewDocButton(
+    Notebook nb,
+    void Function(Widget child, TreeRowRef ref) add,
+  ) {
+    add(
+      _NewDocumentButton(
+        key: ValueKey('new-doc-${nb.id}'),
+        onPressed: () => _createDocumentDirect(nb.id),
+      ),
+      TreeRowRef(notebookId: nb.id),
     );
   }
 
@@ -1522,15 +1523,8 @@ class _InlineEditFieldState extends State<_InlineEditField> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Focus(
-      onKeyEvent: (node, event) {
-        if (event is KeyDownEvent &&
-            event.logicalKey == LogicalKeyboardKey.escape) {
-          widget.onCancel();
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
+    return EscapeFocus(
+      onEscape: widget.onCancel,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -1638,20 +1632,11 @@ class _RowMenu extends StatelessWidget {
   bool _isDanger(String label) => label == '删除' || label == '删除卷';
 
   Future<void> _open(BuildContext context) async {
-    final box = context.findRenderObject()! as RenderBox;
-    final overlay =
-        Overlay.of(context).context.findRenderObject()! as RenderBox;
-    final origin = box.localToGlobal(Offset.zero, ancestor: overlay);
-    final rect = RelativeRect.fromLTRB(
-      origin.dx,
-      origin.dy + box.size.height + 2,
-      overlay.size.width - origin.dx - box.size.width,
-      0,
-    );
     final colors = Theme.of(context).colorScheme;
+    final anchorRect = zzAnchorMenuRect(context, gap: 2);
     final picked = await showMenu<_MenuEntry>(
       context: context,
-      position: rect,
+      position: anchorRect,
       constraints: const BoxConstraints(minWidth: 160, maxWidth: 240),
       menuPadding: const EdgeInsets.symmetric(vertical: 4),
       items: [
@@ -1700,7 +1685,7 @@ class _RowMenu extends StatelessWidget {
     // 二级菜单：同锚点弹出卷列表。
     final chosen = await showMenu<String>(
       context: context,
-      position: rect,
+      position: anchorRect,
       constraints: const BoxConstraints(minWidth: 140, maxWidth: 220),
       menuPadding: const EdgeInsets.symmetric(vertical: 4),
       items: [

@@ -196,10 +196,16 @@ class _BookSearchPanelState extends State<_BookSearchPanel> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final size = MediaQuery.sizeOf(context);
+    final size = zzDialogSize(
+      context,
+      minW: 320,
+      maxW: 640,
+      minH: 280,
+      maxH: 520,
+    );
     return SizedBox(
-      width: (size.width - 48).clamp(320.0, 640.0),
-      height: (size.height - 96).clamp(280.0, 520.0),
+      width: size.width,
+      height: size.height,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -209,12 +215,14 @@ class _BookSearchPanelState extends State<_BookSearchPanel> {
               children: [
                 Row(
                   children: [
-                    _iconBtn(
+                    ZzIconButton(
                       icon: _showReplace
                           ? Icons.expand_less
                           : Icons.expand_more,
                       tooltip: _showReplace ? '收起替换' : '展开替换',
-                      onTap: () => setState(() => _showReplace = !_showReplace),
+                      size: 15,
+                      onPressed: () =>
+                          setState(() => _showReplace = !_showReplace),
                     ),
                     const SizedBox(width: 4),
                     Expanded(
@@ -315,36 +323,6 @@ class _BookSearchPanelState extends State<_BookSearchPanel> {
               ),
             ),
         ],
-      ),
-    );
-  }
-
-  Widget _iconBtn({
-    required IconData icon,
-    required String tooltip,
-    VoidCallback? onTap,
-  }) {
-    final appColors = appColorsOf(context);
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(4),
-        onTap: onTap,
-        child: Container(
-          width: 28,
-          height: 28,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Icon(
-            icon,
-            size: 15,
-            color: onTap == null
-                ? appColors.textTertiary
-                : Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
       ),
     );
   }

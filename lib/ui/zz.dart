@@ -5,6 +5,8 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'
+    show KeyDownEvent, LogicalKeyboardKey;
 
 import '../app.dart' show appColorsOf;
 
@@ -26,19 +28,10 @@ class ZzSelect<T> extends StatelessWidget {
   final ValueChanged<T> onChanged;
 
   Future<void> _open(BuildContext context) async {
-    final box = context.findRenderObject()! as RenderBox;
-    final overlay =
-        Overlay.of(context).context.findRenderObject()! as RenderBox;
-    final origin = box.localToGlobal(Offset.zero, ancestor: overlay);
     final colors = Theme.of(context).colorScheme;
     final picked = await showMenu<T>(
       context: context,
-      position: RelativeRect.fromLTRB(
-        origin.dx,
-        origin.dy + box.size.height + 4,
-        overlay.size.width - origin.dx - box.size.width,
-        0,
-      ),
+      position: zzAnchorMenuRect(context),
       constraints: const BoxConstraints(minWidth: 160, maxWidth: 280),
       menuPadding: const EdgeInsets.symmetric(vertical: 4),
       items: [
@@ -616,6 +609,9 @@ void showZzToast(BuildContext context, String message, {bool error = false}) {
 
 /// 图标按钮（Notion chrome）：28×28、4px 圆角，tertiary icon（hover 转
 /// primary 文字色），hover/pressed 背景反馈；**必须带 tooltip**（§4/§5.4）。
+///
+/// [active] 标记「已开启」态（如侧边栏显隐、大纲展开）：rowSelected 底 +
+/// onSurface 图标，hover 底优先于 active 底。
 class ZzIconButton extends StatefulWidget {
   const ZzIconButton({
     super.key,
@@ -624,6 +620,7 @@ class ZzIconButton extends StatefulWidget {
     required this.onPressed,
     this.size = 18,
     this.badge = false,
+    this.active = false,
   });
 
   final String tooltip;
@@ -633,6 +630,9 @@ class ZzIconButton extends StatefulWidget {
 
   /// 右上角 accent 小圆点角标（如更新可用提示）。
   final bool badge;
+
+  /// 已开启/选中态（视觉：rowSelected 底 + onSurface 图标）。
+  final bool active;
 
   @override
   State<ZzIconButton> createState() => _ZzIconButtonState();
@@ -675,6 +675,8 @@ class _ZzIconButtonState extends State<ZzIconButton> {
                   ? appColors.rowSelected
                   : _hover
                   ? appColors.surfaceHover
+                  : widget.active
+                  ? appColors.rowSelected
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(4),
             ),
@@ -687,7 +689,11 @@ class _ZzIconButtonState extends State<ZzIconButton> {
                 Icon(
                   widget.icon,
                   size: widget.size,
-                  color: _hover ? colors.onSurface : colors.onSurfaceVariant,
+                  color: widget.onPressed == null
+                      ? appColors.textTertiary
+                      : widget.active || _hover
+                      ? colors.onSurface
+                      : colors.onSurfaceVariant,
                 ),
                 if (widget.badge)
                   Positioned(
@@ -712,6 +718,64 @@ class _ZzIconButtonState extends State<ZzIconButton> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── 浮层通用件 ───────────────────────────────────────────────
+
+/// 触发器正下方锚定的 showMenu 位置（[gap] 为菜单与触发器的间距）。
+/// ZzSelect 与侧边栏行菜单共用同一换算，避免 RenderBox→RelativeRect
+/// 公式多处手抄后间距漂移。
+RelativeRect zzAnchorMenuRect(BuildContext context, {double gap = 4}) {
+  final box = context.findRenderObject()! as RenderBox;
+  final overlay =
+      Overlay.of(context).context.findRenderObject()! as RenderBox;
+  final origin = box.localToGlobal(Offset.zero, ancestor: overlay);
+  return RelativeRect.fromLTRB(
+    origin.dx,
+    origin.dy + box.size.height + gap,
+    overlay.size.width - origin.dx - box.size.width,
+    0,
+  );
+}
+
+/// 居中对话框的响应式尺寸：可用宽高减去安全边距后夹到 [minW, maxW] /
+/// [minH, maxH]。全书搜索/版本历史/字数分布等弹窗共用同一公式。
+Size zzDialogSize(
+  BuildContext context, {
+  required double minW,
+  required double maxW,
+  required double minH,
+  required double maxH,
+}) {
+  final size = MediaQuery.sizeOf(context);
+  return Size(
+    (size.width - 48).clamp(minW, maxW),
+    (size.height - 96).clamp(minH, maxH),
+  );
+}
+
+/// Esc 关闭包装：子树持有焦点时按 Esc 触发 [onEscape]。
+/// 查找条、行内重命名等浮层的统一关闭通道。
+class EscapeFocus extends StatelessWidget {
+  const EscapeFocus({super.key, required this.onEscape, required this.child});
+
+  final VoidCallback onEscape;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      onKeyEvent: (_, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          onEscape();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: child,
     );
   }
 }
