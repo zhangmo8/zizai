@@ -41,12 +41,3 @@ String toChineseNumber(int n) {
   }
   return buf.toString();
 }
-
-/// 全角数字 ０-９ → 半角 0-9。
-String toHalfWidthDigits(String s) {
-  final buf = StringBuffer();
-  for (final ch in s.runes) {
-    buf.writeCharCode(ch >= 0xFF10 && ch <= 0xFF19 ? ch - 0xFEE0 : ch);
-  }
-  return buf.toString();
-}

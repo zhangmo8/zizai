@@ -20,8 +20,9 @@ import 'package:sqflite/sqflite.dart'
     show OpenDatabaseOptions, databaseFactory;
 
 import '../util/platform.dart';
-import 'db.dart';
+import 'db.dart' show Db, newId;
 import 'export.dart' show emptyDeltaJson;
+import 'models.dart' show Document, ImportResult, documentToSnapshotJson;
 import 'word_count.dart' show wordCount;
 
 /// 导入相关可读错误（UI 提示用）。
@@ -71,13 +72,6 @@ class _ContentRow {
   final String content;
   final int createdAt;
   final int updatedAt;
-}
-
-int _seq = 0;
-
-String _newId(String prefix) {
-  final now = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
-  return '$prefix-$now-${_seq++}';
 }
 
 // 容错取值：SQLite 动态类型，GUID/NTEXT 列若存成整数/浮点（如空 parent/volume
@@ -226,7 +220,7 @@ Future<Map<String, dynamic>> parseChengguaDb(String dbPath) async {
 
     for (var bi = 0; bi < books.length; bi++) {
       final book = books[bi];
-      final nbId = _newId('nb');
+      final nbId = newId('nb');
       notebookIdOf[book.uuid] = nbId;
       notebooks.add({
         'id': nbId,
@@ -239,7 +233,7 @@ Future<Map<String, dynamic>> parseChengguaDb(String dbPath) async {
       final bookVolumes = volumesByBook[book.uuid] ?? const [];
       for (var vi = 0; vi < bookVolumes.length; vi++) {
         final vol = bookVolumes[vi];
-        final volId = _newId('vol');
+        final volId = newId('vol');
         volumeIdOf[vol.uuid] = volId;
         volsOut.add({
           'id': volId,
@@ -261,17 +255,20 @@ Future<Map<String, dynamic>> parseChengguaDb(String dbPath) async {
         final content = contents[ch.uuid];
         if (content == null) {
           // 无正文行的章节：空文档（保留标题）。
-          docsOut.add({
-            'id': _newId('doc'),
-            'notebookId': nbId,
-            'title': ch.title.isEmpty ? '未命名' : ch.title,
-            'content': emptyDeltaJson,
-            'words': 0,
-            'position': docIndex++,
-            'volumeId': null,
-            'createdAt': ch.createdAt,
-            'updatedAt': ch.updatedAt,
-          });
+          docsOut.add(
+            documentToSnapshotJson(
+              Document(
+                id: newId('doc'),
+                notebookId: nbId,
+                title: ch.title.isEmpty ? '未命名' : ch.title,
+                content: emptyDeltaJson,
+                words: 0,
+                position: docIndex++,
+                createdAt: ch.createdAt,
+                updatedAt: ch.updatedAt,
+              ),
+            ),
+          );
           continue;
         }
         final plain = content.content;
@@ -286,17 +283,21 @@ Future<Map<String, dynamic>> parseChengguaDb(String dbPath) async {
         final volumeId = content.volumeUuid != null
             ? volumeIdOf[content.volumeUuid!]
             : null;
-        docsOut.add({
-          'id': _newId('doc'),
-          'notebookId': nbId,
-          'title': ch.title.isEmpty ? '未命名' : ch.title,
-          'content': delta,
-          'words': words,
-          'position': docIndex++,
-          'volumeId': volumeId,
-          'createdAt': content.createdAt,
-          'updatedAt': content.updatedAt,
-        });
+        docsOut.add(
+          documentToSnapshotJson(
+            Document(
+              id: newId('doc'),
+              notebookId: nbId,
+              title: ch.title.isEmpty ? '未命名' : ch.title,
+              content: delta,
+              words: words,
+              position: docIndex++,
+              volumeId: volumeId,
+              createdAt: content.createdAt,
+              updatedAt: content.updatedAt,
+            ),
+          ),
+        );
       }
     }
 
@@ -350,7 +351,7 @@ Future<List<String>> detectChengguaDbFiles({String? rootOverride}) async {
 /// 导入橙瓜码字库：复制源库 → 解析（桌面 isolate）→ 编排 position → 批量入库。
 ///
 /// 返回导入统计；[tempDir] 供测试注入（非空则不清理）。
-Future<ExternalImportResult> importChenggua(
+Future<ImportResult> importChenggua(
   Db target,
   String sourceDbPath, {
   Directory? tempDir,

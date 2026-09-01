@@ -13,6 +13,7 @@ import 'export.dart' show deltaToPlainText, emptyDeltaJson;
 import 'models.dart';
 import 'word_count.dart';
 import '../util/chinese.dart' show toChineseNumber;
+import '../util/date_format.dart' show localDateKey;
 
 /// 当前代码里的 DB schema 版本（`PRAGMA user_version`）。
 /// v1：基础五表；v2：+ sync_journal（云同步脏标记）；v3：+ documents.status（章节状态标记）；
@@ -131,32 +132,17 @@ Future<void> backupDbFile(String dbPath) async {
 
 final Random _rng = Random.secure();
 
-String _newId(String prefix) =>
+/// 生成实体 id：时间戳（base36）+ 随机后缀。随机后缀在 isolate/并发
+/// 场景下比自增安全（橙瓜导入在 Isolate.run 内生成 id），统一用此实现。
+String newId(String prefix) =>
     '$prefix-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
     '-${_rng.nextInt(0xffffff).toRadixString(36)}';
 
-String _todayKey(int nowMs) {
-  final dt = DateTime.fromMillisecondsSinceEpoch(nowMs);
-  final mm = dt.month.toString().padLeft(2, '0');
-  final dd = dt.day.toString().padLeft(2, '0');
-  return '${dt.year}-$mm-$dd';
-}
+String _todayKey(int nowMs) =>
+    localDateKey(DateTime.fromMillisecondsSinceEpoch(nowMs));
 
 String _notebookStatKey(String dateKey, String notebookId) =>
     '$dateKey::$notebookId';
-
-/// 外部内容导入（其他编辑器）的合并结果统计（UI 提示用）。
-class ExternalImportResult {
-  const ExternalImportResult({
-    required this.notebooks,
-    required this.volumes,
-    required this.docs,
-  });
-
-  final int notebooks;
-  final int volumes;
-  final int docs;
-}
 
 class Db {
   Db._(this._db, this._path, [this._clock]);
@@ -297,7 +283,7 @@ CREATE TABLE last_open (
   // ── 笔记本 ────────────────────────────────────────────────
 
   Future<Notebook> createNotebook(String name) async {
-    final id = _newId('nb');
+    final id = newId('nb');
     final now = _nowMs();
     final position = await _count('notebooks');
     final hasUpdatedAt = _notebooksHaveUpdatedAt;
@@ -400,7 +386,7 @@ CREATE TABLE last_open (
     String content = emptyDeltaJson,
     String? volumeId,
   }) async {
-    final id = _newId('doc');
+    final id = newId('doc');
     final now = _nowMs();
     final position = await _count(
       'documents',
@@ -589,7 +575,7 @@ CREATE TABLE last_open (
     );
     if (rows.isEmpty) throw LibraryException('文档不存在: $id', path: _path);
     final src = Document.fromRow(rows.first);
-    final newId = _newId('doc');
+    final docId = newId('doc');
     final now = _nowMs();
     // 目标 position = 原 position + 1；之后的文档后移一位。
     await _db.transaction((txn) async {
@@ -599,7 +585,7 @@ CREATE TABLE last_open (
         [src.notebookId, src.position],
       );
       await txn.insert('documents', {
-        'id': newId,
+        'id': docId,
         'notebook_id': src.notebookId,
         'title': '${src.title} 副本',
         'content': src.content,
@@ -611,9 +597,9 @@ CREATE TABLE last_open (
         if (src.volumeId != null) 'volume_id': src.volumeId,
       });
     });
-    await _markDirty(newId);
+    await _markDirty(docId);
     return Document(
-      id: newId,
+      id: docId,
       notebookId: src.notebookId,
       title: '${src.title} 副本',
       content: src.content,
@@ -649,7 +635,7 @@ CREATE TABLE last_open (
 
   /// 创建分卷：默认名「第 N 卷」（阿拉伯数字兜底），排在最后。
   Future<Volume> createVolume(String notebookId, {String? name}) async {
-    final id = _newId('vol');
+    final id = newId('vol');
     final now = _nowMs();
     final count = await _count(
       'volumes',
@@ -852,7 +838,7 @@ CREATE TABLE last_open (
     await _db.transaction((txn) async {
       var volumeNumber = 1;
       for (var i = 0; i < docs.length; i += chapters) {
-        final volId = _newId('vol');
+        final volId = newId('vol');
         final custom = names[volumeNumber];
         final name = custom != null && custom.trim().isNotEmpty
             ? custom.trim()
@@ -1286,52 +1272,68 @@ CREATE TABLE last_open (
 
   // ── 外部内容导入（其他编辑器 → 追加合并）────────────────────
 
+  /// 快照/导入共用的三段写入（notebooks/volumes/docs）。
+  /// 字段缺省兜底须与 documentToSnapshotJson（models.dart）的形状兼容。
+  Future<void> _insertSnapshotRows(
+    DatabaseExecutor txn, {
+    required List<Map<String, dynamic>> notebooks,
+    required List<Map<String, dynamic>> volumes,
+    required List<Map<String, dynamic>> docs,
+  }) async {
+    for (final n in notebooks) {
+      await txn.insert('notebooks', {
+        'id': n['id'],
+        'name': n['name'],
+        'position': n['position'] ?? 0,
+        'created_at': n['createdAt'] ?? _nowMs(),
+        'updated_at': n['updatedAt'] ?? 0,
+      });
+    }
+    for (final v in volumes) {
+      await txn.insert('volumes', {
+        'id': v['id'],
+        'notebook_id': v['notebookId'],
+        'name': v['name'] ?? '',
+        'position': v['position'] ?? 0,
+        'created_at': v['createdAt'] ?? _nowMs(),
+      });
+    }
+    for (final d in docs) {
+      await txn.insert('documents', {
+        'id': d['id'],
+        'notebook_id': d['notebookId'],
+        'title': d['title'] ?? '',
+        'content': d['content'] ?? emptyDeltaJson,
+        'words': d['words'] ?? 0,
+        'position': d['position'] ?? 0,
+        'created_at': d['createdAt'] ?? _nowMs(),
+        'updated_at': d['updatedAt'] ?? 0,
+        'status': d['status'] ?? 'draft',
+        'notes': d['notes'] ?? '',
+        'volume_id': d['volumeId'],
+      });
+    }
+  }
+
   /// 外部内容合并导入：把其他编辑器产物导入为新的笔记本/卷/章节，**追加**到库。
   ///
   /// - 单事务批量插入；不累计 stats（外部导入不是今日新增）、不触发 onMutation。
   /// - 各条目的 `id`/`position` 由调用方生成并保证不冲突（导入器先查库现状再编排）。
   /// - 章节内容为 Delta JSON；`words` 由调用方对纯文本算好。
-  Future<ExternalImportResult> importExternal({
+  Future<ImportResult> importExternal({
     required List<Map<String, dynamic>> notebooks,
     required List<Map<String, dynamic>> volumes,
     required List<Map<String, dynamic>> docs,
   }) async {
     await _db.transaction((txn) async {
-      for (final n in notebooks) {
-        await txn.insert('notebooks', {
-          'id': n['id'],
-          'name': n['name'],
-          'position': n['position'] ?? 0,
-          'created_at': n['createdAt'] ?? _nowMs(),
-          'updated_at': n['updatedAt'] ?? 0,
-        });
-      }
-      for (final v in volumes) {
-        await txn.insert('volumes', {
-          'id': v['id'],
-          'notebook_id': v['notebookId'],
-          'name': v['name'] ?? '',
-          'position': v['position'] ?? 0,
-          'created_at': v['createdAt'] ?? _nowMs(),
-        });
-      }
-      for (final d in docs) {
-        await txn.insert('documents', {
-          'id': d['id'],
-          'notebook_id': d['notebookId'],
-          'title': d['title'] ?? '',
-          'content': d['content'] ?? emptyDeltaJson,
-          'words': d['words'] ?? 0,
-          'position': d['position'] ?? 0,
-          'created_at': d['createdAt'] ?? _nowMs(),
-          'updated_at': d['updatedAt'] ?? 0,
-          'status': d['status'] ?? 'draft',
-          'notes': d['notes'] ?? '',
-          'volume_id': d['volumeId'],
-        });
-      }
+      await _insertSnapshotRows(
+        txn,
+        notebooks: notebooks,
+        volumes: volumes,
+        docs: docs,
+      );
     });
-    return ExternalImportResult(
+    return ImportResult(
       notebooks: notebooks.length,
       volumes: volumes.length,
       docs: docs.length,
@@ -1357,39 +1359,12 @@ CREATE TABLE last_open (
       await txn.delete('documents');
       await txn.delete('notebooks');
       await txn.delete('sync_journal');
-      for (final n in notebooks) {
-        await txn.insert('notebooks', {
-          'id': n['id'],
-          'name': n['name'],
-          'position': n['position'] ?? 0,
-          'created_at': n['createdAt'] ?? _nowMs(),
-          'updated_at': n['updatedAt'] ?? 0,
-        });
-      }
-      for (final v in volumes) {
-        await txn.insert('volumes', {
-          'id': v['id'],
-          'notebook_id': v['notebookId'],
-          'name': v['name'] ?? '',
-          'position': v['position'] ?? 0,
-          'created_at': v['createdAt'] ?? _nowMs(),
-        });
-      }
-      for (final d in docs) {
-        await txn.insert('documents', {
-          'id': d['id'],
-          'notebook_id': d['notebookId'],
-          'title': d['title'] ?? '',
-          'content': d['content'] ?? emptyDeltaJson,
-          'words': d['words'] ?? 0,
-          'position': d['position'] ?? 0,
-          'created_at': d['createdAt'] ?? _nowMs(),
-          'updated_at': d['updatedAt'] ?? 0,
-          'status': d['status'] ?? 'draft',
-          'notes': d['notes'] ?? '',
-          'volume_id': d['volumeId'],
-        });
-      }
+      await _insertSnapshotRows(
+        txn,
+        notebooks: notebooks,
+        volumes: volumes,
+        docs: docs,
+      );
       for (final e in settings.entries) {
         await txn.insert('settings', {
           'key': e.key,

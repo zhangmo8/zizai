@@ -10,6 +10,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../db.dart';
+import '../models.dart' show ImportResult;
 import 's3_store.dart';
 import 'snapshot.dart';
 

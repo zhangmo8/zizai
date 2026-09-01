@@ -7,6 +7,7 @@ library;
 import 'dart:convert';
 
 import '../db.dart';
+import '../models.dart' show ImportResult, documentToSnapshotJson;
 
 /// 快照格式版本（独立于 DB schema；格式变更 +1，旧版可读则兼容读取）。
 /// v1：notebooks/docs/settings/stats；
@@ -24,19 +25,6 @@ class BackupException implements Exception {
 
   @override
   String toString() => 'BackupException($message)';
-}
-
-/// 恢复导入的结果统计（设置页提示用）。
-class ImportResult {
-  const ImportResult({
-    required this.notebooks,
-    required this.volumes,
-    required this.docs,
-  });
-
-  final int notebooks;
-  final int volumes;
-  final int docs;
 }
 
 /// 全量导出：notebooks / docs / settings / stats → 快照 Map。
@@ -73,22 +61,7 @@ Future<Map<String, dynamic>> buildSnapshot(
             'updatedAt': n.updatedAt,
           }
       ],
-      'docs': [
-        for (final d in docs)
-          {
-            'id': d.id,
-            'notebookId': d.notebookId,
-            'title': d.title,
-            'content': d.content,
-            'words': d.words,
-            'position': d.position,
-            'createdAt': d.createdAt,
-            'updatedAt': d.updatedAt,
-            'status': d.status.name,
-            'notes': d.notes,
-            if (d.volumeId != null) 'volumeId': d.volumeId,
-          }
-      ],
+      'docs': [for (final d in docs) documentToSnapshotJson(d)],
       'volumes': [
         for (final v in volumes)
           {

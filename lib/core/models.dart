@@ -166,6 +166,36 @@ enum DocumentStatus {
   };
 }
 
+/// 文档条目的快照/导入 JSON 形状（快照格式 v2）。
+/// 字段增减须与 Db.importFull / Db.importExternal 的防御式读取同步，
+/// 此前四处手写该形状，schema v5 加字段时漏改过风险，统一收敛到此处。
+Map<String, dynamic> documentToSnapshotJson(Document d) => {
+  'id': d.id,
+  'notebookId': d.notebookId,
+  'title': d.title,
+  'content': d.content,
+  'words': d.words,
+  'position': d.position,
+  'createdAt': d.createdAt,
+  'updatedAt': d.updatedAt,
+  'status': d.status.name,
+  'notes': d.notes,
+  if (d.volumeId != null) 'volumeId': d.volumeId,
+};
+
+/// 导入结果统计：外部导入（橙瓜）与全量恢复共用（UI 提示用）。
+class ImportResult {
+  const ImportResult({
+    required this.notebooks,
+    required this.volumes,
+    required this.docs,
+  });
+
+  final int notebooks;
+  final int volumes;
+  final int docs;
+}
+
 /// 设置（UI 可配置项）。settings 表为 KV，其余键（如同步配置）由调用方
 /// 直接经 `Db.getSetting/setSetting` 读写。
 class Settings {
@@ -195,16 +225,6 @@ class Settings {
 
   /// 焦点暗淡：仅高亮光标所在段落，其余蒙页面底色（ui-editor.md §焦点暗淡）。
   final bool focusDim;
-
-  static const settingsKeys = [
-    'theme',
-    'fontFamily',
-    'fontSize',
-    'lineHeight',
-    'dailyGoal',
-    'countPunctuation',
-    'focusDim',
-  ];
 
   Map<String, String> toMap() => {
     'theme': theme,
