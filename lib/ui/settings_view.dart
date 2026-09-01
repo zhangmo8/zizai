@@ -221,15 +221,15 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   Future<void> _openDirectory(String dir) async {
-    if (Platform.isMacOS) {
+    if (isMacOS) {
       const channel = MethodChannel('dev.zizai/open_path');
       await channel.invokeMethod('openPath', {'path': dir});
-    } else if (Platform.isWindows) {
+    } else if (isWindows) {
       // explorer.exe 是单例 shell：新进程把打开请求转交给已运行的 Explorer
       // 后立即以退出码 1 退出（无论成功与否），因此不能以退出码判断成败；
       // 只用 Process.start 触发，启动失败（路径无效等）由异常向上抛出。
       await Process.start('explorer', [dir]);
-    } else if (Platform.isLinux) {
+    } else if (isLinuxPlatform) {
       final result = await Process.run('xdg-open', [dir]);
       if (result.exitCode != 0) throw StateError('文件管理器启动失败');
     }
@@ -1180,7 +1180,7 @@ class _SettingsViewState extends State<SettingsView> {
       await channel.invokeMethod('installApk', {'path': path});
       return;
     }
-    if (Platform.isWindows) {
+    if (isWindows) {
       // 先落盘当前缓冲，再退出；安装器完成静默安装后自动重启新版。
       await widget.library.beforeSwitchSave?.call();
       await widget.logger?.info('update.install.windows', data: {'path': path});
@@ -1201,7 +1201,7 @@ class _SettingsViewState extends State<SettingsView> {
       await target.delete(recursive: true);
     }
     await target.create(recursive: true);
-    if (Platform.isMacOS) {
+    if (isMacOS) {
       // .app 内含符号链接与可执行位，Dart 侧 extractFileToDisk 解压会全部
       // 丢失并使签名失效（替换后系统报「已损坏，无法打开」），
       // 必须用系统 ditto 解压（与 CI 打包 ditto -c -k 对称）。
@@ -1217,9 +1217,9 @@ class _SettingsViewState extends State<SettingsView> {
       await channel.invokeMethod('openPath', {'path': target.path});
     } else {
       await extractFileToDisk(zipPath, target.path);
-      if (Platform.isWindows) {
+      if (isWindows) {
         await Process.run('explorer', [target.path]);
-      } else if (Platform.isLinux) {
+      } else if (isLinuxPlatform) {
         await Process.run('xdg-open', [target.path]);
       }
     }
@@ -1949,6 +1949,47 @@ class _MobileSettingsFooter extends StatelessWidget {
           ZzButton.primary(label: '关闭', onPressed: onClose),
         ],
       ),
+    );
+  }
+}
+
+/// 全局设置弹层的统一出口：Android 全屏页，桌面 840×620 对话框。
+///
+/// 笔记本管理页（LibraryHome）与工作区（Shell）共用；此前两处各自
+/// 构造 SettingsView，Android 分支只在 Shell 生效，从管理页进设置
+/// 走了 Dialog，已漂移——入口必须收敛到这里。
+Future<void> showGlobalSettings(
+  BuildContext context, {
+  required SettingsController settings,
+  required LibraryController library,
+  BackupManager? backup,
+  AppLogger? logger,
+  UpdateChecker? updateChecker,
+  McpController? mcp,
+  bool autoFocusBackup = false,
+}) async {
+  final view = SettingsView(
+    settings: settings,
+    library: library,
+    backup: backup,
+    logger: logger,
+    updateChecker: updateChecker,
+    dbSchemaVersion: updateChecker?.dbSchemaVersion,
+    autoFocusBackup: autoFocusBackup,
+    mcp: mcp,
+  );
+  if (isAndroidPlatform) {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => Scaffold(body: view),
+      ),
+    );
+  } else {
+    await showDialog<void>(
+      context: context,
+      builder: (_) =>
+          Dialog(child: SizedBox(width: 840, height: 620, child: view)),
     );
   }
 }

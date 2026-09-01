@@ -6,6 +6,8 @@
 /// 只调 [LibraryController.openNotebook]，不直接导航。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../app.dart' show appColorsOf;
@@ -50,19 +52,16 @@ class LibraryHome extends StatelessWidget {
   }
 
   void _openSettings(BuildContext context) {
-    final view = SettingsView(
-      settings: settings,
-      library: library,
-      backup: backup,
-      logger: logger,
-      updateChecker: updateChecker,
-      dbSchemaVersion: updateChecker?.dbSchemaVersion,
-      mcp: mcp,
-    );
-    showDialog<void>(
-      context: context,
-      builder: (_) =>
-          Dialog(child: SizedBox(width: 840, height: 620, child: view)),
+    unawaited(
+      showGlobalSettings(
+        context,
+        settings: settings,
+        library: library,
+        backup: backup,
+        logger: logger,
+        updateChecker: updateChecker,
+        mcp: mcp,
+      ),
     );
   }
 

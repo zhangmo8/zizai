@@ -6,6 +6,8 @@
 /// design.md（Notion token、侧边栏和组件样式）。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -20,7 +22,6 @@ import '../state/library_controller.dart';
 import '../state/mcp_controller.dart';
 import '../state/settings_controller.dart';
 import '../util/ime_state.dart';
-import '../util/platform.dart';
 import 'book_search_dialog.dart';
 import 'book_settings.dart';
 import 'editor.dart';
@@ -235,30 +236,18 @@ class _ShellState extends State<Shell> {
       }
       return;
     }
-    final view = SettingsView(
-      settings: widget.settings,
-      library: widget.library,
-      backup: widget.backup,
-      logger: widget.logger,
-      updateChecker: widget.updateChecker,
-      dbSchemaVersion: widget.updateChecker?.dbSchemaVersion,
-      autoFocusBackup: focusBackup,
-      mcp: widget.mcp,
+    unawaited(
+      showGlobalSettings(
+        context,
+        settings: widget.settings,
+        library: widget.library,
+        backup: widget.backup,
+        logger: widget.logger,
+        updateChecker: widget.updateChecker,
+        mcp: widget.mcp,
+        autoFocusBackup: focusBackup,
+      ),
     );
-    if (isAndroidPlatform) {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          fullscreenDialog: true,
-          builder: (_) => Scaffold(body: view),
-        ),
-      );
-    } else {
-      showDialog<void>(
-        context: context,
-        builder: (_) =>
-            Dialog(child: SizedBox(width: 840, height: 620, child: view)),
-      );
-    }
   }
 
   @override
