@@ -12,6 +12,8 @@ import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:http/http.dart' as http;
 
 import 'app_logger.dart';
+import '../util/platform.dart'
+    show isAndroidPlatform, isMacOS, isWindows;
 
 /// 语义化版本比较：a < b → -1；a == b → 0；a > b → 1。
 /// 支持 major.minor.patch[.build]；忽略非数字尾段。
@@ -259,9 +261,9 @@ class UpdateChecker {
   }
 
   static String _platformKey() {
-    if (Platform.isAndroid) return 'android';
-    if (Platform.isMacOS) return 'macos';
-    if (Platform.isWindows) return 'windows';
+    if (isAndroidPlatform) return 'android';
+    if (isMacOS) return 'macos';
+    if (isWindows) return 'windows';
     return 'macos';
   }
 }

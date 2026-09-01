@@ -157,7 +157,7 @@ Future<void> main() async {
 /// macOS 去沙盒后的一次性数据迁移：旧版沙盒容器内的库文件搬到标准
 /// Application Support 路径（新路径无 db 且旧容器有 db 才执行）。
 Future<void> _migrateLegacySandboxData(Directory dir) async {
-  if (!Platform.isMacOS) return;
+  if (!isMacOS) return;
   final newDb = File('${dir.path}/zi-zai.db');
   if (await newDb.exists()) return;
   final home = Platform.environment['HOME'];

@@ -19,7 +19,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 import 'package:sqflite/sqflite.dart'
     show OpenDatabaseOptions, databaseFactory;
 
-import '../util/platform.dart';
+import '../util/platform.dart' show isDesktopPlatform, isMacOS, isWindows;
 import 'db.dart' show Db, newId;
 import 'export.dart' show emptyDeltaJson;
 import 'models.dart' show Document, ImportResult, documentToSnapshotJson;
@@ -320,12 +320,12 @@ Future<List<String>> detectChengguaDbFiles({String? rootOverride}) async {
   final roots = <String>[];
   if (rootOverride != null) {
     roots.add(rootOverride);
-  } else if (Platform.isMacOS) {
+  } else if (isMacOS) {
     final home = Platform.environment['HOME'];
     if (home != null && home.isNotEmpty) {
       roots.add('$home/Library/Application Support/橙瓜码字');
     }
-  } else if (Platform.isWindows) {
+  } else if (isWindows) {
     final appdata = Platform.environment['APPDATA'];
     if (appdata != null && appdata.isNotEmpty) {
       roots.add('$appdata/橙瓜码字');

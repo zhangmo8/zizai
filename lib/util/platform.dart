@@ -22,3 +22,6 @@ bool get isWindows => !kIsWeb && Platform.isWindows;
 
 /// 是否为 Android。
 bool get isAndroidPlatform => !kIsWeb && Platform.isAndroid;
+
+/// 是否为 Linux。
+bool get isLinuxPlatform => !kIsWeb && Platform.isLinux;

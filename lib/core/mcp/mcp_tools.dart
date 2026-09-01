@@ -11,7 +11,8 @@ import 'dart:convert';
 import 'package:mcp_dart/mcp_dart.dart' show JsonObject, JsonSchema;
 
 import '../db.dart';
-import '../export.dart' show deltaToPlainText, emptyDeltaJson;
+import '../export.dart'
+    show deltaToPlainText, emptyDeltaJson, parseDeltaOpsLenient;
 import '../snapshot_history.dart';
 
 /// 一次工具调用的结果：给 AI 的文本内容 + 是否错误。
@@ -57,26 +58,12 @@ List<ZizaiMcpTool> buildZizaiMcpTools(
 ];
 
 /// 纯文本 → Quill Delta JSON。空文本用标准空 delta。
+/// （与橙瓜导入的 plainTextToDelta 语义不同：那边要滤空行/剥段首 \t，
+/// 这里对 agent 给的文本保真，只收紧右端空白。）
 String plainToDelta(String text) {
   final t = text.trimRight();
   if (t.isEmpty) return emptyDeltaJson;
   return jsonEncode([{'insert': t}]);
-}
-
-/// 解析 delta JSON 的 ops 列表；解析失败按空列表处理。
-///
-/// 历史坏数据（content 列存了非 JSON 裸文本）按纯文本单 op 解析，
-/// 保证追加时保留原文而不整体覆盖（永不丢字）。
-List<Object?> _opsOf(String deltaJson) {
-  try {
-    final decoded = jsonDecode(deltaJson);
-    if (decoded is List) return decoded;
-  } on FormatException {
-    return [
-      {'insert': deltaJson},
-    ];
-  } catch (_) {}
-  return [];
 }
 
 String _json(Object? value) => jsonEncode(value);
@@ -285,8 +272,11 @@ ZizaiMcpTool _appendDocument(
       if (snapshots != null) {
         await snapshots.create(doc);
       }
+      // 宽容解析存量正文（坏 JSON 裸文本按纯文本兜底，不丢字）；
+      // 结构性坏数据会抛错 → mcp_server 回错误结果，绝不静默清空原章节。
+      // 末位补 \n 规范化保证追加内容从新行开始。
       final newDelta = [
-        ..._opsOf(doc.content),
+        ...parseDeltaOpsLenient(doc.content),
         {'insert': '\n$text\n'},
       ];
       final words = await db.saveDocument(
