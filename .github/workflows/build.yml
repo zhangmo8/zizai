@@ -426,3 +426,24 @@ jobs:
         with:
           tag_name: ${{ needs.validate.outputs.tag }}
           generate_release_notes: true
+      - name: Sync download site version badge
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          # 下载站 site/index.html 的版本徽章是硬编码占位（update.json 拉取
+          # 失败时的兜底展示），发布链路末尾自动与 tag 对齐并推回 main，
+          # Cloudflare Pages 随 main push 重新部署；徽章已一致时跳过，
+          # 不产生空提交。
+          version="${TAG#v}"
+          git fetch origin main
+          git checkout -B main origin/main
+          sed -i "s|<span id=\"ver-chip\">v[0-9][0-9.]* · 最新版</span>|<span id=\"ver-chip\">v${version} · 最新版</span>|" site/index.html
+          if git diff --exit-code --quiet -- site/index.html; then
+            echo "site badge already v${version}, nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/index.html
+          git commit -m "chore(site): sync version badge to v${version}"
+          git push origin main
