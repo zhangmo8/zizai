@@ -9,8 +9,10 @@ import 'package:zi_zai/app.dart';
 import 'package:zi_zai/core/db.dart';
 import 'package:zi_zai/state/library_controller.dart';
 import 'package:zi_zai/state/settings_controller.dart';
+import 'package:zi_zai/ui/focus_view.dart';
 import 'package:zi_zai/ui/library_home.dart';
 import 'package:zi_zai/ui/sidebar.dart';
+import 'package:zi_zai/util/platform.dart';
 
 void main() {
   setUpAll(() {
@@ -186,5 +188,92 @@ void main() {
     await tester.tap(find.byTooltip('展开侧边栏 ($mod+B)'));
     await tester.pump();
     expect(find.byType(Sidebar), findsOneWidget);
+  });
+
+  // ── 移动端（Android）返回键：声明式门控无 Navigator 栈，返回键由 Shell
+  // 的 PopScope 拦截（先关 Drawer/退沉浸，再回书架），绝不直接退出 App。
+
+  /// 移动端窄窗 + 平台覆盖：走 Android Drawer 形态，返回已进工作区的 library。
+  Future<LibraryController> pumpMobile(WidgetTester tester) async {
+    debugIsDesktopPlatformOverride = false;
+    addTearDown(() => debugIsDesktopPlatformOverride = null);
+    await pumpAtSize(tester, const Size(480, 900));
+    final (library, settings) = (await tester.runAsync(
+      () => makeApp(seed: true),
+    ))!;
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+    await tester.tap(find.text('小说').first);
+    await settleDatabaseWrite(tester);
+    // 移动端 Sidebar 在 Drawer 内，未打开时不上树 → 以门控状态断言工作区。
+    expect(find.byType(LibraryHome), findsNothing);
+    expect(library.currentNotebook, isNotNull);
+    expect(find.byType(q.QuillEditor), findsOneWidget);
+    return library;
+  }
+
+  /// 模拟 Android 系统返回键（WidgetsBinding 的 popRoute 消息路径）。
+  Future<void> systemBack(WidgetTester tester) async {
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+  }
+
+  testWidgets('移动端：工作区系统返回 → 回书架，不退出 App', (tester) async {
+    final library = await pumpMobile(tester);
+
+    await systemBack(tester);
+    await settleDatabaseWrite(tester);
+
+    expect(find.byType(LibraryHome), findsOneWidget);
+    expect(find.byType(Sidebar), findsNothing);
+    expect(library.currentNotebook, isNull);
+  });
+
+  testWidgets('移动端：Drawer 打开时系统返回 → 只关 Drawer，留在工作区', (tester) async {
+    final library = await pumpMobile(tester);
+
+    // 顶栏侧边栏按钮打开 Drawer（移动端 = openDrawer）。
+    await tester.tap(find.byTooltip('打开侧边栏'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('新建章节'), findsOneWidget); // Drawer 内容已上树
+
+    await systemBack(tester);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+
+    // Drawer 关闭，但仍在工作区（未回书架、未退 App）。
+    expect(find.text('新建章节'), findsNothing);
+    expect(find.byType(LibraryHome), findsNothing);
+    expect(library.currentNotebook, isNotNull);
+  });
+
+  testWidgets('移动端：沉浸模式系统返回 → 退出沉浸，不退出笔记本', (tester) async {
+    final library = await pumpMobile(tester);
+
+    // Ctrl+Shift+F 进入沉浸（编辑器全局快捷键）。
+    await tester.tap(find.byType(q.QuillEditor));
+    await tester.pump();
+    final mod = Platform.isMacOS
+        ? LogicalKeyboardKey.metaLeft
+        : LogicalKeyboardKey.controlLeft;
+    await tester.sendKeyDownEvent(mod);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyUpEvent(mod);
+    await tester.pump();
+    expect(find.byType(FocusView), findsOneWidget);
+    expect(find.byType(Sidebar), findsNothing);
+
+    await systemBack(tester);
+
+    // 退出沉浸：FocusView.focusMode=false（其 widget 常驻树中），chrome 恢复；
+    // 仍是工作区（未回书架、未退 App）。移动端 Sidebar 在 Drawer 内不上树，
+    // 以状态栏（沉浸时隐藏）恢复为准。
+    final focusView = tester.widget<FocusView>(find.byType(FocusView));
+    expect(focusView.focusMode, isFalse);
+    expect(find.textContaining('今日'), findsOneWidget);
+    expect(library.currentNotebook, isNotNull);
   });
 }

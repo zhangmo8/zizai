@@ -217,6 +217,22 @@ class _ShellState extends State<Shell> {
     await widget.library.closeNotebook();
   }
 
+  /// Android 系统返回键（PopScope 拦截后回调；路由无法 pop，didPop 恒为 false）。
+  ///
+  /// 优先级：沉浸模式 → 交给 FocusView 自己的 PopScope 退出沉浸（这里不重复动作）；
+  /// Drawer 开着 → 先关 Drawer；否则 → 关当前笔记本回书架（手机习惯，
+  /// 不直接退 App）。桌面分支不挂 PopScope，Esc/按钮行为不变。
+  void _onAndroidBack(bool didPop, Object? result) {
+    if (didPop) return;
+    if (_focusMode) return; // FocusView 的 PopScope 处理退出沉浸
+    final scaffold = _scaffoldKey.currentState;
+    if (scaffold != null && scaffold.isDrawerOpen) {
+      scaffold.closeDrawer();
+      return;
+    }
+    unawaited(_goBack());
+  }
+
   /// 全局设置的打开出口：笔记本管理页顶栏（侧边栏不再常驻设置入口）。
   /// 状态栏「今日进度」点击（focusDailyGoal）→ 打开「写作设置」（写作目标已迁入）；
   /// 状态栏备份指示点击（focusBackup）→ 直达设置页备份区。
@@ -317,14 +333,19 @@ class _ShellState extends State<Shell> {
               );
             }
             // Android 形态：Drawer 左滑入（含遮罩），编辑器全宽。
-            return Scaffold(
-              key: _scaffoldKey,
-              drawer: _focusMode
-                  ? null
-                  : Drawer(width: _androidDrawerWidth, child: sidebar),
-              // SafeArea：内容避开系统状态栏与手势导航条（edge-to-edge 下
-              // 顶栏会被状态栏盖住点不到、底部会被导航条遮住）。
-              body: SafeArea(child: editor),
+            // PopScope 只挂移动端：返回键关 Drawer / 退沉浸 / 回书架，不退出 App。
+            return PopScope(
+              canPop: false,
+              onPopInvokedWithResult: _onAndroidBack,
+              child: Scaffold(
+                key: _scaffoldKey,
+                drawer: _focusMode
+                    ? null
+                    : Drawer(width: _androidDrawerWidth, child: sidebar),
+                // SafeArea：内容避开系统状态栏与手势导航条（edge-to-edge 下
+                // 顶栏会被状态栏盖住点不到、底部会被导航条遮住）。
+                body: SafeArea(child: editor),
+              ),
             );
           },
         );
