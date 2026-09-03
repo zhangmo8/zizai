@@ -1,6 +1,6 @@
 # 字在 — 产品与架构总览
 
-Status: Draft（v2：SQLite 存储 + 所见即所得编辑器）
+Status: Draft（v5：两层结构 LibraryHome ⇄ Shell + 分卷 + MCP + 章节字数分布；schema v5）
 
 ## 1. 定位
 
@@ -26,19 +26,23 @@ Status: Draft（v2：SQLite 存储 + 所见即所得编辑器）
 
 ```text
 字在
-├─ 主界面（shell）
-│  ├─ 侧边栏（笔记本 ▸ 章节树）
-│  └─ 编辑器区（富文本所见即所得）
-│     ├─ 上下文工具栏（选中文本时浮现）
-│     └─ 状态栏（今日 x/目标 ▎本文 x 字）
-├─ 沉浸模式（复用编辑器区，全屏无 chrome）
-└─ 设置（对话框，桌面） / 设置页（Android）
+├─ 笔记本管理层（LibraryHome）＝ 应用入口
+│  ├─ 书架网格/列表（书名 + 章节数 + 总字数，grid/list 切换）
+│  ├─ 新建笔记本 + 全局设置入口
+│  └─ 启动总是停在这一层
+└─ 单书工作区（Shell）＝ 点书进入，声明式门控（currentNotebook）
+   ├─ 侧边栏（章节树：分卷分组/拖拽排序/搜索/字数分布/本书设置）
+   ├─ 编辑器区（富文本所见即所得 + 常驻格式工具栏 + 选区浮动工具栏）
+   │  └─ 状态栏（今日 x/目标 ▎本文 x 字 ▎写作会话）
+   ├─ 沉浸模式（复用编辑器区，全屏无 chrome）
+   └─ 设置（对话框，桌面） / 设置页（Android）
 ```
 
-桌面端入口：启动 → 打开上次文档 → 直接编辑。
-Android 端入口：启动 → 文档树（有上次文档则直接打开，否则空态引导新建）。
+桌面端入口：启动 → **书架（LibraryHome）** → 点书进入工作区。重启总是停在书架，
+不自动进上次的书；进某本书时才恢复该书上次打开的章节（`openNotebook` 回溯 last_open）。
+Android 端入口：书架 → 点书 → Drawer 工作区（无上次记录则空态引导新建）。
 
-## 4. 数据模型（SQLite v1）
+## 4. 数据模型（SQLite，当前 schema v5）
 
 ### Schema
 
@@ -90,9 +94,11 @@ CREATE TABLE last_open (
 );
 ```
 
-- settings 键：`theme` / `fontFamily` / `fontSize` / `lineHeight` / `countPunctuation`；笔记本目标使用
-  `notebookGoal.<notebookId>.enabled/words`。旧 `dailyGoal` 仅作未迁移笔记本的默认值。
-  UI 状态键：`outline.open` / `notes.open`。
+- settings 键：`theme` / `fontFamily` / `fontSize` / `lineHeight` / `countPunctuation` / `focusDim`
+  （焦点暗淡）；笔记本目标使用 `notebookGoal.<notebookId>.enabled/words`；`dailyGoal` 仅作未迁移
+  笔记本的默认值。UI 状态键：`outline.open` / `notes.open` / `sidebar.volumeView`（分卷展示/平铺）/
+  `library.homeView`（书架 grid/list）/ `docsOrder.<notebookId>`（目录正/倒序）/
+  `volume.<notebookId>.name.<n>`（自动分卷重命名）。本地 MCP 见 `mcp.enabled` / `mcp.port`。
 - 升级路径：sqflite `onUpgrade` 版本化迁移（`PRAGMA user_version`）；**DB schema 版本号是长期演进基础**——任何加字段/改表必须走迁移链（见 docs/app/update.md §2）；升级前自动备份 db 文件为 `zi-zai.db.bak`（滚动保留 3 份）。
 - 云备份数据模型与快照结构见 docs/app/sync.md。
 - db 位置：`path_provider` 应用支持目录，桌面与 Android 一致；设置页展示路径。
@@ -107,17 +113,20 @@ CREATE TABLE last_open (
 
 ```text
 lib/
-├─ main.dart                 # 入口：App 装配、主题
-├─ app.dart                  # MaterialApp、路由、主题选择
+├─ main.dart                 # 入口：App 装配、主题、全局错误处理、启动迁移
+├─ app.dart                  # MaterialApp、主题选择、两层门控（LibraryHome ⇄ Shell）
 ├─ core/
-│  ├─ models.dart            # Notebook / Document / Settings 数据类
-│  ├─ db.dart                # SQLite 打开、schema、CRUD、迁移链（user_version）
+│  ├─ models.dart            # Notebook / Document / Settings / NotebookGoal 数据类
+│  ├─ db.dart                # SQLite 打开、schema、CRUD、迁移链（user_version，当前 v5）
 │  ├─ word_count.dart        # 字数算法（纯函数，输入纯文本）
-│  ├─ export.dart            # 文档/整书 → 纯文本、Markdown 导出（含章节编号/排版选项）
+│  ├─ export.dart            # 文档/整书 → 纯文本、Markdown 导出（单文件/每章一文件）
 │  ├─ snapshot_history.dart  # 单文档版本历史：本地 JSON 留底 + 自动留底策略
 │  ├─ book_search.dart       # 全书搜索与替换：跨章节匹配 + 全书替换预览
-│  ├─ chapter_ops.dart      # 章节操作：拆分/合并（Delta 纯函数）
-│  ├─ writing_session.dart  # 写作会话追踪：本次字数/时长/速度
+│  ├─ find.dart              # 单文档内查找/替换
+│  ├─ outline.dart           # 单文档大纲提取（标题块 → 树）
+│  ├─ word_distribution.dart # 章节字数分布（纯函数，固定 position 升序）
+│  ├─ chapter_ops.dart       # 章节操作：拆分/合并（Delta 纯函数）
+│  ├─ writing_session.dart   # 写作会话追踪：本次字数/时长/速度
 │  ├─ app_logger.dart        # 本地诊断日志：启动/升级/更新/异常 + 滚动保留
 │  ├─ crash_journal.dart     # 未保存编辑缓冲的崩溃恢复日志
 │  ├─ backup/                # 云备份 + 本地文件备份（见 docs/app/sync.md）
@@ -125,25 +134,41 @@ lib/
 │  │  ├─ s3_store.dart       # R2 直连（SigV4 签名 PUT/GET）
 │  │  └─ backup.dart         # 备份引擎：上传/下载状态机 + 本地导出/恢复
 │  ├─ import_chenggua.dart   # 橙瓜码字 .db 导入器（图书/卷/章节 → 笔记本/分卷/章节，见 docs/app/import.md）
+│  ├─ mcp/                   # 本地 MCP 服务（AI agent 读写书，仅回环 127.0.0.1）
+│  │  ├─ mcp_tools.dart      # 6 个 MCP 工具声明（读/搜/建章/追章等，纯函数便于单测）
+│  │  ├─ writing_skill.dart  # 写作 skill 文本（skills/zizai-writing 的生成源）
+│  │  └─ mcp_server.dart     # mcp_dart Streamable HTTP server 包装
 │  └─ update.dart            # 更新检查：清单、sha256 校验、安装
 ├─ state/
-│  ├─ library_controller.dart  # 目录树 + 当前文档 + 未保存缓冲 + 今日增量
-│  └─ settings_controller.dart # 设置状态与持久化（含备份凭据）
+│  ├─ library_controller.dart  # 目录树 + 当前书/文档 + 未保存缓冲 + 今日增量
+│  ├─ settings_controller.dart # 设置状态与持久化（含备份凭据、分卷/排序偏好）
+│  └─ mcp_controller.dart      # 本地 MCP 服务启停（持久化 mcp.enabled/port）
 ├─ ui/
-│  ├─ shell.dart             # 主界面壳 + 自适应
-│  ├─ sidebar.dart           # 文档树（含章节自动编号、状态标记、复制）
-│  ├─ editor.dart            # Quill 编辑器 + 上下文工具栏 + 自动保存 + IME 防护
-│  ├─ status_bar.dart        # 字数/目标/备份状态/写作会话
-│  ├─ focus_view.dart        # 沉浸模式包装
-│  ├─ snapshot_panel.dart    # 版本历史对话框（列表 + 预览 + 回滚）
-│  ├─ book_search_dialog.dart# 全书搜索与替换对话框（分组结果 + 跳转 + 替换预览）
-│  ├─ notes_panel.dart       # 章节备注面板（不进正文导出）
-│  ├─ export_dialog.dart     # 整书导出选项对话框（含投稿格式复制）
-│  └─ settings_view.dart     # 设置页/对话框（含备份区、关于区）
+│  ├─ library_home.dart     # 笔记本管理层（书架 grid/list + 新建 + 全局设置）
+│  ├─ shell.dart            # 单书工作区壳 + 自适应 + 全局快捷键
+│  ├─ sidebar.dart          # 章节树（分卷分组、拖拽排序、状态标记、字数分布入口、本书设置）
+│  ├─ editor.dart           # Quill 编辑器 + 常驻格式工具栏 + 选区浮动工具栏 + 自动保存 + IME 防护
+│  ├─ status_bar.dart       # 字数/目标/备份状态/写作会话
+│  ├─ focus_view.dart       # 沉浸模式包装
+│  ├─ snapshot_panel.dart   # 版本历史对话框（列表 + 预览 + 回滚）
+│  ├─ book_search_dialog.dart # 全书搜索与替换对话框（分组结果 + 跳转 + 替换预览）
+│  ├─ find_bar.dart         # 单文档查找/替换条
+│  ├─ outline_panel.dart    # 单文档大纲面板（可停靠/悬浮）
+│  ├─ notes_panel.dart      # 章节备注面板（不进正文导出）
+│  ├─ word_distribution_dialog.dart # 章节字数分布节奏图
+│  ├─ book_settings.dart    # 本书设置对话框（目标/缩进/分卷/排序）
+│  ├─ export_dialog.dart    # 整书导出选项对话框（含投稿格式复制）
+│  ├─ slash_menu.dart       # 编辑器斜杠菜单
+│  ├─ zz.dart               # 自绘 Notion 风控件（下拉菜单/switch/slider/dialog/toast）
+│  ├─ glass.dart            # 实色表面组件（废弃毛玻璃后的扁平实现）
+│  ├─ settings_view.dart    # 设置页/对话框（含备份区、AI 协作 MCP、关于区）
+│  └─ preview/              # 静态 UI 预览（debug 用）
 └─ util/
    ├─ debounce.dart          # 防抖
    ├─ ime_state.dart         # IME 组合状态追踪（防拼音误触）
-   └─ platform.dart          # 平台差异工具
+   ├─ platform.dart          # 平台差异工具（含测试注入）
+   ├─ chinese.dart           # 中文文本工具（标点/缩进）
+   └─ date_format.dart       # 日期格式化
 ```
 
 ```text
@@ -161,6 +186,7 @@ library_controller  ──读写──► db.dart（notebooks/documents/stats/la
         └──► status_bar（读今日增量/当前文档字数）
 backup_manager ──(手动)──► db.dart 全量快照 + R2 直连   # 见 docs/app/sync.md
 update_checker ──(异步)──► update.json（GitHub Releases）  # 见 docs/app/update.md
+mcp_controller ──(可选)──► db.dart 读写（127.0.0.1 MCP，AI agent）  # 见 ui-settings.md「AI 协作」
 ```
 
 - 状态所有者：`library_controller`（目录树、当前文档 id、未保存缓冲、今日增量）。
@@ -180,7 +206,7 @@ update_checker ──(异步)──► update.json（GitHub Releases）  # 见 d
 | 能力 | 桌面（Win/macOS） | Android |
 |---|---|---|
 | 布局 | 固定侧边栏 + 编辑器 | Drawer 抽屉 + 全屏编辑器 |
-| 工具栏 | 选中文本浮现（上下文工具栏，Notion 式） | 选中文本时顶部弹出 |
+| 工具栏 | 常驻格式工具栏（H1–H3/粗斜体等始终可见）+ 选区浮动工具栏（选中文本浮现，Notion 式） | 同左，窄屏自适应 |
 | 沉浸模式 | `Ctrl/Cmd+Shift+F` 进入；`Esc`/顶缘悬停条退出 | 系统返回手势/返回键退出；顶部 48px 热区兜底（点按弹「退出+字数」条、下滑直接退） |
 | 删除确认 | 右键菜单 + 确认条 | 长按 + 确认条 |
 | 导出 | 系统保存对话框选路径 | 系统分享（分享为文本） |
@@ -194,8 +220,8 @@ update_checker ──(异步)──► update.json（GitHub Releases）  # 见 d
 | SQLite 单库存储 | 富文本 Delta 需要结构化存储；单文件易备份 | 数据封闭在 db → 用导出功能兜底 |
 | 所见即所得（flutter_quill） | 写作心智无「源码/预览」割裂；Quill 桌面移动均成熟 | 依赖第三方编辑器，样式需定制 |
 | Android 存应用支持目录 | 免存储权限 | 手机端文件不外露，靠导出 |
-| 单 ChangeNotifier + provider | 单用户单屏，复杂度低 | 多窗口/协同需重构 |
-| V1 纯文本导出 + db 备份 | 数据安全出口最小实现 | 导出 md 全集要等 V2 |
+| 单 ChangeNotifier + ListenableBuilder | 单用户单屏，复杂度低 | 多窗口/协同需重构 |
+| 导出（纯文本 / Markdown 单文件 / Markdown 每章一文件）+ db 备份 | 数据安全出口；不依赖外部服务 | 导入方向仅橙瓜码字 + 未来 Markdown 导入 |
 | 云备份以 R2 直连（S3 API + SigV4 自签） | 用户指定 CF 存储；免服务端部署、无 Worker；密钥仅存本地 settings 表 | 客户端实现签名；凭据泄露需手动轮换 |
 | 全量快照上传/恢复 | 备份语义简单可预期；恢复前本地 .bak + R2 版本控制双兜底（永不丢字） | 无增量；恢复 = 全量替换 |
 | 不选 D1 做云库 | SQLite 云库虽贴合本地，但免费档库容 500MB、同步逻辑更重；快照备份更简单 | 云侧无 SQL 查询能力 |
