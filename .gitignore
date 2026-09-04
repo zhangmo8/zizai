@@ -18,3 +18,8 @@ artifacts
 
 # 其它
 *.log
+
+# Android 签名（只存本地 + GitHub secrets，绝不入库）
+keystore/
+*.jks
+*.keystore
