@@ -32,6 +32,27 @@ void main() {
     }
   }
 
+  /// 轮询等待异步条件成立（最长 [timeout]）：删除/写库等长真实 IO 链
+  /// 在慢 CI runner 上可能超出固定 settle 时长（同 editor_test 的
+  /// waitUntilAsync；backlog #25/#38 同族 flake 的根治模式）。
+  Future<void> waitUntilAsync(
+    WidgetTester tester,
+    Future<bool> Function() condition, {
+    Duration timeout = const Duration(seconds: 10),
+    String reason = '条件在超时内未成立',
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    var ok = await tester.runAsync(condition);
+    while (ok != true && DateTime.now().isBefore(deadline)) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pump();
+      ok = await tester.runAsync(condition);
+    }
+    expect(ok, isTrue, reason: reason);
+  }
+
   /// 行内编辑框（重命名/新建命名）：与常驻标题筛选框区分。
   final editFieldFinder = find.descendant(
     of: find.byKey(const ValueKey('inline-edit-field')),
@@ -650,8 +671,13 @@ void main() {
 
     expect(find.textContaining('删除《第二章》'), findsOneWidget);
     await tester.tap(find.text('确认删除'));
-    await settle(tester);
-    expect(library.documentsOf(nbId).map((d) => d.title), ['第一章']);
+
+    // 删除链路（写库 + 整树重载）条件式等待，不赌 runner 速度
+    await waitUntilAsync(tester, () async {
+      final titles =
+          library.documentsOf(nbId).map((d) => d.title).toList();
+      return titles.length == 1 && titles.first == '第一章';
+    }, reason: '确认删除后应只剩第一章');
   });
 
   testWidgets('删除取消：5s 无操作自动关闭（不删除）', (tester) async {
