@@ -120,7 +120,10 @@ jobs:
             echo "ZIZAI_KEYSTORE_PATH=$RUNNER_TEMP/keystore/release.jks" >> "$GITHUB_ENV"
             echo "ZIZAI_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
             echo "ZIZAI_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
-            echo "ZIZAI_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+            # PKCS12 语义下 key 密码与 keystore 密码同值。ZIZAI_KEY_PASSWORD
+            # secret 曾被 gh 写入为空（诊断 keypass len=0，read key 解密失败），
+            # 这里以 KEYSTORE_PASSWORD 兜底；网页端补填该 secret 后仍优先生效。
+            echo "ZIZAI_KEY_PASSWORD=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}" >> "$GITHUB_ENV"
           else
             echo "warning: ZIZAI_ANDROID_KEYSTORE secret 未配置，release APK 将回退 debug 签名（更新会签名冲突）"
           fi
