@@ -114,6 +114,9 @@ jobs:
           if [ -n "$KEYSTORE_B64" ]; then
             mkdir -p "$RUNNER_TEMP/keystore"
             echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/keystore/release.jks"
+            # 诊断（不含敏感值）：与本地参照对比（2726 / 6a76cbbe... / 密码 24 / b64 3636）
+            echo "diag: b64 len=${#KEYSTORE_B64} storepass len=${#KEYSTORE_PASSWORD} keypass len=${#KEY_PASSWORD} alias len=${#KEY_ALIAS}"
+            echo "diag: decoded size=$(wc -c < "$RUNNER_TEMP/keystore/release.jks") md5=$(md5sum "$RUNNER_TEMP/keystore/release.jks" | cut -d' ' -f1)"
             echo "ZIZAI_KEYSTORE_PATH=$RUNNER_TEMP/keystore/release.jks" >> "$GITHUB_ENV"
             echo "ZIZAI_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
             echo "ZIZAI_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
