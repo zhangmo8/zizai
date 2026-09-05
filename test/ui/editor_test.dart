@@ -73,6 +73,27 @@ void main() {
     expect(finder, findsOneWidget, reason: reason);
   }
 
+  /// 轮询等待「假时钟定时器驱动」的条件（最长 [timeout]）：每轮先出假时钟
+  /// 区等真实 continuation 落地，再 pump([step]) 推进假时钟触发防抖定时器。
+  /// 固定 pump+expect 在慢 runner 上偶发落空（backlog #25/#38 同族 flake），
+  /// 如实时字数 150ms 防抖、自动保存 1s 防抖的落库断言。
+  Future<void> waitUntilAdvanced(
+    WidgetTester tester,
+    bool Function() condition, {
+    Duration step = const Duration(milliseconds: 50),
+    Duration timeout = const Duration(seconds: 10),
+    String reason = '条件在超时内未成立',
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (!condition() && DateTime.now().isBefore(deadline)) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(step);
+    }
+    expect(condition(), isTrue, reason: reason);
+  }
+
   late Directory tempDir;
 
   Future<(LibraryController, SettingsController, Db, CrashJournal, String)>
@@ -154,9 +175,13 @@ void main() {
     await tester.pump();
 
     await typeText(tester, '你好世界');
-    // 实时字数 150ms 节流上报
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(library.liveDocWords, 4); // 实时字数
+    // 实时字数 150ms 节流上报：固定 pump(200)+expect 在慢 runner 上偶发
+    // 落空（backlog #25/#38 同族 flake），改轮询推进假时钟等待触发。
+    await waitUntilAdvanced(
+      tester,
+      () => library.liveDocWords == 4,
+      reason: '实时字数 150ms 防抖上报后应=4',
+    );
 
     // 1s 防抖内未保存
     await tester.pump(const Duration(milliseconds: 500));
@@ -164,13 +189,30 @@ void main() {
     final before = await tester.runAsync(() => db.getDocument(docId));
     expect(deltaToPlainText(before!.content), isEmpty);
 
-    // 超过 1s → 自动保存
-    await tester.pump(const Duration(milliseconds: 700));
-    await settle(tester);
-    final after = await tester.runAsync(() => db.getDocument(docId));
-    expect(deltaToPlainText(after!.content), '你好世界');
-    expect(library.todayDelta, 4); // 增量入库
-    expect(find.text('今日 4/2000'), findsOneWidget);
+    // 超过 1s → 自动保存（轮询推进假时钟，等待防抖定时器触发 + 落库）
+    String? savedText;
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (savedText != '你好世界' && DateTime.now().isBefore(deadline)) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      savedText = await tester.runAsync(() async {
+        final doc = await db.getDocument(docId);
+        return deltaToPlainText(doc!.content);
+      });
+    }
+    expect(savedText, '你好世界', reason: '1s 防抖后自动保存应落库');
+    await waitUntilAdvanced(
+      tester,
+      () => library.todayDelta == 4,
+      reason: '增量入库后 todayDelta 应=4',
+    );
+    await waitUntilFound(
+      tester,
+      find.text('今日 4/2000'),
+      reason: '状态栏今日增量应显示 4/2000',
+    );
   });
 
   testWidgets('Ctrl/Cmd+S 立即保存并闪「已保存」', (tester) async {
