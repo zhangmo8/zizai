@@ -1030,6 +1030,57 @@ void main() {
     expect(controller.document.toPlainText().trim(), '【】（内容）');
     expect(controller.selection.baseOffset, 5);
 
+    // 中文引号 “/” 共用同一物理键：补全对中间再按引号键 → 跳出引号对。
+    await insertAtCursor(tester, '“');
+    expect(controller.document.toPlainText().trim(), '【】（内容“”）');
+    expect(controller.selection.baseOffset, 6);
+
+    // IME 见引号已闭合会再次输出开引号形态 → 同键跳过，不产生嵌套空对。
+    await insertAtCursor(tester, '“');
+    expect(controller.document.toPlainText().trim(), '【】（内容“”）');
+    expect(controller.selection.baseOffset, 7);
+
+    // 引号对外再按 → 正常开启新的引号对。
+    await insertAtCursor(tester, '“');
+    expect(controller.document.toPlainText().trim(), '【】（内容“”“”）');
+    expect(controller.selection.baseOffset, 8);
+
+    await tester.runAsync(() => db.close());
+  });
+
+  testWidgets('标点配对：选区被引号替换 → 用规范引号对包裹原选中内容', (tester) async {
+    final (library, settings, db, _, docId) = (await tester.runAsync(
+      () => makeApp(),
+    ))!;
+    await tester.pumpWidget(ZiZaiApp(library: library, settings: settings));
+    await tester.pump();
+
+    final editor = tester.widget<q.QuillEditor>(find.byType(q.QuillEditor));
+    final controller = editor.controller;
+    // 清空到空文档（保留结尾 \n），保证光标从 0 开始。
+    controller.replaceText(
+      0,
+      controller.document.length - 1,
+      '',
+      const TextSelection.collapsed(offset: 0),
+    );
+    await tester.pump();
+
+    await insertAtCursor(tester, '内容');
+
+    // 键入/IME 上屏 '“' 替换选区 → 包裹为 “内容”，光标在闭引号后。
+    controller.replaceText(0, 2, '“', const TextSelection.collapsed(offset: 1));
+    await tester.pump();
+    expect(controller.document.toPlainText().trim(), '“内容”');
+    expect(controller.selection.baseOffset, 4);
+
+    // 再造一段选区，用同键的闭引号形态（” 上屏）替换 → 仍按规范对包裹。
+    await insertAtCursor(tester, '，测试');
+    controller.replaceText(5, 2, '”', const TextSelection.collapsed(offset: 6));
+    await tester.pump();
+    expect(controller.document.toPlainText().trim(), '“内容”，“测试”');
+    expect(controller.selection.baseOffset, 9);
+
     await tester.runAsync(() => db.close());
   });
 

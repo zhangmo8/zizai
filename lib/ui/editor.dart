@@ -70,6 +70,16 @@ const Map<String, String> _bracketPairs = {
 /// 闭括号集合：补全对中间输入时跳过（避免重复），`"` 开闭同字符。
 const Set<String> _bracketClosing = {'）', '】', '”', '"', '」', '}'};
 
+/// 配对字符（开/闭）→ 规范括号对：选区被替换时按规范对包裹。
+/// `“`/`”` 在中文 IME 是同一物理键，选区上屏可能得到闭引号形态，闭字符
+/// 也要能映射回规范对。
+final Map<String, (String, String)> _bracketByChar = {
+  for (final entry in _bracketPairs.entries) ...{
+    entry.key: (entry.key, entry.value),
+    if (entry.value != entry.key) entry.value: (entry.key, entry.value),
+  },
+};
+
 final Set<String> _bracketChars = {..._bracketPairs.keys, ..._bracketClosing};
 
 /// 行首输入这些字符时不自动缩进：它们是 markdown 块格式触发词
@@ -82,15 +92,19 @@ const Set<String> _blockTriggerChars = {'#', '-', '*', '>', '[', '`'};
 /// 应得到的 (文本, 光标位置)；无需修正返回 null。
 ///
 /// - 光标紧邻同名闭括号（补全对中间）→ 跳过：文本不变，光标右移 1
+/// - `“`/`”` 在中文 IME 是同一物理键：补全对中间再按引号键时，IME 可能
+///   输出开引号形态（自动插入的 `”` 已让 IME 认为引号闭合），故输入 `“`
+///   且光标后紧邻 `”` 同样跳过——同一按键不应产生嵌套空对
 /// - 输入开括号 → 补全对应闭括号，光标停在中间（[pos] + 1）
 ///
 /// [pos] 为插入前光标位置（0..before.length）；仅处理 [_bracketChars] 字符。
 (String, int)? bracketPairCorrection(String before, int pos, String typed) {
   if (pos < 0 || pos > before.length) return null;
-  if (_bracketClosing.contains(typed) &&
-      pos < before.length &&
-      before[pos] == typed) {
-    return (before, pos + 1);
+  if (pos < before.length) {
+    final next = before[pos];
+    final skipOver = (next == typed && _bracketClosing.contains(typed)) ||
+        (typed == '“' && next == '”');
+    if (skipOver) return (before, pos + 1);
   }
   final close = _bracketPairs[typed];
   if (close == null) return null;
@@ -271,6 +285,8 @@ class _EditorViewState extends State<EditorView> {
     _loadedDocumentId = widget.library.currentDocument?.id;
     _lastSavedContent = widget.library.currentDocument?.content ?? '';
     _lastObservedWords = _countWords();
+    // 选区被括号字符替换时包裹原文（见 _wrapSelectionOnReplaceText）。
+    _quill.onReplaceText = _wrapSelectionOnReplaceText;
     _changesSub = _quill.document.changes.listen(_onDocChange);
     _quill.addListener(_onQuillChanged);
     _scroll.addListener(_onEditorScrolled);
@@ -903,6 +919,8 @@ class _EditorViewState extends State<EditorView> {
   /// 用 document.changes 而非字符事件：中文标点经 IME 提交，字符事件只覆盖
   /// 物理键输入。修正动作（补插/删除）会再次触发 change，用 [_bracketBusy]
   /// 防递归；修正结果再走一次字数/自动保存等常规流程。
+  /// 选区被括号替换的包裹走 [_wrapSelectionOnReplaceText] 前置拦截，不会
+  /// 进入这里（见该函数注释）。
   void _handleBracketPair(q.DocChange change) {
     if (_bracketBusy) return;
     final inserted = _insertedText(change);
@@ -919,17 +937,12 @@ class _EditorViewState extends State<EditorView> {
     final before = text.substring(0, pos) + text.substring(pos + 1);
     final correction = bracketPairCorrection(before, pos, typed);
     if (correction == null) return;
-    final (_, cursor) = correction;
+    final (corrected, cursor) = correction;
     _bracketBusy = true;
     try {
-      if (_bracketClosing.contains(typed)) {
-        // 跳过：删除刚输入的闭括号，光标越过补全的闭括号。
-        _quill.replaceText(
-          pos,
-          1,
-          '',
-          TextSelection.collapsed(offset: cursor),
-        );
+      if (corrected == before) {
+        // 跳过：删除刚输入的字符，光标越过紧邻的闭括号（含同键引号再按）。
+        _quill.replaceText(pos, 1, '', TextSelection.collapsed(offset: cursor));
       } else {
         // 补全：插入对应闭括号，光标停在中间。
         _quill.replaceText(
@@ -942,6 +955,40 @@ class _EditorViewState extends State<EditorView> {
     } finally {
       _bracketBusy = false;
     }
+  }
+
+  /// 选区被单个括号字符替换（键入/IME 上屏覆盖选区）→ 否决本次替换，改为
+  /// 用规范括号对包裹原选中文本，光标落在闭括号后（IntelliJ/VS Code 惯例）。
+  ///
+  /// 必须前置拦截而非事后修复：quill 的 replaceText 对选区替换会拆成两条
+  /// 变更（先在替换区末尾插入、再删除原选区），事后看不到完整替换意图，
+  /// 且自动补全会抢先把选中文字变成 `“”`。此处在 replaceText 落地前拿到
+  /// 完整的 (index, len, data)，原文直接按文档切片还原。
+  ///
+  /// 放行（走默认替换）的情况：非括号字符、多字符插入（粘贴/词上屏）、
+  /// 跨块选区（含换行/嵌入对象，块属性合并复杂）、IME 组合阶段（组合区
+  /// 提交形态不定，避免干扰 IME）。
+  bool _wrapSelectionOnReplaceText(int index, int len, Object? data) {
+    if (_bracketBusy || isImeComposing || len <= 0) return true;
+    if (data is! String || data.length != 1) return true;
+    if (!_bracketChars.contains(data)) return true;
+    final plain = _quill.document.toPlainText();
+    if (index < 0 || index + len > plain.length) return true;
+    final selected = plain.substring(index, index + len);
+    if (selected.contains('\n') || selected.contains('\uFFFC')) return true;
+    final (open, close) = _bracketByChar[data]!;
+    _bracketBusy = true;
+    try {
+      _quill.replaceText(
+        index,
+        len,
+        open + selected + close,
+        TextSelection.collapsed(offset: index + selected.length + 2),
+      );
+    } finally {
+      _bracketBusy = false;
+    }
+    return false;
   }
 
   /// 行首自动缩进（中文排版首行空两格）：开启的笔记本里，自动给段落行首
@@ -1549,13 +1596,22 @@ class _EditorViewState extends State<EditorView> {
   }
 
   /// 把单个命中替换为 [replacement]（光标落在替换文本之后）。
+  ///
+  /// 程序化替换须置 [_bracketBusy] 绕过选区包裹拦截（见
+  /// _wrapSelectionOnReplaceText）：替换文本恰为单个括号字符时不应被
+  /// 改写为包裹。
   void _replaceMatch(FindMatch match, String replacement) {
-    _quill.replaceText(
-      match.offset,
-      match.length,
-      replacement,
-      TextSelection.collapsed(offset: match.offset + replacement.length),
-    );
+    _bracketBusy = true;
+    try {
+      _quill.replaceText(
+        match.offset,
+        match.length,
+        replacement,
+        TextSelection.collapsed(offset: match.offset + replacement.length),
+      );
+    } finally {
+      _bracketBusy = false;
+    }
   }
 
   void _replaceAll(String replacement) {

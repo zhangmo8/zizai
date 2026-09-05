@@ -60,6 +60,32 @@ void main() {
     });
   });
 
+  group('bracketPairCorrection 同键引号跳过', () {
+    // “/”在中文 IME 是同一物理键：自动补全插入 ” 后，IME 认为引号已闭合、
+    // 再次按键会输出开引号形态。无论哪种形态都应跳出引号对，不产生嵌套空对。
+    test('补全对中间输入“ → 跳过（IME 再输出开引号形态）', () {
+      final (text, cursor) = bracketPairCorrection('“”', 1, '“')!;
+      expect(text, '“”');
+      expect(cursor, 2);
+    });
+
+    test('光标紧邻既有 ” 时输入“ → 同样跳过', () {
+      final (text, cursor) = bracketPairCorrection('好”', 1, '“')!;
+      expect(text, '好”');
+      expect(cursor, 2);
+    });
+
+    test('光标紧邻普通字符或 ” 以外的括号时输入“ → 正常补全', () {
+      expect(bracketPairCorrection('好', 1, '“'), ('好“”', 2));
+      expect(bracketPairCorrection('）', 0, '“'), ('“”）', 1));
+    });
+
+    test('非同键括号不适用：（）中间输入（ → 补全（保留嵌套能力）', () {
+      expect(bracketPairCorrection('（）', 1, '（'), ('（（））', 2));
+      expect(bracketPairCorrection('【】', 1, '【'), ('【【】】', 2));
+    });
+  });
+
   group('bracketPairCorrection 无关字符', () {
     test('普通字符返回 null（走默认插入）', () {
       expect(bracketPairCorrection('你好', 2, 'a'), isNull);
